@@ -7,12 +7,15 @@ class_name MapEnv
 
 const STRUCT_DIR := "res://assets/models/structures"
 const CITADEL_TEX := "res://assets/textures/structures_png/citadel_d.png"
+const CITADEL_MESH_ASCII := "res://assets/models/structures/citadel.glb"
 
 ## Player-side citadel node (for world HP bar). AI citadel is not tracked in v1.
 var player_citadel: Node3D
 
 func build(mode: String = "endless") -> Node3D:
 	var size := float(DataStore.visual.get("citadel_target_size", 12.0))
+	if UiLayout.is_mobile():
+		size = float(DataStore.visual.get("citadel_mobile_target_size", minf(size, 8.0)))
 	# Bottom-right of the whole board (hangar tip) — keeps mesh off field hexes.
 	var right_cell := _rightmost_hangar_cell()
 	player_citadel = _spawn_citadel_under_board("空堡", size, ShipUnit.TEAM_PLAYER, right_cell, true)
@@ -97,7 +100,14 @@ func _cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vector3:
 func _spawn_citadel_under_board(
 		stem: String, target_size: float, team_id: int, anchor_cell: Vector3, player_side: bool
 ) -> Node3D:
-	var path := _find_glb(STRUCT_DIR, stem)
+	# Prefer ASCII mesh path — Chinese 空堡.glb often fails to resolve from Android PCK.
+	var path := ""
+	if ResourceLoader.exists(CITADEL_MESH_ASCII):
+		path = CITADEL_MESH_ASCII
+	if path == "":
+		path = _find_glb(STRUCT_DIR, "citadel")
+	if path == "":
+		path = _find_glb(STRUCT_DIR, stem)
 	if path == "" or not ResourceLoader.exists(path):
 		push_warning("MapEnv missing citadel mesh: " + stem)
 		return null
@@ -132,6 +142,7 @@ func _spawn_citadel_under_board(
 	if mapped != "":
 		tex_path = mapped
 	_apply_ship_like_hull(n, tex_path, team_id)
+	MobileModelLoad.apply_tree(n)
 	n.position.y -= 0.02
 	var scaled_size := Vector3(aabb.size.x * n.scale.x, aabb.size.y * n.scale.y, aabb.size.z * n.scale.z)
 	print("[MapEnv] citadel under board team=%d pos=%s anchor=%s scaled_size=%s corner=%s" % [
@@ -299,7 +310,8 @@ func _normalize_size(root: Node3D, target: float) -> void:
 func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
 	var tex := UiAssets.tex_ship_bake(tex_path) if tex_path != "" else null
 	var ntex: Texture2D = null
-	if tex_path != "" and tex_path.ends_with("_d.png"):
+	var mobile := UiLayout.is_mobile()
+	if not mobile and tex_path != "" and tex_path.ends_with("_d.png"):
 		ntex = UiAssets.tex_ship_bake(tex_path.replace("_d.png", "_n.png"))
 	# Dimmer than ships — background fortress, not competing with board units.
 	var hull := Color(0.42, 0.36, 0.28)
@@ -310,29 +322,36 @@ func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
 		if str(mi.name) == "FitBox":
 			continue
 		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		mat.shading_mode = (
+			BaseMaterial3D.SHADING_MODE_PER_VERTEX if mobile else BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		)
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		mat.texture_repeat = true
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		if tex:
 			mat.albedo_texture = tex
 			mat.albedo_color = hull
-			mat.ao_enabled = true
-			mat.ao_texture = tex
-			mat.ao_light_affect = 0.55
-			mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+			if not mobile:
+				mat.ao_enabled = true
+				mat.ao_texture = tex
+				mat.ao_light_affect = 0.55
+				mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		else:
 			mat.albedo_color = hull.darkened(0.1)
 		if ntex:
 			mat.normal_enabled = true
 			mat.normal_texture = ntex
 			mat.normal_scale = 0.85
-		mat.metallic = 0.18
-		mat.metallic_specular = 0.22
-		mat.roughness = 0.72
+		mat.metallic = 0.12 if mobile else 0.18
+		mat.metallic_specular = 0.15 if mobile else 0.22
+		mat.roughness = 0.8 if mobile else 0.72
 		mi.material_override = mat
 		mi.material_overlay = null
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		mi.cast_shadow = (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			if mobile
+			else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		)
 		if mi.mesh:
 			for si in range(mi.mesh.get_surface_count()):
 				mi.set_surface_override_material(si, mat)

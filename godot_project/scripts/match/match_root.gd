@@ -23,12 +23,14 @@ var _cam_base_pitch_deg: float = -55.0
 var _cam_base_yaw_deg: float = 0.0
 var _citadel_hp_bar: Node3D = null
 const _CITADEL_BAR_SCRIPT := preload("res://scripts/ship/citadel_health_bar.gd")
+const _BgMusic := preload("res://scripts/audio/bg_music.gd")
 const _CAM_MOVE_SPEED := 8.0
 const _CAM_PITCH_SPEED := 35.0
 const _CAM_YAW_SPEED := 45.0
 
 func _ready() -> void:
 	add_to_group("match_root")
+	_BgMusic.instance()
 	match_ctrl = MatchController.new()
 	board = BoardController.new()
 	shop = ShopController.new()
@@ -265,12 +267,54 @@ func _update_camera_breathe() -> void:
 	camera.position = _cam_base_pos + offset
 
 func _build_hud() -> void:
+	_apply_adaptive_hud_layout()
 	_style_hud_chrome()
 	_wire_shop_chrome()
+	var root := hud.get_node_or_null("Root") as Control
+	if root and not root.resized.is_connected(_on_hud_resized):
+		root.resized.connect(_on_hud_resized)
 	var pause := hud.get_node_or_null("Root/TopRight/PauseBtn") as Button
 	if pause:
 		pause.process_mode = Node.PROCESS_MODE_ALWAYS
 	hud.process_mode = Node.PROCESS_MODE_ALWAYS
+
+func _on_hud_resized() -> void:
+	_apply_adaptive_hud_layout()
+	_style_hud_chrome()
+	_wire_shop_chrome()
+
+func _apply_adaptive_hud_layout() -> void:
+	var root := hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	var shop := root.get_node_or_null("Shop") as Control
+	if shop:
+		UiLayout.set_left_strip(shop, UiLayout.shop_width_frac(), 0.055, 0.012, 0.006)
+	var hp := root.get_node_or_null("Hp") as Control
+	if hp:
+		UiLayout.set_rect_frac(hp, 0.01, 0.008, 0.22, 0.04)
+	var phase := root.get_node_or_null("Phase") as Control
+	if phase:
+		UiLayout.set_rect_frac(phase, 0.01, 0.035, 0.22, 0.06)
+	var place := root.get_node_or_null("Placement") as Control
+	if place:
+		UiLayout.set_rect_frac(place, 0.38, 0.01, 0.62, 0.09)
+	var bonus := root.get_node_or_null("BonusContainer") as Control
+	if bonus:
+		var left := UiLayout.shop_width_frac() + 0.02
+		UiLayout.set_rect_frac(bonus, left, 0.08, minf(left + 0.16, 0.42), 0.42)
+	var top_r := root.get_node_or_null("TopRight") as Control
+	if top_r:
+		UiLayout.set_rect_frac(top_r, 0.72, 0.015, 0.985, 0.075)
+	var info := root.get_node_or_null("InfoPanel") as Control
+	if info:
+		if UiLayout.is_mobile():
+			UiLayout.set_rect_frac(info, 0.62, 0.12, 0.985, 0.62)
+		else:
+			UiLayout.set_rect_frac(info, 0.74, 0.12, 0.985, 0.58)
+	var notice := root.get_node_or_null("Notice") as Control
+	if notice:
+		UiLayout.set_rect_frac(notice, 0.25, 0.42, 0.75, 0.52)
 
 func _style_hud_chrome() -> void:
 	var root := hud.get_node_or_null("Root") as Control
@@ -282,11 +326,11 @@ func _style_hud_chrome() -> void:
 			"Shop/ShopCol/MetaRow/PopBox/Pop", "Shop/ShopCol/MetaRow/GoldBox/Gold", "TopRight/Version"]:
 		var l := root.get_node_or_null(lbl_path) as Label
 		if l:
-			var fs := 28 if "Timer" in lbl_path else (20 if "Shop/" in lbl_path else 16)
-			UiAssets.apply_label_font(l, false, fs)
+			var design := 22 if "Timer" in lbl_path else (15 if "Shop/" in lbl_path else 14)
+			UiAssets.apply_label_font(l, false, UiLayout.font_size(design, root))
 			l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
 			l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-			l.add_theme_constant_override("outline_size", 4)
+			l.add_theme_constant_override("outline_size", UiLayout.margin_px(3, root))
 	var shop_panel := root.get_node_or_null("Shop") as PanelContainer
 	if shop_panel:
 		var sb := StyleBoxFlat.new()
@@ -294,18 +338,24 @@ func _style_hud_chrome() -> void:
 		sb.border_color = Color(0.35, 0.72, 0.85, 0.55)
 		sb.set_border_width_all(1)
 		sb.set_corner_radius_all(4)
-		sb.set_content_margin_all(10)
+		sb.set_content_margin_all(UiLayout.margin_px(6, root))
 		shop_panel.add_theme_stylebox_override("panel", sb)
 	var info := root.get_node_or_null("InfoPanel") as PanelContainer
 	if info:
 		var sb2 := StyleBoxFlat.new()
 		sb2.bg_color = Color(0.12, 0.13, 0.15, 0.95)
 		sb2.set_corner_radius_all(6)
-		sb2.set_content_margin_all(14)
+		sb2.set_content_margin_all(UiLayout.margin_px(10, root))
 		info.add_theme_stylebox_override("panel", sb2)
 	var skip := root.get_node_or_null("Placement/SkipBtn") as Button
 	if skip:
-		UiAssets.apply_button_font(skip, 16)
+		UiAssets.apply_button_font(skip, UiLayout.font_size(14, root))
+		skip.custom_minimum_size = Vector2(UiLayout.px(72, root), UiLayout.px(36, root))
+	for btn_name in ["TopRight/PauseBtn", "TopRight/ExitBtn"]:
+		var b := root.get_node_or_null(btn_name) as Button
+		if b:
+			UiAssets.apply_button_font(b, UiLayout.font_size(13, root))
+			b.custom_minimum_size = Vector2(UiLayout.px(64, root), UiLayout.px(32, root))
 
 func _wire_shop_chrome() -> void:
 	var root := hud.get_node_or_null("Root")
@@ -322,12 +372,13 @@ func _wire_shop_chrome() -> void:
 			lock.icon = t
 			lock.expand_icon = true
 		lock.text = ""
-		UiAssets.apply_button_font(lock, 16)
-		lock.custom_minimum_size = Vector2(48, 40)
+		UiAssets.apply_button_font(lock, UiLayout.font_size(14, root))
+		lock.custom_minimum_size = Vector2(UiLayout.px(40, root), UiLayout.px(34, root))
 	_ensure_meta_icon(root.get_node_or_null("Shop/ShopCol/MetaRow/GoldBox") as HBoxContainer, "Gold", UiAssets.ICON_MONEY)
 	_ensure_meta_icon(root.get_node_or_null("Shop/ShopCol/MetaRow/PopBox") as HBoxContainer, "Pop", UiAssets.ICON_POP)
 	var bar := root.get_node_or_null("Shop/ShopCol/MetaRow/LevelExp/LEInner/ExpBar") as ProgressBar
 	if bar:
+		bar.custom_minimum_size = Vector2(0, UiLayout.px(5, root))
 		var fill := StyleBoxFlat.new()
 		fill.bg_color = Color(0.0, 0.6, 1.0, 1.0)
 		bar.add_theme_stylebox_override("fill", fill)
@@ -336,12 +387,16 @@ func _wire_shop_chrome() -> void:
 		bar.add_theme_stylebox_override("background", bg)
 	var sell := root.get_node_or_null("Shop/ShopCol/ShopInner/SellZone") as PanelContainer
 	if sell:
+		sell.custom_minimum_size = Vector2(0, UiLayout.px(56, root))
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.2, 0.22, 0.25, 0.92)
 		sb.border_color = Color(0.4, 0.75, 0.9, 0.7)
 		sb.set_border_width_all(2)
 		sb.set_corner_radius_all(4)
 		sell.add_theme_stylebox_override("panel", sb)
+	var le := root.get_node_or_null("Shop/ShopCol/MetaRow/LevelExp") as Control
+	if le:
+		le.custom_minimum_size = Vector2(UiLayout.px(96, root), UiLayout.px(34, root))
 
 func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String) -> void:
 	if box == null:
@@ -351,7 +406,7 @@ func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String) -
 			return
 	var icon := TextureRect.new()
 	icon.set_meta("meta_icon_for", for_name)
-	icon.custom_minimum_size = Vector2(28, 28)
+	icon.custom_minimum_size = Vector2(UiLayout.px(20, box), UiLayout.px(20, box))
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var t := UiAssets.tex(tex_path)
@@ -371,7 +426,7 @@ func _style_image_button(btn: Button, tex_path: String, title: String, cost: int
 		btn.icon = t
 		btn.expand_icon = true
 		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	btn.custom_minimum_size = Vector2(0, 72)
+	btn.custom_minimum_size = Vector2(0, UiLayout.px(52 if UiLayout.is_mobile() else 64, btn))
 	btn.add_theme_constant_override("icon_max_width", 0)
 
 func show_notice(text: String) -> void:
@@ -446,7 +501,7 @@ func _refresh_fetter_ui(root: Node) -> void:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var icon := TextureRect.new()
-		icon.custom_minimum_size = Vector2(28, 28)
+		icon.custom_minimum_size = Vector2(UiLayout.px(22, list), UiLayout.px(22, list))
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		var tex := UiAssets.fetter_icon(fname)
@@ -455,7 +510,7 @@ func _refresh_fetter_ui(root: Node) -> void:
 		row.add_child(icon)
 		var lab := Label.new()
 		lab.text = "%s %d" % [fname, int(a.get("count", 0))]
-		UiAssets.apply_label_font(lab, false, 16)
+		UiAssets.apply_label_font(lab, false, UiLayout.font_size(13, list))
 		lab.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
 		lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		lab.add_theme_constant_override("outline_size", 3)
@@ -487,23 +542,23 @@ func _refresh_shop_ui() -> void:
 
 func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int) -> Control:
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(0, 118)
+	card.custom_minimum_size = Vector2(0, UiLayout.px(88 if UiLayout.is_mobile() else 108, card))
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var outer := StyleBoxFlat.new()
 	outer.bg_color = Color(0.26, 0.29, 0.3, 0.98)
 	outer.border_color = Color(0.31, 0.42, 0.47, 0.95)
 	outer.set_border_width_all(2)
 	outer.set_corner_radius_all(3)
-	outer.set_content_margin_all(6)
+	outer.set_content_margin_all(UiLayout.margin_px(4, card))
 	card.add_theme_stylebox_override("panel", outer)
 	var body := PanelContainer.new()
 	var face := StyleBoxFlat.new()
 	face.bg_color = Color(0.31, 0.42, 0.47, 0.85)
-	face.set_content_margin_all(6)
+	face.set_content_margin_all(UiLayout.margin_px(4, card))
 	body.add_theme_stylebox_override("panel", face)
 	card.add_child(body)
 	var root_v := VBoxContainer.new()
-	root_v.add_theme_constant_override("separation", 6)
+	root_v.add_theme_constant_override("separation", UiLayout.margin_px(4, card))
 	body.add_child(root_v)
 	if purchased:
 		var done := Label.new()
@@ -511,24 +566,24 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		done.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		done.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		done.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		UiAssets.apply_label_font(done, false, 24)
+		UiAssets.apply_label_font(done, false, UiLayout.font_size(18, card))
 		root_v.add_child(done)
 		return card
 	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 8)
+	top.add_theme_constant_override("separation", UiLayout.margin_px(6, card))
 	root_v.add_child(top)
 	var fetter_col := VBoxContainer.new()
 	fetter_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fetter_col.add_theme_constant_override("separation", 4)
+	fetter_col.add_theme_constant_override("separation", UiLayout.margin_px(3, card))
 	top.add_child(fetter_col)
 	var fids: Array = ship.get("fetter_ids", [])
 	for fid in fids:
 		var fdata: Dictionary = DataStore.fetters.get(str(fid), {})
 		var fname := str(fdata.get("name", fid))
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 6)
+		row.add_theme_constant_override("separation", UiLayout.margin_px(4, card))
 		var fic := TextureRect.new()
-		fic.custom_minimum_size = Vector2(22, 22)
+		fic.custom_minimum_size = Vector2(UiLayout.px(16, card), UiLayout.px(16, card))
 		fic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		fic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		var ft := UiAssets.fetter_icon(fname)
@@ -537,12 +592,13 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		row.add_child(fic)
 		var fl := Label.new()
 		fl.text = fname
-		UiAssets.apply_label_font(fl, false, 15)
+		UiAssets.apply_label_font(fl, false, UiLayout.font_size(11, card))
 		fl.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
 		row.add_child(fl)
 		fetter_col.add_child(row)
 	var portrait := TextureRect.new()
-	portrait.custom_minimum_size = Vector2(76, 76)
+	var psz := UiLayout.px(52 if UiLayout.is_mobile() else 64, card)
+	portrait.custom_minimum_size = Vector2(psz, psz)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var tex := UiAssets.champion_icon(ship_name)
@@ -550,16 +606,16 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		portrait.texture = tex
 	top.add_child(portrait)
 	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 8)
+	bottom.add_theme_constant_override("separation", UiLayout.margin_px(6, card))
 	root_v.add_child(bottom)
 	var name_l := Label.new()
 	name_l.text = ship_name
 	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	UiAssets.apply_label_font(name_l, false, 17)
+	UiAssets.apply_label_font(name_l, false, UiLayout.font_size(13, card))
 	name_l.add_theme_color_override("font_color", Color(1, 1, 1))
 	bottom.add_child(name_l)
 	var money := TextureRect.new()
-	money.custom_minimum_size = Vector2(20, 20)
+	money.custom_minimum_size = Vector2(UiLayout.px(16, card), UiLayout.px(16, card))
 	money.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	money.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var mt := UiAssets.tex(UiAssets.ICON_MONEY)
@@ -568,7 +624,7 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 	bottom.add_child(money)
 	var cost_l := Label.new()
 	cost_l.text = str(cost)
-	UiAssets.apply_label_font(cost_l, false, 18)
+	UiAssets.apply_label_font(cost_l, false, UiLayout.font_size(14, card))
 	cost_l.add_theme_color_override("font_color", Color(1, 1, 1))
 	bottom.add_child(cost_l)
 	var hit := Button.new()

@@ -88,6 +88,7 @@ func _make_indicator(packed: PackedScene, is_hexa: bool) -> Node3D:
 			n.position.y -= aabb.position.y * s.y
 			n.position.y += 0.04
 			_tint_meshes(n, mat)
+			MobileModelLoad.apply_tree(n)
 			return root
 	# Fallback hollow ring / frame (not solid fill)
 	root.add_child(_make_hollow_fallback(mat, is_hexa))

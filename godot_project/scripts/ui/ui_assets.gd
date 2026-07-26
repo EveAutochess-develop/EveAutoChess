@@ -10,6 +10,8 @@ const CHAMPION_ICON_DIR := "res://assets/ui/sprites/ChampionIcons"
 const CHAMPION_ICON_ASCII_MAP := "res://data/champion_icons.json"
 const FETTER_ICON_DIR := "res://assets/ui/sprites/FetterIcons"
 const SHOP_DIR := "res://assets/ui/ingame/Shop"
+const SHOP_REFRESH_ASCII := "res://assets/ui/ingame/Shop/shop_refresh.png"
+const SHOP_EXP_ASCII := "res://assets/ui/ingame/Shop/shop_exp.png"
 const ICON_MONEY := "res://assets/ui/sprites/Money.png"
 const ICON_POP := "res://assets/ui/sprites/Population.png"
 const ICON_LOCK := "res://assets/ui/sprites/Lock.png"
@@ -155,6 +157,13 @@ static func shop_exp_path() -> String:
 static func _ensure_shop_paths() -> void:
 	if _shop_refresh != "":
 		return
+	# Prefer ASCII paths — Chinese filenames often break on Android PCK / DirAccess.
+	if ResourceLoader.exists(SHOP_REFRESH_ASCII):
+		_shop_refresh = SHOP_REFRESH_ASCII
+	if ResourceLoader.exists(SHOP_EXP_ASCII):
+		_shop_exp = SHOP_EXP_ASCII
+	if _shop_refresh != "" and _shop_exp != "":
+		return
 	var dir := DirAccess.open(SHOP_DIR)
 	if dir == null:
 		return
@@ -166,12 +175,10 @@ static func _ensure_shop_paths() -> void:
 			files.append(fn)
 		fn = dir.get_next()
 	files.sort()
-	# Original: 刷新.png then 升級.png — order by name may vary; pick first two PNGs
-	if files.size() >= 1:
+	if files.size() >= 1 and _shop_refresh == "":
 		_shop_refresh = SHOP_DIR.path_join(files[0])
-	if files.size() >= 2:
+	if files.size() >= 2 and _shop_exp == "":
 		_shop_exp = SHOP_DIR.path_join(files[1])
-	# Prefer stem match when possible
 	for f in files:
 		var stem := f.get_basename()
 		if "刷新" in stem or "refresh" in stem.to_lower():
