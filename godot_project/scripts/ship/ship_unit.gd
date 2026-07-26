@@ -77,6 +77,7 @@ func _ensure_mesh() -> void:
 			_model_root.rotation_degrees = Vector3(pitch, model_yaw, 0.0)
 			_normalize_model_scale(_model_root)
 			_tint_model(_model_root)
+			MobileModelLoad.apply_tree(_model_root)
 			return
 	# Fallback placeholder box
 	_mesh = MeshInstance3D.new()
