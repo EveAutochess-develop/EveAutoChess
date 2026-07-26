@@ -1,0 +1,13 @@
+{
+  "id": "logistic",
+  "name": "后勤",
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "ArmorHeal",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10.0
+    }
+  ]
+}

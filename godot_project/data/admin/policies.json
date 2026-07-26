@@ -1,0 +1,17 @@
+{
+  "admin_enabled": true,
+  "policies": [
+    {
+      "id": "dev_log_income",
+      "channel": "economy.income",
+      "enabled": false,
+      "actions": [
+        {
+          "op": "mul_field",
+          "field": "income",
+          "factor": 1.0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "base_gold": 5,
+  "base_gold_income": 5,
+  "interest_divisor": 10,
+  "interest_capped": false,
+  "refresh_cost": 2,
+  "buy_exp_gold_cost": 4,
+  "buy_exp_amount": 4,
+  "base_exp_income": 4,
+  "initial_level_exp_demand": 4,
+  "level_exp_demand_increment": 8,
+  "shop_slot_count": 5,
+  "sell_price_equals_cost": true
+}

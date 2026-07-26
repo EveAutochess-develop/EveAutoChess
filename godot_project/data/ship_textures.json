@@ -1,0 +1,15 @@
+{
+  "ships": {
+    "10": "res://assets/textures/ships_png/ship_10_d.png",
+    "7": "res://assets/textures/ships_png/ship_7_d.png",
+    "8": "res://assets/textures/ships_png/ship_8_d.png",
+    "4": "res://assets/textures/ships_png/ship_4_d.png",
+    "3": "res://assets/textures/ships_png/ship_3_d.png",
+    "5": "res://assets/textures/ships_png/ship_5_d.png",
+    "1": "res://assets/textures/ships_png/ship_1_d.png",
+    "9": "res://assets/textures/ships_png/ship_9_d.png",
+    "2": "res://assets/textures/ships_png/ship_2_d.png",
+    "6": "res://assets/textures/ships_png/ship_6_d.png"
+  },
+  "citadel_diffuse": "res://assets/textures/structures_png/citadel_d.png"
+}

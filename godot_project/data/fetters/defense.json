@@ -1,0 +1,13 @@
+{
+  "id": "defense",
+  "name": "防御",
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "ArmorResist",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10.0
+    }
+  ]
+}
