@@ -1,0 +1,15 @@
+{
+  "主宰级": "res://assets/ui/sprites/champ_icons/ship_10.png",
+  "刽子手级": "res://assets/ui/sprites/champ_icons/extra_b53123d6.jpg",
+  "启示级": "res://assets/ui/sprites/champ_icons/ship_7.png",
+  "奥格诺级": "res://assets/ui/sprites/champ_icons/ship_8.png",
+  "富豪级": "res://assets/ui/sprites/champ_icons/ship_4.png",
+  "山岳级": "res://assets/ui/sprites/champ_icons/extra_9b48d6c6.png",
+  "巨神兵级": "res://assets/ui/sprites/champ_icons/ship_3.png",
+  "强制者级": "res://assets/ui/sprites/champ_icons/ship_5.png",
+  "惩罚者级": "res://assets/ui/sprites/champ_icons/ship_1.png",
+  "暴君级": "res://assets/ui/sprites/champ_icons/ship_9.png",
+  "检察官级": "res://assets/ui/sprites/champ_icons/ship_2.png",
+  "磨难级": "res://assets/ui/sprites/champ_icons/extra_8edcfbc8.png",
+  "龙骑兵级": "res://assets/ui/sprites/champ_icons/ship_6.png"
+}

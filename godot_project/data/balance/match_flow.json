@@ -1,0 +1,9 @@
+{
+  "prepare_duration_s": 16,
+  "battle_duration_s": 60,
+  "min_battle_duration_s": 1.25,
+  "citadel_damage_constant": 18,
+  "player_max_hp": 1000,
+  "max_round_phase_value": 5,
+  "death_return_delay_s": 3
+}

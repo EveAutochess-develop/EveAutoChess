@@ -1,0 +1,13 @@
+{
+  "id": "firepower",
+  "name": "火力",
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "Damage",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10.0
+    }
+  ]
+}

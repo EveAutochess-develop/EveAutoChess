@@ -1,0 +1,13 @@
+{
+  "weapon_range_scale": 3.0,
+  "approach_factor": 0.9,
+  "move_speed": 3.5,
+  "agent_radius": 0.5,
+  "min_damage_pct": 0.25,
+  "shield_overflow_pierces_armor": false,
+  "logistic_heal_multiplier": 2.0,
+  "attack_duration_s": 1.0,
+  "logistic_attack_duration_s": 2.0,
+  "retarget_interval_s": 0.5,
+  "damage_bonus_effect_type": "Damage"
+}

@@ -1,0 +1,32 @@
+# Godot
+godot_project/.godot/
+godot_project/export/
+*.translation
+
+# Local engine / toolchain binaries (too large for GitHub)
+tools/godot/*.exe
+tools/blender/
+tools/assimp/
+tools/fbx2gltf/
+tools/__pycache__/
+tools/*.lnk
+tools/_test_ship.glb
+*.pyc
+
+# Shell builds / packs (use Releases when approved)
+build/
+
+# Local scratch / headless logs
+_*.txt
+_*.log
+godot_project/_*.txt
+godot_project/_probe.gd
+godot_project/_probe.gd.uid
+
+# MCP screenshot cache
+godot_project/addons/godot_mcp/cache/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

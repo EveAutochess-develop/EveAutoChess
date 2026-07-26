@@ -1,0 +1,51 @@
+{
+  "_comment": "EVEmu invgroups: 53 Energy→laser, 74 Hybrid→rail, 55 Projectile→cannon, 56 Missile→missile. New ships MUST set ships/<id>.json weapon_fx explicitly (Amarr Energy→laser).",
+  "rand_pos_range": 0.25,
+  "default_kind": "laser",
+  "evemu_group_to_kind": {
+    "53": "laser",
+    "74": "rail",
+    "55": "cannon",
+    "56": "missile"
+  },
+  "kinds": {
+    "laser": {
+      "evemu_effect": "effects.Laser",
+      "style": "beam",
+      "color": [1.0, 0.92, 0.25, 0.95],
+      "width": 0.06,
+      "duration_scale": 1.0
+    },
+    "rail": {
+      "evemu_effect": "hybridWeapon",
+      "style": "beam",
+      "color": [0.35, 0.85, 1.0, 0.95],
+      "width": 0.035,
+      "duration_scale": 0.35
+    },
+    "cannon": {
+      "evemu_effect": "projectileFired",
+      "style": "projectile",
+      "color": [1.0, 0.55, 0.2, 1.0],
+      "width": 0.1,
+      "speed": 42.0,
+      "duration_scale": 1.0
+    },
+    "missile": {
+      "evemu_effect": "missileLaunching",
+      "style": "projectile",
+      "color": [0.95, 0.95, 0.95, 1.0],
+      "width": 0.14,
+      "speed": 14.0,
+      "duration_scale": 1.0,
+      "trail": true
+    },
+    "heal": {
+      "evemu_effect": "effects.Laser",
+      "style": "beam",
+      "color": [0.3, 1.0, 0.45, 0.9],
+      "width": 0.05,
+      "duration_scale": 1.0
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "ships": {
+    "1": "res://assets/models/ships/惩罚者级.glb",
+    "2": "res://assets/models/ships/检察官级.glb",
+    "3": "res://assets/models/ships/巨神兵级.glb",
+    "4": "res://assets/models/ships/富豪级.glb",
+    "5": "res://assets/models/ships/强制者级.glb",
+    "6": "res://assets/models/ships/龙骑兵级.glb",
+    "7": "res://assets/models/ships/启示级.glb",
+    "8": "res://assets/models/ships/奥格诺级.glb",
+    "9": "res://assets/models/ships/暴君级.glb",
+    "10": "res://assets/models/ships/主宰级.glb"
+  }
+}
