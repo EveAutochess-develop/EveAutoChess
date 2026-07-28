@@ -1,0 +1,1764 @@
+{
+  "summary": {
+    "count": 64,
+    "mesh_longest": {
+      "min": 42.1009521484375,
+      "max": 1524.9973754882812,
+      "mean": 410.9301173686981
+    },
+    "bbox_volume": {
+      "min": 27582.916815512075,
+      "max": 480409579.40832895,
+      "mean": 34678508.432032146
+    },
+    "mesh_longest_over_long_axis": {
+      "min": 1.3008,
+      "max": 5.6597,
+      "mean": 2.5140850000000006,
+      "n": 40
+    }
+  },
+  "ships": [
+    {
+      "id": 1,
+      "name": "惩罚者级",
+      "ship_group": "frigate",
+      "model_key": "am_chengfazhe",
+      "model_long_axis": 34.0,
+      "bbox_min": [
+        -18.29911994934082,
+        -16.643218994140625,
+        -24.633657455444336
+      ],
+      "bbox_max": [
+        18.29911231994629,
+        10.768489837646484,
+        40.87405776977539
+      ],
+      "size_x": 36.59823226928711,
+      "size_y": 27.41170883178711,
+      "size_z": 65.50771522521973,
+      "size_sorted_small": 27.41170883178711,
+      "size_sorted_mid": 36.59823226928711,
+      "size_sorted_long": 65.50771522521973,
+      "mesh_longest": 65.50771522521973,
+      "bbox_volume": 65718.6557493238,
+      "mesh_over_long_axis": 1.9267,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_chengfazhe\\model.glb"
+    },
+    {
+      "id": 2,
+      "name": "检察官级",
+      "ship_group": "frigate",
+      "model_key": "am_jianchaguan",
+      "model_long_axis": 20.0,
+      "bbox_min": [
+        -10.342384338378906,
+        -25.547719955444336,
+        -74.708251953125
+      ],
+      "bbox_max": [
+        10.34239387512207,
+        27.34830665588379,
+        25.74333953857422
+      ],
+      "size_x": 20.684778213500977,
+      "size_y": 52.896026611328125,
+      "size_z": 100.45159149169922,
+      "size_sorted_small": 20.684778213500977,
+      "size_sorted_mid": 52.896026611328125,
+      "size_sorted_long": 100.45159149169922,
+      "mesh_longest": 100.45159149169922,
+      "bbox_volume": 109908.3633623826,
+      "mesh_over_long_axis": 5.0226,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_jianchaguan\\model.glb"
+    },
+    {
+      "id": 3,
+      "name": "巨神兵级",
+      "ship_group": "frigate",
+      "model_key": "am_jushenbing",
+      "model_long_axis": 26.0,
+      "bbox_min": [
+        -8.376845359802246,
+        -19.357086181640625,
+        -21.20252799987793
+      ],
+      "bbox_max": [
+        8.336044311523438,
+        19.843875885009766,
+        20.89842414855957
+      ],
+      "size_x": 16.712889671325684,
+      "size_y": 39.20096206665039,
+      "size_z": 42.1009521484375,
+      "size_sorted_small": 16.712889671325684,
+      "size_sorted_mid": 39.20096206665039,
+      "size_sorted_long": 42.1009521484375,
+      "mesh_longest": 42.1009521484375,
+      "bbox_volume": 27582.916815512075,
+      "mesh_over_long_axis": 1.6193,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_jushenbing\\model.glb"
+    },
+    {
+      "id": 4,
+      "name": "富豪级",
+      "ship_group": "frigate",
+      "model_key": "am_fuhao",
+      "model_long_axis": 32.0,
+      "bbox_min": [
+        -30.22890853881836,
+        -40.721702575683594,
+        -22.874008178710938
+      ],
+      "bbox_max": [
+        30.228900909423828,
+        18.574209213256836,
+        25.496519088745117
+      ],
+      "size_x": 60.45780944824219,
+      "size_y": 59.29591178894043,
+      "size_z": 48.370527267456055,
+      "size_sorted_small": 48.370527267456055,
+      "size_sorted_mid": 59.29591178894043,
+      "size_sorted_long": 60.45780944824219,
+      "mesh_longest": 60.45780944824219,
+      "bbox_volume": 173403.5484757009,
+      "mesh_over_long_axis": 1.8893,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_fuhao\\model.glb"
+    },
+    {
+      "id": 5,
+      "name": "强制者级",
+      "ship_group": "destroyer",
+      "model_key": "am_qiangzhizhe",
+      "model_long_axis": 144.0,
+      "bbox_min": [
+        -68.58568572998047,
+        -26.137914657592773,
+        -86.96375274658203
+      ],
+      "bbox_max": [
+        46.35097122192383,
+        22.02155303955078,
+        194.34974670410156
+      ],
+      "size_x": 114.9366569519043,
+      "size_y": 48.159467697143555,
+      "size_z": 281.3134994506836,
+      "size_sorted_small": 48.159467697143555,
+      "size_sorted_mid": 114.9366569519043,
+      "size_sorted_long": 281.3134994506836,
+      "mesh_longest": 281.3134994506836,
+      "bbox_volume": 1557151.2989873285,
+      "mesh_over_long_axis": 1.9536,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_qiangzhizhe\\model.glb"
+    },
+    {
+      "id": 6,
+      "name": "龙骑兵级",
+      "ship_group": "destroyer",
+      "model_key": "am_longqibing",
+      "model_long_axis": 150.0,
+      "bbox_min": [
+        -50.849849700927734,
+        -22.10125732421875,
+        -107.7894287109375
+      ],
+      "bbox_max": [
+        46.03488540649414,
+        22.10125732421875,
+        147.7894287109375
+      ],
+      "size_x": 96.88473510742188,
+      "size_y": 44.2025146484375,
+      "size_z": 255.578857421875,
+      "size_sorted_small": 44.2025146484375,
+      "size_sorted_mid": 96.88473510742188,
+      "size_sorted_long": 255.578857421875,
+      "mesh_longest": 255.578857421875,
+      "bbox_volume": 1094528.9605414327,
+      "mesh_over_long_axis": 1.7039,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_longqibing\\model.glb"
+    },
+    {
+      "id": 7,
+      "name": "启示级",
+      "ship_group": "cruiser",
+      "model_key": "am_qishi",
+      "model_long_axis": 134.0,
+      "bbox_min": [
+        -57.53291320800781,
+        -53.95124816894531,
+        -146.13436889648438
+      ],
+      "bbox_max": [
+        49.089107513427734,
+        49.155426025390625,
+        146.8839569091797
+      ],
+      "size_x": 106.62202072143555,
+      "size_y": 103.10667419433594,
+      "size_z": 293.01832580566406,
+      "size_sorted_small": 103.10667419433594,
+      "size_sorted_mid": 106.62202072143555,
+      "size_sorted_long": 293.01832580566406,
+      "mesh_longest": 293.01832580566406,
+      "bbox_volume": 3221279.9557535695,
+      "mesh_over_long_axis": 2.1867,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_qishi\\model.glb"
+    },
+    {
+      "id": 8,
+      "name": "奥格诺级",
+      "ship_group": "cruiser",
+      "model_key": "am_aogenuo",
+      "model_long_axis": 80.0,
+      "bbox_min": [
+        -38.31721878051758,
+        -63.02128219604492,
+        -99.47882080078125
+      ],
+      "bbox_max": [
+        38.31721115112305,
+        47.77444076538086,
+        75.05160522460938
+      ],
+      "size_x": 76.63442993164062,
+      "size_y": 110.79572296142578,
+      "size_z": 174.53042602539062,
+      "size_sorted_small": 76.63442993164062,
+      "size_sorted_mid": 110.79572296142578,
+      "size_sorted_long": 174.53042602539062,
+      "mesh_longest": 174.53042602539062,
+      "bbox_volume": 1481897.1936626397,
+      "mesh_over_long_axis": 2.1816,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_aogenuo\\model.glb"
+    },
+    {
+      "id": 9,
+      "name": "暴君级",
+      "ship_group": "cruiser",
+      "model_key": "am_baojun",
+      "model_long_axis": 110.0,
+      "bbox_min": [
+        -102.50010681152344,
+        -97.64419555664062,
+        -108.37010192871094
+      ],
+      "bbox_max": [
+        102.50013732910156,
+        57.315589904785156,
+        103.9039535522461
+      ],
+      "size_x": 205.000244140625,
+      "size_y": 154.95978546142578,
+      "size_z": 212.27405548095703,
+      "size_sorted_small": 154.95978546142578,
+      "size_sorted_mid": 205.000244140625,
+      "size_sorted_long": 212.27405548095703,
+      "mesh_longest": 212.27405548095703,
+      "bbox_volume": 6743266.16050054,
+      "mesh_over_long_axis": 1.9298,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_baojun\\model.glb"
+    },
+    {
+      "id": 10,
+      "name": "主宰级",
+      "ship_group": "cruiser",
+      "model_key": "am_zhuzai",
+      "model_long_axis": 172.0,
+      "bbox_min": [
+        -81.84536743164062,
+        -20.153976440429688,
+        -140.7915802001953
+      ],
+      "bbox_max": [
+        81.8448257446289,
+        18.873886108398438,
+        185.49929809570312
+      ],
+      "size_x": 163.69019317626953,
+      "size_y": 39.027862548828125,
+      "size_z": 326.29087829589844,
+      "size_sorted_small": 39.027862548828125,
+      "size_sorted_mid": 163.69019317626953,
+      "size_sorted_long": 326.29087829589844,
+      "mesh_longest": 326.29087829589844,
+      "bbox_volume": 2084502.2150178144,
+      "mesh_over_long_axis": 1.897,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_zhuzai\\model.glb"
+    },
+    {
+      "id": 11,
+      "name": "小鹰级",
+      "ship_group": "frigate",
+      "model_key": "jdl_xiaoying",
+      "model_long_axis": 45.0,
+      "bbox_min": [
+        -47.44207000732422,
+        -44.87976837158203,
+        -31.75375747680664
+      ],
+      "bbox_max": [
+        47.59731674194336,
+        29.412769317626953,
+        40.347328186035156
+      ],
+      "size_x": 95.03938674926758,
+      "size_y": 74.29253768920898,
+      "size_z": 72.1010856628418,
+      "size_sorted_small": 72.1010856628418,
+      "size_sorted_mid": 74.29253768920898,
+      "size_sorted_long": 95.03938674926758,
+      "mesh_longest": 95.03938674926758,
+      "bbox_volume": 509085.3772666348,
+      "mesh_over_long_axis": 2.112,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_xiaoying\\model.glb"
+    },
+    {
+      "id": 12,
+      "name": "矮脚鸡级",
+      "ship_group": "frigate",
+      "model_key": "jdl_aijiaoji",
+      "model_long_axis": 27.0,
+      "bbox_min": [
+        -33.197227478027344,
+        -43.05690383911133,
+        -34.80699920654297
+      ],
+      "bbox_max": [
+        33.197227478027344,
+        27.64373016357422,
+        43.78889846801758
+      ],
+      "size_x": 66.39445495605469,
+      "size_y": 70.70063400268555,
+      "size_z": 78.59589767456055,
+      "size_sorted_small": 66.39445495605469,
+      "size_sorted_mid": 70.70063400268555,
+      "size_sorted_long": 78.59589767456055,
+      "mesh_longest": 78.59589767456055,
+      "bbox_volume": 368939.3658397872,
+      "mesh_over_long_axis": 2.911,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_aijiaoji\\model.glb"
+    },
+    {
+      "id": 13,
+      "name": "秃鹫级",
+      "ship_group": "frigate",
+      "model_key": "jdl_tujiu",
+      "model_long_axis": 33.0,
+      "bbox_min": [
+        -38.040409088134766,
+        -12.63826847076416,
+        -25.675676345825195
+      ],
+      "bbox_max": [
+        38.03977584838867,
+        14.881805419921875,
+        50.629722595214844
+      ],
+      "size_x": 76.08018493652344,
+      "size_y": 27.520073890686035,
+      "size_z": 76.30539894104004,
+      "size_sorted_small": 27.520073890686035,
+      "size_sorted_mid": 76.08018493652344,
+      "size_sorted_long": 76.30539894104004,
+      "mesh_longest": 76.30539894104004,
+      "bbox_volume": 159763.0792719561,
+      "mesh_over_long_axis": 2.3123,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_tujiu\\model.glb"
+    },
+    {
+      "id": 14,
+      "name": "苍鹭级",
+      "ship_group": "frigate",
+      "model_key": "jdl_canglu",
+      "model_long_axis": 35.0,
+      "bbox_min": [
+        -29.434907913208008,
+        -34.27151107788086,
+        -17.368942260742188
+      ],
+      "bbox_max": [
+        29.399471282958984,
+        34.1713981628418,
+        17.348907470703125
+      ],
+      "size_x": 58.83437919616699,
+      "size_y": 68.44290924072266,
+      "size_z": 34.71784973144531,
+      "size_sorted_small": 34.71784973144531,
+      "size_sorted_mid": 58.83437919616699,
+      "size_sorted_long": 68.44290924072266,
+      "mesh_longest": 68.44290924072266,
+      "bbox_volume": 139801.70105037963,
+      "mesh_over_long_axis": 1.9555,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_canglu\\model.glb"
+    },
+    {
+      "id": 15,
+      "name": "海燕级",
+      "ship_group": "destroyer",
+      "model_key": "jdl_haiyan",
+      "model_long_axis": 112.0,
+      "bbox_min": [
+        -81.63996887207031,
+        -22.39157485961914,
+        -102.3126220703125
+      ],
+      "bbox_max": [
+        81.64006042480469,
+        21.231952667236328,
+        147.564453125
+      ],
+      "size_x": 163.280029296875,
+      "size_y": 43.62352752685547,
+      "size_z": 249.8770751953125,
+      "size_sorted_small": 43.62352752685547,
+      "size_sorted_mid": 163.280029296875,
+      "size_sorted_long": 249.8770751953125,
+      "mesh_longest": 249.8770751953125,
+      "bbox_volume": 1779837.1381046223,
+      "mesh_over_long_axis": 2.231,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_haiyan\\model.glb"
+    },
+    {
+      "id": 16,
+      "name": "渡鸦级",
+      "ship_group": "destroyer",
+      "model_key": "jdl_duya",
+      "model_long_axis": 143.0,
+      "bbox_min": [
+        -42.82659149169922,
+        -19.71923065185547,
+        -128.51268005371094
+      ],
+      "bbox_max": [
+        55.29952621459961,
+        33.90222930908203,
+        129.97769165039062
+      ],
+      "size_x": 98.12611770629883,
+      "size_y": 53.6214599609375,
+      "size_z": 258.49037170410156,
+      "size_sorted_small": 53.6214599609375,
+      "size_sorted_mid": 98.12611770629883,
+      "size_sorted_long": 258.49037170410156,
+      "mesh_longest": 258.49037170410156,
+      "bbox_volume": 1360089.920432977,
+      "mesh_over_long_axis": 1.8076,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_duya\\model.glb"
+    },
+    {
+      "id": 17,
+      "name": "狞獾级",
+      "ship_group": "cruiser",
+      "model_key": "jdl_ninghuan",
+      "model_long_axis": 202.0,
+      "bbox_min": [
+        -159.10467529296875,
+        -89.64512634277344,
+        -131.44073486328125
+      ],
+      "bbox_max": [
+        159.1047821044922,
+        58.94315719604492,
+        304.4915466308594
+      ],
+      "size_x": 318.20945739746094,
+      "size_y": 148.58828353881836,
+      "size_z": 435.9322814941406,
+      "size_sorted_small": 148.58828353881836,
+      "size_sorted_mid": 318.20945739746094,
+      "size_sorted_long": 435.9322814941406,
+      "mesh_longest": 435.9322814941406,
+      "bbox_volume": 20611836.047361214,
+      "mesh_over_long_axis": 2.1581,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_ninghuan\\model.glb"
+    },
+    {
+      "id": 18,
+      "name": "鱼鹰级",
+      "ship_group": "cruiser",
+      "model_key": "jdl_yuying",
+      "model_long_axis": 174.0,
+      "bbox_min": [
+        -121.78987884521484,
+        -83.25980377197266,
+        -205.82029724121094
+      ],
+      "bbox_max": [
+        122.21489715576172,
+        63.52031707763672,
+        161.92916870117188
+      ],
+      "size_x": 244.00477600097656,
+      "size_y": 146.78012084960938,
+      "size_z": 367.7494659423828,
+      "size_sorted_small": 146.78012084960938,
+      "size_sorted_mid": 244.00477600097656,
+      "size_sorted_long": 367.7494659423828,
+      "mesh_longest": 367.7494659423828,
+      "bbox_volume": 13170965.697496455,
+      "mesh_over_long_axis": 2.1135,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_yuying\\model.glb"
+    },
+    {
+      "id": 19,
+      "name": "巨鸟级",
+      "ship_group": "cruiser",
+      "model_key": "jdl_juniao",
+      "model_long_axis": 166.0,
+      "bbox_min": [
+        -93.09364318847656,
+        -37.84772491455078,
+        -164.2487335205078
+      ],
+      "bbox_max": [
+        93.09374237060547,
+        53.272857666015625,
+        165.16561889648438
+      ],
+      "size_x": 186.18738555908203,
+      "size_y": 91.1205825805664,
+      "size_z": 329.4143524169922,
+      "size_sorted_small": 91.1205825805664,
+      "size_sorted_mid": 186.18738555908203,
+      "size_sorted_long": 329.4143524169922,
+      "mesh_longest": 329.4143524169922,
+      "bbox_volume": 5588680.197777064,
+      "mesh_over_long_axis": 1.9844,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_juniao\\model.glb"
+    },
+    {
+      "id": 20,
+      "name": "黑鸟级",
+      "ship_group": "cruiser",
+      "model_key": "jdl_heiniao",
+      "model_long_axis": 139.0,
+      "bbox_min": [
+        -194.10708618164062,
+        -58.21653747558594,
+        -111.3437728881836
+      ],
+      "bbox_max": [
+        194.10708618164062,
+        50.15242004394531,
+        112.9936752319336
+      ],
+      "size_x": 388.21417236328125,
+      "size_y": 108.36895751953125,
+      "size_z": 224.3374481201172,
+      "size_sorted_small": 108.36895751953125,
+      "size_sorted_mid": 224.3374481201172,
+      "size_sorted_long": 388.21417236328125,
+      "mesh_longest": 388.21417236328125,
+      "bbox_volume": 9437958.359976506,
+      "mesh_over_long_axis": 2.7929,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_heiniao\\model.glb"
+    },
+    {
+      "id": 21,
+      "name": "裂谷级",
+      "ship_group": "frigate",
+      "model_key": "mmte_liegu",
+      "model_long_axis": 31.0,
+      "bbox_min": [
+        -47.33189392089844,
+        -19.517810821533203,
+        -22.42630386352539
+      ],
+      "bbox_max": [
+        47.3319206237793,
+        6.174196720123291,
+        98.86473846435547
+      ],
+      "size_x": 94.66381454467773,
+      "size_y": 25.692007541656494,
+      "size_z": 121.29104232788086,
+      "size_sorted_small": 25.692007541656494,
+      "size_sorted_mid": 94.66381454467773,
+      "size_sorted_long": 121.29104232788086,
+      "mesh_longest": 121.29104232788086,
+      "bbox_volume": 294992.36094767455,
+      "mesh_over_long_axis": 3.9126,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_liegu\\model.glb"
+    },
+    {
+      "id": 22,
+      "name": "爆发级",
+      "ship_group": "frigate",
+      "model_key": "mmte_baofa",
+      "model_long_axis": 31.0,
+      "bbox_min": [
+        -47.83113098144531,
+        -9.602510452270508,
+        -37.816200256347656
+      ],
+      "bbox_max": [
+        57.878231048583984,
+        8.301583290100098,
+        86.39264678955078
+      ],
+      "size_x": 105.7093620300293,
+      "size_y": 17.904093742370605,
+      "size_z": 124.20884704589844,
+      "size_sorted_small": 17.904093742370605,
+      "size_sorted_mid": 105.7093620300293,
+      "size_sorted_long": 124.20884704589844,
+      "mesh_longest": 124.20884704589844,
+      "bbox_volume": 235081.43082956786,
+      "mesh_over_long_axis": 4.0067,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_baofa\\model.glb"
+    },
+    {
+      "id": 23,
+      "name": "伐木者级",
+      "ship_group": "frigate",
+      "model_key": "mmte_famuzhe",
+      "model_long_axis": 31.0,
+      "bbox_min": [
+        -86.13064575195312,
+        -11.897500038146973,
+        -31.482099533081055
+      ],
+      "bbox_max": [
+        86.13057708740234,
+        24.00110626220703,
+        50.12300109863281
+      ],
+      "size_x": 172.26122283935547,
+      "size_y": 35.898606300354004,
+      "size_z": 81.60510063171387,
+      "size_sorted_small": 35.898606300354004,
+      "size_sorted_mid": 81.60510063171387,
+      "size_sorted_long": 172.26122283935547,
+      "mesh_longest": 172.26122283935547,
+      "bbox_volume": 504640.8680628087,
+      "mesh_over_long_axis": 5.5568,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_famuzhe\\model.glb"
+    },
+    {
+      "id": 24,
+      "name": "探索级",
+      "ship_group": "frigate",
+      "model_key": "mmte_tansuo",
+      "model_long_axis": 19.0,
+      "bbox_min": [
+        -33.54218292236328,
+        -11.247437477111816,
+        -37.161643981933594
+      ],
+      "bbox_max": [
+        46.10906982421875,
+        24.347240447998047,
+        70.37305450439453
+      ],
+      "size_x": 79.65125274658203,
+      "size_y": 35.59467792510986,
+      "size_z": 107.53469848632812,
+      "size_sorted_small": 35.59467792510986,
+      "size_sorted_mid": 79.65125274658203,
+      "size_sorted_long": 107.53469848632812,
+      "mesh_longest": 107.53469848632812,
+      "bbox_volume": 304878.14972782205,
+      "mesh_over_long_axis": 5.6597,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_tansuo\\model.glb"
+    },
+    {
+      "id": 25,
+      "name": "长尾鲛级",
+      "ship_group": "destroyer",
+      "model_key": "mmte_changweijiao",
+      "model_long_axis": 138.0,
+      "bbox_min": [
+        -33.85944747924805,
+        -37.79613494873047,
+        -116.06832885742188
+      ],
+      "bbox_max": [
+        33.85944366455078,
+        24.184612274169922,
+        150.5861053466797
+      ],
+      "size_x": 67.71889114379883,
+      "size_y": 61.98074722290039,
+      "size_z": 266.65443420410156,
+      "size_sorted_small": 61.98074722290039,
+      "size_sorted_mid": 67.71889114379883,
+      "size_sorted_long": 266.65443420410156,
+      "mesh_longest": 266.65443420410156,
+      "bbox_volume": 1119219.9835357869,
+      "mesh_over_long_axis": 1.9323,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_changweijiao\\model.glb"
+    },
+    {
+      "id": 26,
+      "name": "弯刀级",
+      "ship_group": "destroyer",
+      "model_key": "mmte_wandao",
+      "model_long_axis": 150.0,
+      "bbox_min": [
+        -53.05287551879883,
+        -21.742183685302734,
+        -111.89128112792969
+      ],
+      "bbox_max": [
+        53.05288314819336,
+        25.02079200744629,
+        151.08470153808594
+      ],
+      "size_x": 106.10575866699219,
+      "size_y": 46.76297569274902,
+      "size_z": 262.9759826660156,
+      "size_sorted_small": 46.76297569274902,
+      "size_sorted_mid": 106.10575866699219,
+      "size_sorted_long": 262.9759826660156,
+      "mesh_longest": 262.9759826660156,
+      "bbox_volume": 1304839.756813131,
+      "mesh_over_long_axis": 1.7532,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_wandao\\model.glb"
+    },
+    {
+      "id": 27,
+      "name": "断崖级",
+      "ship_group": "cruiser",
+      "model_key": "mmte_duanya",
+      "model_long_axis": 88.0,
+      "bbox_min": [
+        -39.84789276123047,
+        -129.92356872558594,
+        -144.87168884277344
+      ],
+      "bbox_max": [
+        39.84791564941406,
+        56.5468635559082,
+        130.00738525390625
+      ],
+      "size_x": 79.69580841064453,
+      "size_y": 186.47043228149414,
+      "size_z": 274.8790740966797,
+      "size_sorted_small": 79.69580841064453,
+      "size_sorted_mid": 186.47043228149414,
+      "size_sorted_long": 274.8790740966797,
+      "mesh_longest": 274.8790740966797,
+      "bbox_volume": 4084953.688283843,
+      "mesh_over_long_axis": 3.1236,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_duanya\\model.glb"
+    },
+    {
+      "id": 28,
+      "name": "镰刀级",
+      "ship_group": "cruiser",
+      "model_key": "mmte_liandao",
+      "model_long_axis": 134.0,
+      "bbox_min": [
+        -65.06114196777344,
+        -72.95054626464844,
+        -184.3435516357422
+      ],
+      "bbox_max": [
+        65.06109619140625,
+        73.09568786621094,
+        181.49575805664062
+      ],
+      "size_x": 130.1222381591797,
+      "size_y": 146.04623413085938,
+      "size_z": 365.8393096923828,
+      "size_sorted_small": 130.1222381591797,
+      "size_sorted_mid": 146.04623413085938,
+      "size_sorted_long": 365.8393096923828,
+      "mesh_longest": 365.8393096923828,
+      "bbox_volume": 6952360.0701278215,
+      "mesh_over_long_axis": 2.7301,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_liandao\\model.glb"
+    },
+    {
+      "id": 29,
+      "name": "刺客级",
+      "ship_group": "cruiser",
+      "model_key": "mmte_cike",
+      "model_long_axis": 110.0,
+      "bbox_min": [
+        -28.942338943481445,
+        -54.6471061706543,
+        -162.09213256835938
+      ],
+      "bbox_max": [
+        28.94236946105957,
+        40.754844665527344,
+        185.0389404296875
+      ],
+      "size_x": 57.884708404541016,
+      "size_y": 95.40195083618164,
+      "size_z": 347.1310729980469,
+      "size_sorted_small": 57.884708404541016,
+      "size_sorted_mid": 95.40195083618164,
+      "size_sorted_long": 347.1310729980469,
+      "mesh_longest": 347.1310729980469,
+      "bbox_volume": 1916966.8208316744,
+      "mesh_over_long_axis": 3.1557,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_cike\\model.glb"
+    },
+    {
+      "id": 30,
+      "name": "挑战级",
+      "ship_group": "cruiser",
+      "model_key": "mmte_tiaozhan",
+      "model_long_axis": 113.0,
+      "bbox_min": [
+        -58.46276092529297,
+        -99.6836929321289,
+        -167.77346801757812
+      ],
+      "bbox_max": [
+        58.52116394042969,
+        86.33954620361328,
+        183.37779235839844
+      ],
+      "size_x": 116.98392486572266,
+      "size_y": 186.0232391357422,
+      "size_z": 351.15126037597656,
+      "size_sorted_small": 116.98392486572266,
+      "size_sorted_mid": 186.0232391357422,
+      "size_sorted_long": 351.15126037597656,
+      "mesh_longest": 351.15126037597656,
+      "bbox_volume": 7641658.436501767,
+      "mesh_over_long_axis": 3.1075,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_tiaozhan\\model.glb"
+    },
+    {
+      "id": 31,
+      "name": "因卡萨斯级",
+      "ship_group": "frigate",
+      "model_key": "glt_yinkasasi",
+      "model_long_axis": 41.0,
+      "bbox_min": [
+        -14.524519920349121,
+        -14.490455627441406,
+        -26.73552703857422
+      ],
+      "bbox_max": [
+        14.524526596069336,
+        14.856912612915039,
+        42.13750076293945
+      ],
+      "size_x": 29.049046516418457,
+      "size_y": 29.347368240356445,
+      "size_z": 68.87302780151367,
+      "size_sorted_small": 29.049046516418457,
+      "size_sorted_mid": 29.347368240356445,
+      "size_sorted_long": 68.87302780151367,
+      "mesh_longest": 68.87302780151367,
+      "bbox_volume": 58715.15603713151,
+      "mesh_over_long_axis": 1.6798,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_yinkasasi\\model.glb"
+    },
+    {
+      "id": 32,
+      "name": "纳维达斯级",
+      "ship_group": "frigate",
+      "model_key": "glt_naweidasi",
+      "model_long_axis": 35.0,
+      "bbox_min": [
+        -25.34441566467285,
+        -19.260665893554688,
+        -48.154212951660156
+      ],
+      "bbox_max": [
+        25.344419479370117,
+        19.097415924072266,
+        42.52061462402344
+      ],
+      "size_x": 50.68883514404297,
+      "size_y": 38.35808181762695,
+      "size_z": 90.6748275756836,
+      "size_sorted_small": 38.35808181762695,
+      "size_sorted_mid": 50.68883514404297,
+      "size_sorted_long": 90.6748275756836,
+      "mesh_longest": 90.6748275756836,
+      "bbox_volume": 176301.46884126565,
+      "mesh_over_long_axis": 2.5907,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_naweidasi\\model.glb"
+    },
+    {
+      "id": 33,
+      "name": "阿特龙级",
+      "ship_group": "frigate",
+      "model_key": "glt_atelong",
+      "model_long_axis": 24.0,
+      "bbox_min": [
+        -22.12688636779785,
+        -22.269603729248047,
+        -24.75120735168457
+      ],
+      "bbox_max": [
+        38.80247116088867,
+        10.02845287322998,
+        26.151687622070312
+      ],
+      "size_x": 60.92935752868652,
+      "size_y": 32.29805660247803,
+      "size_z": 50.90289497375488,
+      "size_sorted_small": 32.29805660247803,
+      "size_sorted_mid": 50.90289497375488,
+      "size_sorted_long": 60.92935752868652,
+      "mesh_longest": 60.92935752868652,
+      "bbox_volume": 100171.7987834835,
+      "mesh_over_long_axis": 2.5387,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_atelong\\model.glb"
+    },
+    {
+      "id": 34,
+      "name": "伊米卡斯级",
+      "ship_group": "frigate",
+      "model_key": "glt_yimikasi",
+      "model_long_axis": 33.0,
+      "bbox_min": [
+        -14.236719131469727,
+        -28.73432731628418,
+        -20.625072479248047
+      ],
+      "bbox_max": [
+        27.118621826171875,
+        29.55582618713379,
+        14.722892761230469
+      ],
+      "size_x": 41.3553409576416,
+      "size_y": 58.29015350341797,
+      "size_z": 35.347965240478516,
+      "size_sorted_small": 35.347965240478516,
+      "size_sorted_mid": 41.3553409576416,
+      "size_sorted_long": 58.29015350341797,
+      "mesh_longest": 58.29015350341797,
+      "bbox_volume": 85210.12924169506,
+      "mesh_over_long_axis": 1.7664,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_yimikasi\\model.glb"
+    },
+    {
+      "id": 35,
+      "name": "促进级",
+      "ship_group": "destroyer",
+      "model_key": "glt_cujin",
+      "model_long_axis": 143.0,
+      "bbox_min": [
+        -87.09456634521484,
+        -50.29352569580078,
+        -38.71195983886719
+      ],
+      "bbox_max": [
+        197.00225830078125,
+        22.66679573059082,
+        49.87888717651367
+      ],
+      "size_x": 284.0968246459961,
+      "size_y": 72.9603214263916,
+      "size_z": 88.59084701538086,
+      "size_sorted_small": 72.9603214263916,
+      "size_sorted_mid": 88.59084701538086,
+      "size_sorted_long": 284.0968246459961,
+      "mesh_longest": 284.0968246459961,
+      "bbox_volume": 1836292.9727209695,
+      "mesh_over_long_axis": 1.9867,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_cujin\\model.glb"
+    },
+    {
+      "id": 36,
+      "name": "阿尔格斯级",
+      "ship_group": "destroyer",
+      "model_key": "glt_aergesi",
+      "model_long_axis": 150.0,
+      "bbox_min": [
+        -53.34870910644531,
+        -22.81100082397461,
+        -96.79447174072266
+      ],
+      "bbox_max": [
+        53.34870910644531,
+        26.67369842529297,
+        141.9955596923828
+      ],
+      "size_x": 106.69741821289062,
+      "size_y": 49.48469924926758,
+      "size_z": 238.79003143310547,
+      "size_sorted_small": 49.48469924926758,
+      "size_sorted_mid": 106.69741821289062,
+      "size_sorted_long": 238.79003143310547,
+      "mesh_longest": 238.79003143310547,
+      "bbox_volume": 1260785.0157108651,
+      "mesh_over_long_axis": 1.5919,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_aergesi\\model.glb"
+    },
+    {
+      "id": 37,
+      "name": "狂怒者级",
+      "ship_group": "cruiser",
+      "model_key": "glt_kuangnuzhe",
+      "model_long_axis": 110.0,
+      "bbox_min": [
+        -59.233211517333984,
+        -94.17150115966797,
+        -116.90977478027344
+      ],
+      "bbox_max": [
+        59.23324203491211,
+        94.11705017089844,
+        106.31684112548828
+      ],
+      "size_x": 118.4664535522461,
+      "size_y": 188.2885513305664,
+      "size_z": 223.22661590576172,
+      "size_sorted_small": 118.4664535522461,
+      "size_sorted_mid": 188.2885513305664,
+      "size_sorted_long": 223.22661590576172,
+      "mesh_longest": 223.22661590576172,
+      "bbox_volume": 4979265.419800938,
+      "mesh_over_long_axis": 2.0293,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_kuangnuzhe\\model.glb"
+    },
+    {
+      "id": 38,
+      "name": "送葬者级",
+      "ship_group": "cruiser",
+      "model_key": "glt_songzangzhe",
+      "model_long_axis": 224.0,
+      "bbox_min": [
+        -67.07199096679688,
+        -43.38883590698242,
+        -145.2701873779297
+      ],
+      "bbox_max": [
+        67.07199096679688,
+        44.78244400024414,
+        146.11228942871094
+      ],
+      "size_x": 134.14398193359375,
+      "size_y": 88.17127990722656,
+      "size_z": 291.3824768066406,
+      "size_sorted_small": 88.17127990722656,
+      "size_sorted_mid": 134.14398193359375,
+      "size_sorted_long": 291.3824768066406,
+      "mesh_longest": 291.3824768066406,
+      "bbox_volume": 3446368.9549642056,
+      "mesh_over_long_axis": 1.3008,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_songzangzhe\\model.glb"
+    },
+    {
+      "id": 39,
+      "name": "托勒克斯级",
+      "ship_group": "cruiser",
+      "model_key": "glt_tuolekesi",
+      "model_long_axis": 149.0,
+      "bbox_min": [
+        -115.93141174316406,
+        -76.03926086425781,
+        -211.89756774902344
+      ],
+      "bbox_max": [
+        115.93141174316406,
+        46.68879699707031,
+        304.7506408691406
+      ],
+      "size_x": 231.86282348632812,
+      "size_y": 122.72805786132812,
+      "size_z": 516.6482086181641,
+      "size_sorted_small": 122.72805786132812,
+      "size_sorted_mid": 231.86282348632812,
+      "size_sorted_long": 516.6482086181641,
+      "mesh_longest": 516.6482086181641,
+      "bbox_volume": 14701779.665044783,
+      "mesh_over_long_axis": 3.4674,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_taluosi\\model.glb"
+    },
+    {
+      "id": 40,
+      "name": "星空级",
+      "ship_group": "cruiser",
+      "model_key": "glt_xingkong",
+      "model_long_axis": 79.0,
+      "bbox_min": [
+        -41.770347595214844,
+        -77.40039825439453,
+        -66.2669448852539
+      ],
+      "bbox_max": [
+        61.62437438964844,
+        79.39366912841797,
+        60.30396270751953
+      ],
+      "size_x": 103.39472198486328,
+      "size_y": 156.7940673828125,
+      "size_z": 126.57090759277344,
+      "size_sorted_small": 103.39472198486328,
+      "size_sorted_mid": 126.57090759277344,
+      "size_sorted_long": 156.7940673828125,
+      "mesh_longest": 156.7940673828125,
+      "bbox_volume": 2051926.9253822356,
+      "mesh_over_long_axis": 1.9847,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_xingkong\\model.glb"
+    },
+    {
+      "id": 41,
+      "name": "预言级",
+      "ship_group": "battlecruiser",
+      "model_key": "am_yuyan",
+      "model_long_axis": null,
+      "bbox_min": [
+        -31.25108528137207,
+        -23.850622177124023,
+        -11.811883926391602
+      ],
+      "bbox_max": [
+        31.251049041748047,
+        4.726206302642822,
+        72.03184509277344
+      ],
+      "size_x": 62.50213432312012,
+      "size_y": 28.576828479766846,
+      "size_z": 83.84372901916504,
+      "size_sorted_small": 28.576828479766846,
+      "size_sorted_mid": 62.50213432312012,
+      "size_sorted_long": 83.84372901916504,
+      "mesh_longest": 83.84372901916504,
+      "bbox_volume": 149754.35526758773,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_monan\\model.glb"
+    },
+    {
+      "id": 42,
+      "name": "先知级",
+      "ship_group": "battlecruiser",
+      "model_key": "am_xianzhi",
+      "model_long_axis": null,
+      "bbox_min": [
+        -128.24624633789062,
+        -34.0745964050293,
+        -129.744140625
+      ],
+      "bbox_max": [
+        128.24649047851562,
+        96.15448760986328,
+        198.40306091308594
+      ],
+      "size_x": 256.49273681640625,
+      "size_y": 130.22908401489258,
+      "size_z": 328.14720153808594,
+      "size_sorted_small": 130.22908401489258,
+      "size_sorted_mid": 256.49273681640625,
+      "size_sorted_long": 328.14720153808594,
+      "mesh_longest": 328.14720153808594,
+      "bbox_volume": 10961039.994062636,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_xianzhi\\model.glb"
+    },
+    {
+      "id": 43,
+      "name": "先驱者级",
+      "ship_group": "battlecruiser",
+      "model_key": "am_xianquzhe",
+      "model_long_axis": null,
+      "bbox_min": [
+        -108.32427215576172,
+        -31.061769485473633,
+        -180.7921905517578
+      ],
+      "bbox_max": [
+        108.32431030273438,
+        47.54856872558594,
+        215.2684783935547
+      ],
+      "size_x": 216.6485824584961,
+      "size_y": 78.61033821105957,
+      "size_z": 396.0606689453125,
+      "size_sorted_small": 78.61033821105957,
+      "size_sorted_mid": 216.6485824584961,
+      "size_sorted_long": 396.0606689453125,
+      "mesh_longest": 396.0606689453125,
+      "bbox_volume": 6745237.304430064,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_xianquzhe\\model.glb"
+    },
+    {
+      "id": 44,
+      "name": "末日沙场级",
+      "ship_group": "battleship",
+      "model_key": "am_morishachang",
+      "model_long_axis": null,
+      "bbox_min": [
+        -103.96430969238281,
+        -136.38209533691406,
+        -524.8306884765625
+      ],
+      "bbox_max": [
+        104.25784301757812,
+        144.7892608642578,
+        521.9202880859375
+      ],
+      "size_x": 208.22215270996094,
+      "size_y": 281.1713562011719,
+      "size_z": 1046.7509765625,
+      "size_sorted_small": 208.22215270996094,
+      "size_sorted_mid": 281.1713562011719,
+      "size_sorted_long": 1046.7509765625,
+      "mesh_longest": 1046.7509765625,
+      "bbox_volume": 61283192.654474415,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_morishachang\\model.glb"
+    },
+    {
+      "id": 45,
+      "name": "灾难级",
+      "ship_group": "battleship",
+      "model_key": "am_zainan",
+      "model_long_axis": null,
+      "bbox_min": [
+        -116.2496337890625,
+        -201.44635009765625,
+        -767.5578002929688
+      ],
+      "bbox_max": [
+        116.2496337890625,
+        194.75616455078125,
+        757.4395751953125
+      ],
+      "size_x": 232.499267578125,
+      "size_y": 396.2025146484375,
+      "size_z": 1524.9973754882812,
+      "size_sorted_small": 232.499267578125,
+      "size_sorted_mid": 396.2025146484375,
+      "size_sorted_long": 1524.9973754882812,
+      "mesh_longest": 1524.9973754882812,
+      "bbox_volume": 140477869.80266234,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_zainan\\model.glb"
+    },
+    {
+      "id": 46,
+      "name": "地狱天使级",
+      "ship_group": "battleship",
+      "model_key": "am_diyutienshi",
+      "model_long_axis": null,
+      "bbox_min": [
+        -131.59584045410156,
+        -169.2632598876953,
+        -590.1998291015625
+      ],
+      "bbox_max": [
+        131.59571838378906,
+        217.50466918945312,
+        647.8146362304688
+      ],
+      "size_x": 263.1915588378906,
+      "size_y": 386.76792907714844,
+      "size_z": 1238.0144653320312,
+      "size_sorted_small": 263.1915588378906,
+      "size_sorted_mid": 386.76792907714844,
+      "size_sorted_long": 1238.0144653320312,
+      "mesh_longest": 1238.0144653320312,
+      "bbox_volume": 126022511.53774123,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\am_diyutianshi\\model.glb"
+    },
+    {
+      "id": 47,
+      "name": "茶隼级",
+      "ship_group": "battlecruiser",
+      "model_key": "jdl_chaxun",
+      "model_long_axis": null,
+      "bbox_min": [
+        -49.995277404785156,
+        -11.702726364135742,
+        -24.43082618713379
+      ],
+      "bbox_max": [
+        49.62618637084961,
+        13.181037902832031,
+        54.086463928222656
+      ],
+      "size_x": 99.62146377563477,
+      "size_y": 24.883764266967773,
+      "size_z": 78.51729011535645,
+      "size_sorted_small": 24.883764266967773,
+      "size_sorted_mid": 78.51729011535645,
+      "size_sorted_long": 99.62146377563477,
+      "mesh_longest": 99.62146377563477,
+      "bbox_volume": 194640.98756391695,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_chasun\\model.glb"
+    },
+    {
+      "id": 48,
+      "name": "猛鲑级",
+      "ship_group": "battlecruiser",
+      "model_key": "jdl_menggui",
+      "model_long_axis": null,
+      "bbox_min": [
+        -139.21527099609375,
+        -75.87345123291016,
+        -268.236328125
+      ],
+      "bbox_max": [
+        139.21527099609375,
+        76.06328582763672,
+        235.40528869628906
+      ],
+      "size_x": 278.4305419921875,
+      "size_y": 151.93673706054688,
+      "size_z": 503.64161682128906,
+      "size_sorted_small": 151.93673706054688,
+      "size_sorted_mid": 278.4305419921875,
+      "size_sorted_long": 503.64161682128906,
+      "mesh_longest": 503.64161682128906,
+      "bbox_volume": 21305968.355971854,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_menggui\\model.glb"
+    },
+    {
+      "id": 49,
+      "name": "幼龙级",
+      "ship_group": "battlecruiser",
+      "model_key": "jdl_youliong",
+      "model_long_axis": null,
+      "bbox_min": [
+        -128.26617431640625,
+        -52.397579193115234,
+        -203.80020141601562
+      ],
+      "bbox_max": [
+        128.26986694335938,
+        50.89291000366211,
+        301.5697326660156
+      ],
+      "size_x": 256.5360412597656,
+      "size_y": 103.29048919677734,
+      "size_z": 505.36993408203125,
+      "size_sorted_small": 103.29048919677734,
+      "size_sorted_mid": 256.5360412597656,
+      "size_sorted_long": 505.36993408203125,
+      "mesh_longest": 505.36993408203125,
+      "bbox_volume": 13391157.679761184,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_youlong\\model.glb"
+    },
+    {
+      "id": 50,
+      "name": "毒蝎级",
+      "ship_group": "battleship",
+      "model_key": "jdl_duxie",
+      "model_long_axis": null,
+      "bbox_min": [
+        -326.1148986816406,
+        -89.24490356445312,
+        -404.42218017578125
+      ],
+      "bbox_max": [
+        326.1149597167969,
+        242.19821166992188,
+        284.5010681152344
+      ],
+      "size_x": 652.2298583984375,
+      "size_y": 331.443115234375,
+      "size_z": 688.9232482910156,
+      "size_sorted_small": 331.443115234375,
+      "size_sorted_mid": 652.2298583984375,
+      "size_sorted_long": 688.9232482910156,
+      "mesh_longest": 688.9232482910156,
+      "bbox_volume": 148929427.2626662,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_duxie\\model.glb"
+    },
+    {
+      "id": 51,
+      "name": "乌鸦级",
+      "ship_group": "battleship",
+      "model_key": "jdl_wuya",
+      "model_long_axis": null,
+      "bbox_min": [
+        -412.33636474609375,
+        -80.55438232421875,
+        -292.32037353515625
+      ],
+      "bbox_max": [
+        334.3070068359375,
+        141.72711181640625,
+        485.788330078125
+      ],
+      "size_x": 746.6433715820312,
+      "size_y": 222.281494140625,
+      "size_z": 778.1087036132812,
+      "size_sorted_small": 222.281494140625,
+      "size_sorted_mid": 746.6433715820312,
+      "size_sorted_long": 778.1087036132812,
+      "mesh_longest": 778.1087036132812,
+      "bbox_volume": 129138814.28303592,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_wuya\\model.glb"
+    },
+    {
+      "id": 52,
+      "name": "鹏鲲级",
+      "ship_group": "battleship",
+      "model_key": "jdl_pengkun",
+      "model_long_axis": null,
+      "bbox_min": [
+        -111.75419616699219,
+        -106.50779724121094,
+        -482.9206848144531
+      ],
+      "bbox_max": [
+        111.75431823730469,
+        74.66717529296875,
+        537.0486450195312
+      ],
+      "size_x": 223.50851440429688,
+      "size_y": 181.1749725341797,
+      "size_z": 1019.9693298339844,
+      "size_sorted_small": 181.1749725341797,
+      "size_sorted_mid": 223.50851440429688,
+      "size_sorted_long": 1019.9693298339844,
+      "mesh_longest": 1019.9693298339844,
+      "bbox_volume": 41302789.975249656,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_pengkun\\model.glb"
+    },
+    {
+      "id": 53,
+      "name": "特里斯坦级",
+      "ship_group": "frigate",
+      "model_key": "glt_telisitan",
+      "model_long_axis": null,
+      "bbox_min": [
+        -25.580963134765625,
+        -42.05229949951172,
+        -28.145172119140625
+      ],
+      "bbox_max": [
+        23.527603149414062,
+        33.480003356933594,
+        19.839948654174805
+      ],
+      "size_x": 49.10856628417969,
+      "size_y": 75.53230285644531,
+      "size_z": 47.98512077331543,
+      "size_sorted_small": 47.98512077331543,
+      "size_sorted_mid": 49.10856628417969,
+      "size_sorted_long": 75.53230285644531,
+      "mesh_longest": 75.53230285644531,
+      "bbox_volume": 177990.3976041757,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_telisitan\\model.glb"
+    },
+    {
+      "id": 54,
+      "name": "布鲁提克斯级",
+      "ship_group": "battlecruiser",
+      "model_key": "glt_bulutikesi",
+      "model_long_axis": null,
+      "bbox_min": [
+        -140.8696746826172,
+        -109.70407104492188,
+        -158.0175018310547
+      ],
+      "bbox_max": [
+        140.8696746826172,
+        85.92020416259766,
+        206.33729553222656
+      ],
+      "size_x": 281.7393493652344,
+      "size_y": 195.62427520751953,
+      "size_z": 364.35479736328125,
+      "size_sorted_small": 195.62427520751953,
+      "size_sorted_mid": 281.7393493652344,
+      "size_sorted_long": 364.35479736328125,
+      "mesh_longest": 364.35479736328125,
+      "bbox_volume": 20081435.06674434,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_bulutikesi\\model.glb"
+    },
+    {
+      "id": 55,
+      "name": "弥尔米顿级",
+      "ship_group": "battlecruiser",
+      "model_key": "glt_miermidun",
+      "model_long_axis": null,
+      "bbox_min": [
+        -69.34983825683594,
+        -372.99652099609375,
+        -130.02398681640625
+      ],
+      "bbox_max": [
+        69.36922454833984,
+        227.3308563232422,
+        181.25994873046875
+      ],
+      "size_x": 138.71906280517578,
+      "size_y": 600.3273773193359,
+      "size_z": 311.283935546875,
+      "size_sorted_small": 138.71906280517578,
+      "size_sorted_mid": 311.283935546875,
+      "size_sorted_long": 600.3273773193359,
+      "mesh_longest": 600.3273773193359,
+      "bbox_volume": 25922745.96842211,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_miermidun\\model.glb"
+    },
+    {
+      "id": 56,
+      "name": "多米尼克斯级",
+      "ship_group": "battleship",
+      "model_key": "glt_duominikesi",
+      "model_long_axis": null,
+      "bbox_min": [
+        -157.0778045654297,
+        -250.22439575195312,
+        -480.096435546875
+      ],
+      "bbox_max": [
+        157.0776824951172,
+        231.4156951904297,
+        513.9159545898438
+      ],
+      "size_x": 314.1554870605469,
+      "size_y": 481.6400909423828,
+      "size_z": 994.0123901367188,
+      "size_sorted_small": 314.1554870605469,
+      "size_sorted_mid": 481.6400909423828,
+      "size_sorted_long": 994.0123901367188,
+      "mesh_longest": 994.0123901367188,
+      "bbox_volume": 150403892.84381038,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_duominikesi\\model.glb"
+    },
+    {
+      "id": 57,
+      "name": "万王宝座级",
+      "ship_group": "battleship",
+      "model_key": "glt_wanwangbaozuo",
+      "model_long_axis": null,
+      "bbox_min": [
+        -220.99798583984375,
+        -221.261474609375,
+        -500.04791259765625
+      ],
+      "bbox_max": [
+        220.99801635742188,
+        162.64060974121094,
+        559.3823852539062
+      ],
+      "size_x": 441.9960021972656,
+      "size_y": 383.90208435058594,
+      "size_z": 1059.4302978515625,
+      "size_sorted_small": 383.90208435058594,
+      "size_sorted_mid": 441.9960021972656,
+      "size_sorted_long": 1059.4302978515625,
+      "mesh_longest": 1059.4302978515625,
+      "bbox_volume": 179767508.83333272,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_wanwangbaozuo\\model.glb"
+    },
+    {
+      "id": 58,
+      "name": "亥伯龙神级",
+      "ship_group": "battleship",
+      "model_key": "glt_haibolongshen",
+      "model_long_axis": null,
+      "bbox_min": [
+        -252.38067626953125,
+        -329.233154296875,
+        -615.12841796875
+      ],
+      "bbox_max": [
+        252.38067626953125,
+        308.30596923828125,
+        877.7303466796875
+      ],
+      "size_x": 504.7613525390625,
+      "size_y": 637.5391235351562,
+      "size_z": 1492.8587646484375,
+      "size_sorted_small": 504.7613525390625,
+      "size_sorted_mid": 637.5391235351562,
+      "size_sorted_long": 1492.8587646484375,
+      "mesh_longest": 1492.8587646484375,
+      "bbox_volume": 480409579.40832895,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_haibolongshen\\model.glb"
+    },
+    {
+      "id": 59,
+      "name": "暴风级",
+      "ship_group": "battleship",
+      "model_key": "mmte_baofeng",
+      "model_long_axis": null,
+      "bbox_min": [
+        -104.35504150390625,
+        -19.57560157775879,
+        -200.9400634765625
+      ],
+      "bbox_max": [
+        104.35504150390625,
+        49.78172302246094,
+        283.8417053222656
+      ],
+      "size_x": 208.7100830078125,
+      "size_y": 69.35732460021973,
+      "size_z": 484.7817687988281,
+      "size_sorted_small": 69.35732460021973,
+      "size_sorted_mid": 208.7100830078125,
+      "size_sorted_long": 484.7817687988281,
+      "mesh_longest": 484.7817687988281,
+      "bbox_volume": 7017493.870960274,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_baofeng\\model.glb"
+    },
+    {
+      "id": 60,
+      "name": "飓风级",
+      "ship_group": "battlecruiser",
+      "model_key": "mmte_jufeng",
+      "model_long_axis": null,
+      "bbox_min": [
+        -90.68356323242188,
+        -80.07807159423828,
+        -236.2472381591797
+      ],
+      "bbox_max": [
+        90.68356323242188,
+        83.76952362060547,
+        277.7879943847656
+      ],
+      "size_x": 181.36712646484375,
+      "size_y": 163.84759521484375,
+      "size_z": 514.0352325439453,
+      "size_sorted_small": 163.84759521484375,
+      "size_sorted_mid": 181.36712646484375,
+      "size_sorted_long": 514.0352325439453,
+      "mesh_longest": 514.0352325439453,
+      "bbox_volume": 15275362.696728755,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_jufeng\\model.glb"
+    },
+    {
+      "id": 61,
+      "name": "台风级",
+      "ship_group": "battleship",
+      "model_key": "mmte_taifeng",
+      "model_long_axis": null,
+      "bbox_min": [
+        -150.9540557861328,
+        -103.68525695800781,
+        -408.0008850097656
+      ],
+      "bbox_max": [
+        150.9541473388672,
+        98.62125396728516,
+        649.5726928710938
+      ],
+      "size_x": 301.908203125,
+      "size_y": 202.30651092529297,
+      "size_z": 1057.5735778808594,
+      "size_sorted_small": 202.30651092529297,
+      "size_sorted_mid": 301.908203125,
+      "size_sorted_long": 1057.5735778808594,
+      "mesh_longest": 1057.5735778808594,
+      "bbox_volume": 64594473.907048635,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_taifeng\\model.glb"
+    },
+    {
+      "id": 62,
+      "name": "狂暴级",
+      "ship_group": "battleship",
+      "model_key": "mmte_kuangbao",
+      "model_long_axis": null,
+      "bbox_min": [
+        -75.98960876464844,
+        -450.69378662109375,
+        -441.010986328125
+      ],
+      "bbox_max": [
+        78.07303619384766,
+        407.29693603515625,
+        461.2951354980469
+      ],
+      "size_x": 154.0626449584961,
+      "size_y": 857.99072265625,
+      "size_z": 902.3061218261719,
+      "size_sorted_small": 154.0626449584961,
+      "size_sorted_mid": 857.99072265625,
+      "size_sorted_long": 902.3061218261719,
+      "mesh_longest": 902.3061218261719,
+      "bbox_volume": 119270721.21966542,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_kuangbao\\model.glb"
+    },
+    {
+      "id": 63,
+      "name": "死亡漩涡级",
+      "ship_group": "battleship",
+      "model_key": "mmte_siwangxuanwo",
+      "model_long_axis": null,
+      "bbox_min": [
+        -132.0019989013672,
+        -515.0166625976562,
+        -590.0
+      ],
+      "bbox_max": [
+        131.28001403808594,
+        303.4999694824219,
+        891.0
+      ],
+      "size_x": 263.2820129394531,
+      "size_y": 818.5166320800781,
+      "size_z": 1481.0,
+      "size_sorted_small": 263.2820129394531,
+      "size_sorted_mid": 818.5166320800781,
+      "size_sorted_long": 1481.0,
+      "mesh_longest": 1481.0,
+      "bbox_volume": 319156546.35384625,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\mmte_siwangxuanwo\\model.glb"
+    },
+    {
+      "id": 64,
+      "name": "塔洛斯级",
+      "ship_group": "battlecruiser",
+      "model_key": "glt_taluosi",
+      "model_long_axis": null,
+      "bbox_min": [
+        -115.93141174316406,
+        -76.03926086425781,
+        -211.89756774902344
+      ],
+      "bbox_max": [
+        115.93141174316406,
+        46.68879699707031,
+        304.7506408691406
+      ],
+      "size_x": 231.86282348632812,
+      "size_y": 122.72805786132812,
+      "size_z": 516.6482086181641,
+      "size_sorted_small": 122.72805786132812,
+      "size_sorted_mid": 231.86282348632812,
+      "size_sorted_long": 516.6482086181641,
+      "mesh_longest": 516.6482086181641,
+      "bbox_volume": 14701779.665044783,
+      "mesh_over_long_axis": null,
+      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\glt_taluosi\\model.glb"
+    }
+  ],
+  "missing_glb": [
+    {
+      "id": 65,
+      "name": "纳迦级",
+      "key": "jdl_najia"
+    },
+    {
+      "id": 66,
+      "name": "龙卷风级",
+      "key": "mmte_longjuanfeng"
+    }
+  ],
+  "errors": []
+}

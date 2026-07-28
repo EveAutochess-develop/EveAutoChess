@@ -1,89 +1,171 @@
 {
   "id": 8,
   "name": "奥格诺级",
-  "cost": 7,
+  "name_en": "Augoror",
+  "type_id": 625,
+  "model_key": "am_aogenuo",
+  "cost": 4,
   "ship_groups": [
     "cruiser"
   ],
+  "ship_group": "cruiser",
   "fetter_ids": [
     "amarr",
     "cruiser",
     "logistic"
   ],
+  "tags": [
+    "amarr",
+    "cruiser",
+    "logistic"
+  ],
   "is_logistic": true,
+  "weapon_fx": "heal",
+  "race": "amarr",
+  "signature_radius": 90.0,
+  "sensor_strength": 13.0,
+  "scan_resolution": 300.0,
+  "speed": 235.0,
+  "mass": 12870000.0,
+  "agility": 0.56,
+  "capacitor_capacity": 2250.0,
+  "capacitor_recharge_s": 450.0,
+  "mid_battle_leave_allowed": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 5,
+  "med_slots": 3,
+  "low_slots": 5,
+  "source_module_type_id": 456,
+  "source_charge_type_id": 254,
+  "source_repair_module_type_id": 11357,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "echoes_item_id": 10300000002,
+  "attack_cycle_s": 6.0,
   "stars": [
     {
-      "attack_range": 6,
+      "attack_range": 8,
       "damage": {
-        "emp": 60,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 140.0,
+        "thermal": 100.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
-      "shield_hp": 250,
-      "armor_hp": 750,
+      "repair": {
+        "shield": 0.0,
+        "armor": 980.0,
+        "structure": 0.0
+      },
+      "tracking": 28.8,
+      "optimal": 17.5,
+      "falloff": 8.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 1000.0,
+      "armor_hp": 1650.0,
+      "structure_hp": 1550.0,
       "shield_resist": {
-        "emp": 15,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
       },
       "armor_resist": {
-        "emp": 15,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
       },
       "is_logistic": true
     },
     {
-      "attack_range": 6,
+      "attack_range": 8,
       "damage": {
-        "emp": 90,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 280.0,
+        "thermal": 200.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
-      "shield_hp": 370,
-      "armor_hp": 950,
+      "repair": {
+        "shield": 0.0,
+        "armor": 1960.0,
+        "structure": 0.0
+      },
+      "tracking": 28.8,
+      "optimal": 17.5,
+      "falloff": 8.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 2000.0,
+      "armor_hp": 3300.0,
+      "structure_hp": 3100.0,
       "shield_resist": {
-        "emp": 25,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
       },
       "armor_resist": {
-        "emp": 25,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
       },
       "is_logistic": true
     },
     {
-      "attack_range": 6,
+      "attack_range": 8,
       "damage": {
-        "emp": 120,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 420.0,
+        "thermal": 300.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
-      "shield_hp": 420,
-      "armor_hp": 1300,
+      "repair": {
+        "shield": 0.0,
+        "armor": 2940.0,
+        "structure": 0.0
+      },
+      "tracking": 28.8,
+      "optimal": 17.5,
+      "falloff": 8.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 3000.0,
+      "armor_hp": 4950.0,
+      "structure_hp": 4650.0,
       "shield_resist": {
-        "emp": 40,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
       },
       "armor_resist": {
-        "emp": 40,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
       },
       "is_logistic": true
     }
   ],
-  "weapon_fx": "heal"
+  "model_long_axis": 80.0
 }

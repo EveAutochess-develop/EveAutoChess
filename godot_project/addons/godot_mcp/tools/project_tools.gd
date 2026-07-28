@@ -670,7 +670,7 @@ func get_console_log(args: Dictionary) -> Dictionary:
 const _ERROR_PREFIXES: PackedStringArray = [
 	"ERROR:", "SCRIPT ERROR:", "USER ERROR:",
 	"WARNING:", "USER WARNING:", "SCRIPT WARNING:",
-	"Parse Error:", "Invalid",
+	"Parse Error:", "Parser Error:", "Invalid",
 ]
 
 func get_errors(args: Dictionary) -> Dictionary:

@@ -1,5 +1,20 @@
 {
   "id": "gallente",
   "name": "盖伦特",
-  "effects": []
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "AttackSpeed",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 15
+    },
+    {
+      "champion_count": 4,
+      "effect_type": "AttackSpeed",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 15
+    }
+  ]
 }

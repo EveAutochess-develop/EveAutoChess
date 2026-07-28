@@ -1,0 +1,340 @@
+{
+  "source": "echoes type_attributes.sd attr 105 (radius / 长轴)",
+  "attr_id": 105,
+  "ships": {
+    "1": {
+      "name": "惩罚者级",
+      "echoes_item_id": 10101000005,
+      "model_long_axis": 34.0
+    },
+    "2": {
+      "name": "检察官级",
+      "echoes_item_id": 10101000003,
+      "model_long_axis": 20.0
+    },
+    "3": {
+      "name": "巨神兵级",
+      "echoes_item_id": 10101000004,
+      "model_long_axis": 26.0
+    },
+    "4": {
+      "name": "富豪级",
+      "echoes_item_id": 10101000001,
+      "model_long_axis": 32.0
+    },
+    "5": {
+      "name": "强制者级",
+      "echoes_item_id": 10200000000,
+      "model_long_axis": 144.0
+    },
+    "6": {
+      "name": "龙骑兵级",
+      "echoes_item_id": 10200000001,
+      "model_long_axis": 150.0
+    },
+    "7": {
+      "name": "启示级",
+      "echoes_item_id": 10300000001,
+      "model_long_axis": 134.0
+    },
+    "8": {
+      "name": "奥格诺级",
+      "echoes_item_id": 10300000002,
+      "model_long_axis": 80.0
+    },
+    "9": {
+      "name": "暴君级",
+      "echoes_item_id": 10300000000,
+      "model_long_axis": 110.0
+    },
+    "10": {
+      "name": "主宰级",
+      "echoes_item_id": 10300000003,
+      "model_long_axis": 172.0
+    },
+    "11": {
+      "name": "小鹰级",
+      "echoes_item_id": 10101000009,
+      "model_long_axis": 45.0
+    },
+    "12": {
+      "name": "矮脚鸡级",
+      "echoes_item_id": 10101000006,
+      "model_long_axis": 27.0
+    },
+    "13": {
+      "name": "秃鹫级",
+      "echoes_item_id": 10101000007,
+      "model_long_axis": 33.0
+    },
+    "14": {
+      "name": "苍鹭级",
+      "echoes_item_id": 10101000011,
+      "model_long_axis": 35.0
+    },
+    "15": {
+      "name": "海燕级",
+      "echoes_item_id": 10200000002,
+      "model_long_axis": 112.0
+    },
+    "16": {
+      "name": "渡鸦级",
+      "echoes_item_id": 10200000003,
+      "model_long_axis": 143.0
+    },
+    "17": {
+      "name": "狞獾级",
+      "echoes_item_id": 10300000005,
+      "model_long_axis": 202.0
+    },
+    "18": {
+      "name": "鱼鹰级",
+      "echoes_item_id": 10300000004,
+      "model_long_axis": 174.0
+    },
+    "19": {
+      "name": "巨鸟级",
+      "echoes_item_id": 10300000006,
+      "model_long_axis": 166.0
+    },
+    "20": {
+      "name": "黑鸟级",
+      "echoes_item_id": 10300000007,
+      "model_long_axis": 139.0
+    },
+    "21": {
+      "name": "裂谷级",
+      "echoes_item_id": 10101000021,
+      "model_long_axis": 31.0
+    },
+    "22": {
+      "name": "爆发级",
+      "echoes_item_id": 10101000023,
+      "model_long_axis": 31.0
+    },
+    "23": {
+      "name": "伐木者级",
+      "echoes_item_id": 10101000019,
+      "model_long_axis": 31.0
+    },
+    "24": {
+      "name": "探索级",
+      "echoes_item_id": 10101000020,
+      "model_long_axis": 19.0
+    },
+    "25": {
+      "name": "长尾鲛级",
+      "echoes_item_id": 10200000007,
+      "model_long_axis": 138.0
+    },
+    "26": {
+      "name": "弯刀级",
+      "echoes_item_id": 10200000006,
+      "model_long_axis": 150.0
+    },
+    "27": {
+      "name": "断崖级",
+      "echoes_item_id": 10300000013,
+      "model_long_axis": 88.0
+    },
+    "28": {
+      "name": "镰刀级",
+      "echoes_item_id": 10300000015,
+      "model_long_axis": 134.0
+    },
+    "29": {
+      "name": "刺客级",
+      "echoes_item_id": 10300000012,
+      "model_long_axis": 110.0
+    },
+    "30": {
+      "name": "挑战级",
+      "echoes_item_id": 10300000014,
+      "model_long_axis": 113.0
+    },
+    "31": {
+      "name": "因卡萨斯级",
+      "echoes_item_id": 10101000014,
+      "model_long_axis": 41.0
+    },
+    "32": {
+      "name": "纳维达斯级",
+      "echoes_item_id": 10101000012,
+      "model_long_axis": 35.0
+    },
+    "33": {
+      "name": "阿特龙级",
+      "echoes_item_id": 10101000016,
+      "model_long_axis": 24.0
+    },
+    "34": {
+      "name": "伊米卡斯级",
+      "echoes_item_id": 10101000015,
+      "model_long_axis": 33.0
+    },
+    "35": {
+      "name": "促进级",
+      "echoes_item_id": 10200000004,
+      "model_long_axis": 143.0
+    },
+    "36": {
+      "name": "阿尔格斯级",
+      "echoes_item_id": 10200000005,
+      "model_long_axis": 150.0
+    },
+    "37": {
+      "name": "狂怒者级",
+      "echoes_item_id": 10300000008,
+      "model_long_axis": 110.0
+    },
+    "38": {
+      "name": "送葬者级",
+      "echoes_item_id": 10300000011,
+      "model_long_axis": 224.0
+    },
+    "39": {
+      "name": "托勒克斯级",
+      "echoes_item_id": 10300000009,
+      "model_long_axis": 149.0
+    },
+    "40": {
+      "name": "星空级",
+      "echoes_item_id": 10300000010,
+      "model_long_axis": 79.0
+    }
+  },
+  "roster_mean": 95.275,
+  "patched": 40,
+  "missing": [
+    {
+      "id": 41,
+      "name": "预言级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 42,
+      "name": "先知级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 43,
+      "name": "先驱者级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 44,
+      "name": "末日沙场级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 45,
+      "name": "灾难级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 46,
+      "name": "地狱天使级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 47,
+      "name": "茶隼级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 48,
+      "name": "猛鲑级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 49,
+      "name": "幼龙级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 50,
+      "name": "毒蝎级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 51,
+      "name": "乌鸦级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 52,
+      "name": "鹏鲲级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 53,
+      "name": "特里斯坦级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 54,
+      "name": "布鲁提克斯级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 55,
+      "name": "弥尔米顿级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 56,
+      "name": "多米尼克斯级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 57,
+      "name": "万王宝座级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 58,
+      "name": "亥伯龙神级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 59,
+      "name": "暴风级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 60,
+      "name": "飓风级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 61,
+      "name": "台风级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 62,
+      "name": "狂暴级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 63,
+      "name": "死亡漩涡级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 64,
+      "name": "塔洛斯级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 65,
+      "name": "纳迦级",
+      "echoes_item_id": 0
+    },
+    {
+      "id": 66,
+      "name": "龙卷风级",
+      "echoes_item_id": 0
+    }
+  ]
+}

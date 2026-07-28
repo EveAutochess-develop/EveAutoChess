@@ -1,0 +1,506 @@
+{
+  "1": {
+    "name": "惩罚者级",
+    "echoes_item_id": 10101000005,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "10": {
+    "name": "主宰级",
+    "echoes_item_id": 10300000003,
+    "droneSlotsLeft": 3.0,
+    "droneBandwidth": 3.0,
+    "droneCapacity": 900.0,
+    "drone_bay_slots": 3
+  },
+  "11": {
+    "name": "小鹰级",
+    "echoes_item_id": 10101000009,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "12": {
+    "name": "矮脚鸡级",
+    "echoes_item_id": 10101000006,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "13": {
+    "name": "秃鹫级",
+    "echoes_item_id": 10101000007,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "14": {
+    "name": "苍鹭级",
+    "echoes_item_id": 10101000011,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "15": {
+    "name": "海燕级",
+    "echoes_item_id": 10200000002,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "16": {
+    "name": "渡鸦级",
+    "echoes_item_id": 10200000003,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "17": {
+    "name": "狞獾级",
+    "echoes_item_id": 10300000005,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "18": {
+    "name": "鱼鹰级",
+    "echoes_item_id": 10300000004,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "19": {
+    "name": "巨鸟级",
+    "echoes_item_id": 10300000006,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "2": {
+    "name": "检察官级",
+    "echoes_item_id": 10101000003,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "20": {
+    "name": "黑鸟级",
+    "echoes_item_id": 10300000007,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "21": {
+    "name": "裂谷级",
+    "echoes_item_id": 10101000021,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "22": {
+    "name": "爆发级",
+    "echoes_item_id": 10101000023,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "23": {
+    "name": "伐木者级",
+    "echoes_item_id": 10101000019,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "24": {
+    "name": "探索级",
+    "echoes_item_id": 10101000020,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "25": {
+    "name": "长尾鲛级",
+    "echoes_item_id": 10200000007,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "26": {
+    "name": "弯刀级",
+    "echoes_item_id": 10200000006,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "27": {
+    "name": "断崖级",
+    "echoes_item_id": 10300000013,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "28": {
+    "name": "镰刀级",
+    "echoes_item_id": 10300000015,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "29": {
+    "name": "刺客级",
+    "echoes_item_id": 10300000012,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "3": {
+    "name": "巨神兵级",
+    "echoes_item_id": 10101000004,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "30": {
+    "name": "挑战级",
+    "echoes_item_id": 10300000014,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "31": {
+    "name": "因卡萨斯级",
+    "echoes_item_id": 10101000014,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "32": {
+    "name": "纳维达斯级",
+    "echoes_item_id": 10101000012,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "33": {
+    "name": "阿特龙级",
+    "echoes_item_id": 10101000016,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "34": {
+    "name": "伊米卡斯级",
+    "echoes_item_id": 10101000015,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "35": {
+    "name": "促进级",
+    "echoes_item_id": 10200000004,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "36": {
+    "name": "阿尔格斯级",
+    "echoes_item_id": 10200000005,
+    "droneSlotsLeft": 3.0,
+    "droneBandwidth": 2.0,
+    "droneCapacity": 360.0,
+    "drone_bay_slots": 3
+  },
+  "37": {
+    "name": "狂怒者级",
+    "echoes_item_id": 10300000008,
+    "droneSlotsLeft": 4.0,
+    "droneBandwidth": 3.0,
+    "droneCapacity": 1000.0,
+    "drone_bay_slots": 4
+  },
+  "38": {
+    "name": "送葬者级",
+    "echoes_item_id": 10300000011,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "39": {
+    "name": "托勒克斯级",
+    "echoes_item_id": 10300000009,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "4": {
+    "name": "富豪级",
+    "echoes_item_id": 10101000001,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "40": {
+    "name": "星空级",
+    "echoes_item_id": 10300000010,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "41": {
+    "name": "磨难级",
+    "echoes_item_id": 10101000000,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "42": {
+    "name": "先知级",
+    "echoes_item_id": 10400000000,
+    "droneSlotsLeft": 5.0,
+    "droneBandwidth": 4.0,
+    "droneCapacity": 2250.0,
+    "drone_bay_slots": 5
+  },
+  "43": {
+    "name": "先驱者级",
+    "echoes_item_id": 10400000001,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "44": {
+    "name": "末日沙场级",
+    "echoes_item_id": 10500000001,
+    "droneSlotsLeft": 5.0,
+    "droneBandwidth": 5.0,
+    "droneCapacity": 3750.0,
+    "drone_bay_slots": 5
+  },
+  "45": {
+    "name": "灾难级",
+    "echoes_item_id": 10500000000,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "46": {
+    "name": "地狱天使级",
+    "echoes_item_id": 10500000002,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "47": {
+    "name": "茶隼级",
+    "echoes_item_id": 10101000010,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "48": {
+    "name": "猛鲑级",
+    "echoes_item_id": 10400000002,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "49": {
+    "name": "幼龙级",
+    "echoes_item_id": 10400000003,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "5": {
+    "name": "强制者级",
+    "echoes_item_id": 10200000000,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "50": {
+    "name": "毒蝎级",
+    "echoes_item_id": 10500000003,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "51": {
+    "name": "乌鸦级",
+    "echoes_item_id": 10500000005,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "52": {
+    "name": "鹏鲲级",
+    "echoes_item_id": 10500000004,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "53": {
+    "name": "特里斯坦级",
+    "echoes_item_id": 10101000013,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "54": {
+    "name": "布鲁提克斯级",
+    "echoes_item_id": 10400000004,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "55": {
+    "name": "弥尔米顿级",
+    "echoes_item_id": 10400000005,
+    "droneSlotsLeft": 5.0,
+    "droneBandwidth": 4.0,
+    "droneCapacity": 2000.0,
+    "drone_bay_slots": 5
+  },
+  "56": {
+    "name": "多米尼克斯级",
+    "echoes_item_id": 10500000007,
+    "droneSlotsLeft": 5.0,
+    "droneBandwidth": 5.0,
+    "droneCapacity": 3750.0,
+    "drone_bay_slots": 5
+  },
+  "57": {
+    "name": "万王宝座级",
+    "echoes_item_id": 10500000006,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "58": {
+    "name": "亥伯龙神级",
+    "echoes_item_id": 10500000008,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "59": {
+    "name": "暴风级",
+    "echoes_item_id": 10400000007,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "6": {
+    "name": "龙骑兵级",
+    "echoes_item_id": 10200000001,
+    "droneSlotsLeft": 3.0,
+    "droneBandwidth": 2.0,
+    "droneCapacity": 450.0,
+    "drone_bay_slots": 3
+  },
+  "60": {
+    "name": "飓风级",
+    "echoes_item_id": 10400000006,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "61": {
+    "name": "台风级",
+    "echoes_item_id": 10500000009,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "62": {
+    "name": "狂暴级",
+    "echoes_item_id": 10500000011,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "63": {
+    "name": "死亡漩涡级",
+    "echoes_item_id": 10500000010,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "7": {
+    "name": "启示级",
+    "echoes_item_id": 10300000001,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "8": {
+    "name": "奥格诺级",
+    "echoes_item_id": 10300000002,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  },
+  "9": {
+    "name": "暴君级",
+    "echoes_item_id": 10300000000,
+    "droneSlotsLeft": 0.0,
+    "droneBandwidth": null,
+    "droneCapacity": 0.0,
+    "drone_bay_slots": 0
+  }
+}

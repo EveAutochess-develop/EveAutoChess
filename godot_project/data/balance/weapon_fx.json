@@ -35,10 +35,13 @@
       "evemu_effect": "missileLaunching",
       "style": "projectile",
       "color": [0.95, 0.95, 0.95, 1.0],
-      "width": 0.14,
-      "speed": 14.0,
+      "width": 0.16,
+      "speed": 2.0,
       "duration_scale": 1.0,
-      "trail": true
+      "trail": true,
+      "trail_lag": 0.12,
+      "trail_length": 1.1,
+      "_comment": "travel_s driven by combat.missile_delay_per_cell_s (1.5s/cell); speed is fallback ≈ world_units_per_cell/1.5"
     },
     "heal": {
       "evemu_effect": "effects.Laser",

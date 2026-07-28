@@ -1,16 +1,14 @@
 {
-  "field_width": 7,
-  "field_height": 4,
-  "hangar_width": 9,
+  "field_width": 11,
+  "field_height": 6,
+  "hangar_width": 14,
   "hangar_height": 1,
   "hex_offset_x": -3.0,
   "hex_row_nudge": 1.5,
   "hex_offset_z": -2.5,
   "hangar_offset_x": -2.5,
-  "field_origin_player": [8.5, 0.0, 8.75],
-  "field_origin_ai": [-8.0, 0.0, -8.75],
-  "hangar_origin_player": [10.0, 0.0, 12.0],
-  "hangar_origin_ai": [-10.0, 0.0, -12.0],
+  "center_gap_z": 4.0,
+  "isolation_enabled": true,
   "max_deployment": 999,
   "ship_count_buff": 0
 }

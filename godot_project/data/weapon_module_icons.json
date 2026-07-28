@@ -1,0 +1,101 @@
+{
+  "modules": {
+    "453": {
+      "module_type_id": 453,
+      "name_zh": "小型激光",
+      "echoes_item_id": 11002510002,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120040002.ktx",
+      "png": "res://assets/ui/item_icons/453.png",
+      "icon_id": 120040002
+    },
+    "456": {
+      "module_type_id": 456,
+      "name_zh": "中型激光",
+      "echoes_item_id": 11002600006,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120040103.ktx",
+      "png": "res://assets/ui/item_icons/456.png",
+      "icon_id": 120040103
+    },
+    "485": {
+      "module_type_id": 485,
+      "name_zh": "小型加农",
+      "echoes_item_id": 0,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120100001.ktx",
+      "png": "res://assets/ui/item_icons/485.png",
+      "icon_id": 120100001
+    },
+    "491": {
+      "module_type_id": 491,
+      "name_zh": "中型加农",
+      "echoes_item_id": 11004220006,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120100101.ktx",
+      "png": "res://assets/ui/item_icons/491.png",
+      "icon_id": 120100101
+    },
+    "499": {
+      "module_type_id": 499,
+      "name_zh": "轻型导弹发射器",
+      "echoes_item_id": 11012000002,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120300001.ktx",
+      "png": "res://assets/ui/item_icons/499.png",
+      "icon_id": 120300001
+    },
+    "501": {
+      "module_type_id": 501,
+      "name_zh": "重型导弹发射器",
+      "echoes_item_id": 11012000002,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120300001.ktx",
+      "png": "res://assets/ui/item_icons/501.png",
+      "icon_id": 120300001
+    },
+    "561": {
+      "module_type_id": 561,
+      "name_zh": "小型磁轨",
+      "echoes_item_id": 11000020002,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120000003.ktx",
+      "png": "res://assets/ui/item_icons/561.png",
+      "icon_id": 120000003
+    },
+    "570": {
+      "module_type_id": 570,
+      "name_zh": "中型磁轨",
+      "echoes_item_id": 11000120004,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120000103.ktx",
+      "png": "res://assets/ui/item_icons/570.png",
+      "icon_id": 120000103
+    },
+    "3586": {
+      "module_type_id": 3586,
+      "name_zh": "小型远维盾",
+      "echoes_item_id": 11101000004,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\11101000000.ktx",
+      "png": "res://assets/ui/item_icons/3586.png",
+      "icon_id": 11101000000
+    },
+    "3596": {
+      "module_type_id": 3596,
+      "name_zh": "中型远维盾",
+      "echoes_item_id": 11101000004,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\11101000000.ktx",
+      "png": "res://assets/ui/item_icons/3596.png",
+      "icon_id": 11101000000
+    },
+    "11355": {
+      "module_type_id": 11355,
+      "name_zh": "小型远维甲",
+      "echoes_item_id": 11102000004,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\11102000000.ktx",
+      "png": "res://assets/ui/item_icons/11355.png",
+      "icon_id": 11102000000
+    },
+    "11357": {
+      "module_type_id": 11357,
+      "name_zh": "中型远维甲",
+      "echoes_item_id": 11102000004,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\11102000000.ktx",
+      "png": "res://assets/ui/item_icons/11357.png",
+      "icon_id": 11102000000
+    }
+  },
+  "echoes_icon_dir": "H:\\eve手游\\history\\asset_library\\items\\icons"
+}

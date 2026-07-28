@@ -62,8 +62,10 @@ func _pointer_down(screen: Vector2) -> void:
 	var ship2 := _ray_ship(screen)
 	if ship2 == null:
 		return
-	# Only player ships are draggable; AI still opens info.
-	if ship2.team_id == ShipUnit.TEAM_PLAYER:
+	var allow_drag := ship2.team_id == ShipUnit.TEAM_PLAYER
+	if not allow_drag and get_tree().paused:
+		allow_drag = true
+	if allow_drag:
 		_press_ship = ship2
 		_dragging = true
 		drag_begin.emit(ship2)
@@ -85,7 +87,10 @@ func _pointer_up(screen: Vector2) -> void:
 	var slot := {}
 	if not sell:
 		var w := _screen_to_ground(screen)
-		slot = _board.pick_slot_at(w, ShipUnit.TEAM_PLAYER)
+		var team := ShipUnit.TEAM_PLAYER
+		if _press_ship:
+			team = _press_ship.team_id
+		slot = _board.pick_slot_at(w, team)
 	drag_end.emit(sell, slot)
 	_press_ship = null
 
@@ -109,21 +114,37 @@ func _screen_to_ground(screen: Vector2) -> Vector3:
 	return origin + dir * t
 
 func _in_sell_zone(screen: Vector2) -> bool:
-	var sell := _root.hud.get_node_or_null("Root/Shop/ShopCol/ShopInner/SellZone") as Control
+	var sell := _root.hud.get_node_or_null("Root/Shop/ShopCol/ShopContent/ShopInner/SellZone") as Control
 	if sell == null or not sell.visible:
 		# During drag sell overlay may cover slots area — also accept full shop rect
 		var shop := _root.hud.get_node_or_null("Root/Shop") as Control
-		return shop != null and shop.get_global_rect().has_point(screen)
+		if shop == null or not shop.visible:
+			return false
+		var content := _root.hud.get_node_or_null("Root/Shop/ShopCol/ShopContent") as Control
+		if content and not content.visible:
+			return false
+		return shop.get_global_rect().has_point(screen)
 	return sell.get_global_rect().has_point(screen)
 
+func _control_blocks(path: String, screen: Vector2, require_visible_content: bool = false) -> bool:
+	var c := _root.hud.get_node_or_null(path) as Control
+	if c == null or not c.visible:
+		return false
+	if require_visible_content:
+		# Collapsed strips still occupy a thin rect — only block if content is up OR the strip itself is hit.
+		pass
+	return c.get_global_rect().has_point(screen)
+
 func _ui_blocks(screen: Vector2) -> bool:
-	var shop := _root.hud.get_node_or_null("Root/Shop") as Control
-	if shop and shop.get_global_rect().has_point(screen):
+	## Only opaque HUD chrome blocks board picks; Root gaps are mouse IGNORE.
+	if _control_blocks("Root/Shop", screen):
 		return true
-	var top := _root.hud.get_node_or_null("Root/TopRight") as Control
-	if top and top.get_global_rect().has_point(screen):
+	if _control_blocks("Root/LeftCol", screen):
 		return true
-	var info := _root.hud.get_node_or_null("Root/InfoPanel") as Control
-	if info and info.visible and info.get_global_rect().has_point(screen):
+	if _control_blocks("Root/RightCol", screen):
+		return true
+	if _control_blocks("Root/RoundBar", screen):
+		return true
+	if _control_blocks("Root/TopRight", screen):
 		return true
 	return false

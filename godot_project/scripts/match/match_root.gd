@@ -15,21 +15,48 @@ var ai: AiController
 var pointer: PointerInput
 
 var _info_ship: ShipUnit = null
+var _suppress_headup_for_preview: bool = false
 var _long_press_t: float = 0.0
 var _long_press_slot: int = -1
 var _dragging_sell_ui: bool = false
 var _cam_base_pos: Vector3 = Vector3.ZERO
+var _cam_default_pitch_deg: float = -55.0
 var _cam_base_pitch_deg: float = -55.0
 var _cam_base_yaw_deg: float = 0.0
+var _cam_frame_offset: Vector3 = Vector3.ZERO
+var _cam_frame_target: Vector3 = Vector3.ZERO
+var _cam_headup_offset_deg: float = 0.0
+var _cam_headup_phase: int = 0
+var _cam_headup_t: float = 0.0
+var _collapse_left: bool = false
+var _collapse_right: bool = false
+var _collapse_bottom: bool = false
+var _last_match_stage: int = MatchController.Stage.PREPARE
+var _battle_log_lines: Array = []
+const _BATTLE_LOG_MAX := 40
 var _citadel_hp_bar: Node3D = null
 const _CITADEL_BAR_SCRIPT := preload("res://scripts/ship/citadel_health_bar.gd")
 const _BgMusic := preload("res://scripts/audio/bg_music.gd")
 const _CAM_MOVE_SPEED := 8.0
 const _CAM_PITCH_SPEED := 35.0
 const _CAM_YAW_SPEED := 45.0
+const _SHOP_META := "Shop/ShopCol/ShopContent/MetaRow"
+const _SHOP_LEFT := "Shop/ShopCol/ShopContent/MetaRow/LeftCtrl"
+const _SHOP_MID := "Shop/ShopCol/ShopContent/MetaRow/MetaMid"
+const _SHOP_INNER := "Shop/ShopCol/ShopContent/ShopInner"
+const _SHOP_SLOTS := "Shop/ShopCol/ShopContent/ShopInner/ShopSlots"
+const _INFO_PANEL := "RightCol/RightInner/RightContent/InfoPanel"
+const _BONUS := "LeftCol/LeftInner/LeftContent/BonusContainer"
+const _ROUND := "RoundBar/RoundInner"
+
+func _enter_tree() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 func _ready() -> void:
 	add_to_group("match_root")
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	## Pick up balance/visual JSON edits without restarting the editor.
+	DataStore.reload_all()
 	_BgMusic.instance()
 	match_ctrl = MatchController.new()
 	board = BoardController.new()
@@ -45,6 +72,13 @@ func _ready() -> void:
 	add_child(firing_fx)
 	add_child(ai)
 	add_child(pointer)
+	match_ctrl.process_mode = Node.PROCESS_MODE_PAUSABLE
+	board.process_mode = Node.PROCESS_MODE_ALWAYS
+	shop.process_mode = Node.PROCESS_MODE_PAUSABLE
+	combat.process_mode = Node.PROCESS_MODE_PAUSABLE
+	firing_fx.process_mode = Node.PROCESS_MODE_PAUSABLE
+	ai.process_mode = Node.PROCESS_MODE_PAUSABLE
+	pointer.process_mode = Node.PROCESS_MODE_ALWAYS
 	board.setup(world)
 	_ensure_ground()
 	shop.bind(match_ctrl, board)
@@ -63,7 +97,7 @@ func _ready() -> void:
 	match_ctrl.hud_refresh.connect(_refresh_hud)
 	match_ctrl.notice.connect(show_notice)
 	match_ctrl.match_over.connect(_on_match_over)
-	match_ctrl.stage_changed.connect(func(_s): _refresh_hud())
+	match_ctrl.stage_changed.connect(_on_stage_changed_ui)
 	shop.shop_changed.connect(_refresh_shop_ui)
 	var mode := GameSession.pending_mode
 	_spawn_map_env(mode)
@@ -121,31 +155,32 @@ func _ensure_sky() -> void:
 		var sky := Sky.new()
 		var mat := PanoramaSkyMaterial.new()
 		mat.panorama = sky_tex
-		mat.energy_multiplier = 1.25
+		mat.energy_multiplier = 1.0
 		sky.sky_material = mat
 		environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.72, 0.74, 0.78)
-	environment.ambient_light_energy = 1.15
+	environment.ambient_light_color = Color(0.74, 0.76, 0.80)
+	environment.ambient_light_energy = 0.70
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	environment.tonemap_exposure = 1.15
+	environment.tonemap_exposure = 0.86
 	environment.tonemap_white = 1.0
 	environment.adjustment_enabled = true
-	environment.adjustment_brightness = 1.12
-	environment.adjustment_contrast = 1.08
-	environment.adjustment_saturation = 1.06
+	environment.adjustment_brightness = 0.97
+	environment.adjustment_contrast = 1.03
+	environment.adjustment_saturation = 1.0
 	environment.glow_enabled = false
 	environment.ssao_enabled = false
+	ShipLook.apply_match_environment(environment)
 	we.environment = environment
 	add_child(we)
 	_ensure_board_lights()
 
 func _ensure_board_lights() -> void:
-	## Off-frustum lights — brighter for readability without crushing hull detail.
+	## Off-frustum lights — driven by visual.json ship_look (high-contrast).
 	if get_node_or_null("KeyLightOffscreen") == null:
 		var key := DirectionalLight3D.new()
 		key.name = "KeyLightOffscreen"
-		key.light_energy = 1.25
+		key.light_energy = 1.20
 		key.light_color = Color(1.0, 0.98, 0.94)
 		key.shadow_enabled = true
 		key.shadow_opacity = 0.45
@@ -154,7 +189,7 @@ func _ensure_board_lights() -> void:
 	if get_node_or_null("RimLightOffscreen") == null:
 		var rim := DirectionalLight3D.new()
 		rim.name = "RimLightOffscreen"
-		rim.light_energy = 0.55
+		rim.light_energy = 0.52
 		rim.light_color = Color(0.65, 0.8, 1.0)
 		rim.shadow_enabled = false
 		rim.rotation_degrees = Vector3(-20.0, 145.0, 0.0)
@@ -162,14 +197,14 @@ func _ensure_board_lights() -> void:
 	if get_node_or_null("FillLight") == null:
 		var fill := OmniLight3D.new()
 		fill.name = "FillLight"
-		fill.light_energy = 0.55
+		fill.light_energy = 0.05
 		fill.omni_range = 85.0
 		fill.position = Vector3(0, 32, 10)
 		add_child(fill)
 	if get_node_or_null("FillLightAI") == null:
 		var fill_ai := OmniLight3D.new()
 		fill_ai.name = "FillLightAI"
-		fill_ai.light_energy = 0.42
+		fill_ai.light_energy = 0.05
 		fill_ai.light_color = Color(0.88, 0.92, 1.0)
 		fill_ai.omni_range = 60.0
 		fill_ai.position = Vector3(-16.0, 24.0, -18.0)
@@ -177,34 +212,66 @@ func _ensure_board_lights() -> void:
 	if get_node_or_null("FillLightPlayer") == null:
 		var fill_p := OmniLight3D.new()
 		fill_p.name = "FillLightPlayer"
-		fill_p.light_energy = 0.42
+		fill_p.light_energy = 0.05
 		fill_p.light_color = Color(1.0, 0.96, 0.9)
 		fill_p.omni_range = 60.0
 		fill_p.position = Vector3(16.0, 24.0, 18.0)
 		add_child(fill_p)
 	var scene_key := get_node_or_null("DirectionalLight3D") as DirectionalLight3D
 	if scene_key:
-		scene_key.light_energy = 1.05
+		scene_key.light_energy = 0.80
 		scene_key.shadow_opacity = 0.4
+	ShipLook.apply_match_lights(self)
 
 func _setup_camera() -> void:
-	## Default framing; QAWSED translate, RF pitch, TG yaw orbit; breathe on base pose.
-	var v := DataStore.visual
+	## Two default camera views:
+	## - primary: battle / bottom collapsed
+	## - secondary: prepare + bottom expanded
 	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	camera.fov = float(v.get("camera_fov", 47.0))
-	var dist := float(v.get("camera_distance", 18.067))
-	var height := float(v.get("camera_height", 21.464))
-	var cam_x := float(v.get("camera_x", -2.0))
-	var unity_pitch := float(v.get("camera_angle_deg", 57.0))
-	var unity_yaw := float(v.get("camera_yaw_deg", 180.0))
-	_cam_base_pos = Vector3(cam_x, height, dist)
-	_cam_base_pitch_deg = -unity_pitch
-	_cam_base_yaw_deg = unity_yaw - 180.0
+	var primary := _camera_primary_view()
+	_cam_base_pos = primary.get("pos", Vector3(-2.0, 21.464, 18.067))
+	_cam_base_pitch_deg = float(primary.get("pitch_deg", -57.0))
+	_cam_default_pitch_deg = _cam_base_pitch_deg
+	_cam_base_yaw_deg = float(primary.get("yaw_deg", 0.0))
+	camera.fov = float(primary.get("fov", 47.0))
 	camera.position = _cam_base_pos
-	camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0)
+	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
+
+func _camera_primary_view() -> Dictionary:
+	var v: Dictionary = DataStore.visual
+	return {
+		"pos": Vector3(
+			float(v.get("camera_x", 2.00856733322144)),
+			float(v.get("camera_height", 35.0967063903809)),
+			float(v.get("camera_distance", 28.4933738708496))
+		),
+		"pitch_deg": -float(v.get("camera_angle_deg", 55.6669960021973)),
+		"yaw_deg": float(v.get("camera_yaw_deg", 180.0)) - 180.0,
+		"fov": float(v.get("camera_fov", 50.0))
+	}
+
+func _camera_secondary_view() -> Dictionary:
+	var v: Dictionary = DataStore.visual
+	return {
+		"pos": Vector3(
+			float(v.get("camera_second_x", 1.82857227325439)),
+			float(v.get("camera_second_height", 27.0970573425293)),
+			float(v.get("camera_second_distance", 33.6982917785645))
+		),
+		"pitch_deg": -float(v.get("camera_second_angle_deg", 55.6669960021973)),
+		"yaw_deg": float(v.get("camera_second_yaw_deg", float(v.get("camera_yaw_deg", 180.0)))) - 180.0,
+		"fov": float(v.get("camera_second_fov", float(v.get("camera_fov", 50.0))))
+	}
+
+func _camera_active_view() -> Dictionary:
+	if match_ctrl and match_ctrl.stage == MatchController.Stage.BATTLE:
+		return _camera_primary_view()
+	return _camera_primary_view() if _collapse_bottom else _camera_secondary_view()
 
 func _process(delta: float) -> void:
 	_update_camera_free(delta)
+	_update_camera_headup(delta)
+	_update_camera_framing(delta)
 	_update_camera_breathe()
 
 func _update_camera_free(delta: float) -> void:
@@ -231,6 +298,8 @@ func _update_camera_free(delta: float) -> void:
 		pitch_delta -= _CAM_PITCH_SPEED * delta
 	if pitch_delta != 0.0:
 		_cam_base_pitch_deg = clampf(_cam_base_pitch_deg + pitch_delta, -89.0, -5.0)
+		# Treat user-tuned camera pitch as new "default" so round-end recovery snaps to it.
+		_cam_default_pitch_deg = _cam_base_pitch_deg
 	var yaw_delta := 0.0
 	if Input.is_physical_key_pressed(KEY_T):
 		yaw_delta -= _CAM_YAW_SPEED * delta
@@ -244,32 +313,92 @@ func _update_camera_free(delta: float) -> void:
 		_cam_base_pos = Vector3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c)
 		_cam_base_yaw_deg += yaw_delta
 	if move != Vector3.ZERO or pitch_delta != 0.0 or yaw_delta != 0.0:
-		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0)
+		camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
+
+func _camera_pitch_now() -> float:
+	return _cam_base_pitch_deg + _cam_headup_offset_deg
+
+func _update_camera_headup(delta: float) -> void:
+	if _cam_headup_phase == 0:
+		_cam_headup_offset_deg = 0.0
+		return
+	var v: Dictionary = DataStore.visual
+	var rise_s := maxf(0.01, float(v.get("camera_headup_time_s", 0.18)))
+	var recover_s := maxf(0.01, float(v.get("camera_headup_recover_s", 0.32)))
+	var target_deg := maxf(0.0, float(v.get("camera_headup_pitch_deg", 6.0)))
+	_cam_headup_t += delta
+	if _cam_headup_phase == 1:
+		var up_k := clampf(_cam_headup_t / rise_s, 0.0, 1.0)
+		_cam_headup_offset_deg = lerpf(0.0, target_deg, ease(up_k, -2.0))
+		if up_k >= 1.0:
+			_cam_base_pitch_deg = clampf(_cam_base_pitch_deg + target_deg, -89.0, -5.0)
+			_cam_headup_phase = 0
+			_cam_headup_t = 0.0
+			_cam_headup_offset_deg = 0.0
+	else:
+		var down_k := clampf(_cam_headup_t / recover_s, 0.0, 1.0)
+		_cam_headup_offset_deg = lerpf(target_deg, 0.0, ease(down_k, 2.0))
+		if down_k >= 1.0:
+			_cam_headup_phase = 0
+			_cam_headup_t = 0.0
+			_cam_headup_offset_deg = 0.0
+
+func _trigger_camera_headup(reason: String) -> void:
+	var v: Dictionary = DataStore.visual
+	if not bool(v.get("camera_headup_enabled", false)):
+		return
+	if _suppress_headup_for_preview:
+		return
+	var trigger := str(v.get("camera_headup_trigger", "stage_change"))
+	if trigger != "all" and trigger != reason:
+		return
+	_cam_headup_phase = 1
+	_cam_headup_t = 0.0
+	_cam_headup_offset_deg = 0.0
+
+func _update_camera_framing(delta: float) -> void:
+	var framing: Dictionary = DataStore.visual.get("camera_framing", {})
+	var spd := float(framing.get("lerp_speed", 4.0))
+	var view := _camera_active_view()
+	var k := clampf(spd * delta, 0.0, 1.0)
+	_cam_base_pos = _cam_base_pos.lerp(view.get("pos", _cam_base_pos), k)
+	_cam_base_pitch_deg = lerpf(_cam_base_pitch_deg, float(view.get("pitch_deg", _cam_base_pitch_deg)), k)
+	_cam_base_yaw_deg = lerpf(_cam_base_yaw_deg, float(view.get("yaw_deg", _cam_base_yaw_deg)), k)
+	camera.fov = lerpf(camera.fov, float(view.get("fov", camera.fov)), k)
+	_cam_default_pitch_deg = float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
+	_cam_frame_target = Vector3.ZERO
+	_cam_frame_offset = Vector3.ZERO
+	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
 func _update_camera_breathe() -> void:
-	var v := DataStore.visual
+	var v: Dictionary = DataStore.visual
+	var base := _cam_base_pos + _cam_frame_offset
+	# Kill breathe vertical bob if it reads as combat look-up.
+	var amp := float(v.get("camera_breathe_amp", 0.35))
 	if not bool(v.get("camera_breathe_enabled", true)):
-		camera.position = _cam_base_pos
+		camera.position = base
+		camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 		return
 	var period := maxf(0.5, float(v.get("camera_breathe_period_s", 12.0)))
-	var amp := float(v.get("camera_breathe_amp", 0.35))
 	var th := Time.get_ticks_msec() * 0.001 * TAU / period
 	var s := sin(th)
 	var c := cos(th)
-	# Diagonal figure-8 (lemniscate) with light vertical breathe, rotated 45° on Y.
-	var local := Vector3(s, 0.15 * s, s * c) * amp
+	# Diagonal figure-8 on XZ only (no Y) so pitch feel stays stable.
+	var local := Vector3(s, 0.0, s * c) * amp
 	var half := 0.70710678
 	var offset := Vector3(
 		local.x * half - local.z * half,
-		local.y,
+		0.0,
 		local.x * half + local.z * half
 	)
-	camera.position = _cam_base_pos + offset
-
+	camera.position = base + offset
+	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 func _build_hud() -> void:
+	_ensure_reserve_grid()
 	_apply_adaptive_hud_layout()
 	_style_hud_chrome()
 	_wire_shop_chrome()
+	_apply_shop_interactable()
 	var root := hud.get_node_or_null("Root") as Control
 	if root and not root.resized.is_connected(_on_hud_resized):
 		root.resized.connect(_on_hud_resized)
@@ -282,90 +411,161 @@ func _on_hud_resized() -> void:
 	_apply_adaptive_hud_layout()
 	_style_hud_chrome()
 	_wire_shop_chrome()
+	_apply_shop_interactable()
+
+func _ensure_reserve_grid() -> void:
+	var grid := hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ReserveGrid") as GridContainer
+	if grid == null or grid.get_child_count() > 0:
+		return
+	for i in range(8):
+		var cell := PanelContainer.new()
+		cell.custom_minimum_size = Vector2(18, 18)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.15, 0.45, 0.22, 0.55)
+		sb.set_corner_radius_all(2)
+		cell.add_theme_stylebox_override("panel", sb)
+		grid.add_child(cell)
 
 func _apply_adaptive_hud_layout() -> void:
 	var root := hud.get_node_or_null("Root") as Control
 	if root == null:
 		return
-	var shop := root.get_node_or_null("Shop") as Control
-	if shop:
-		UiLayout.set_left_strip(shop, UiLayout.shop_width_frac(), 0.055, 0.012, 0.006)
-	var hp := root.get_node_or_null("Hp") as Control
-	if hp:
-		UiLayout.set_rect_frac(hp, 0.01, 0.008, 0.22, 0.04)
-	var phase := root.get_node_or_null("Phase") as Control
-	if phase:
-		UiLayout.set_rect_frac(phase, 0.01, 0.035, 0.22, 0.06)
-	var place := root.get_node_or_null("Placement") as Control
-	if place:
-		UiLayout.set_rect_frac(place, 0.38, 0.01, 0.62, 0.09)
-	var bonus := root.get_node_or_null("BonusContainer") as Control
-	if bonus:
-		var left := UiLayout.shop_width_frac() + 0.02
-		UiLayout.set_rect_frac(bonus, left, 0.08, minf(left + 0.16, 0.42), 0.42)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var top_h := UiLayout.top_bar_height_frac()
+	var left_w: float = UiLayout.collapse_strip_frac() if _collapse_left else UiLayout.left_col_width_frac()
+	var right_w: float = UiLayout.collapse_strip_frac() if _collapse_right else UiLayout.right_col_width_frac()
+	var bottom_h: float = UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_height_frac()
+	var round_bar := root.get_node_or_null("RoundBar") as Control
+	if round_bar:
+		UiLayout.set_rect_frac(round_bar, 0.22, 0.008, 0.78, top_h)
 	var top_r := root.get_node_or_null("TopRight") as Control
 	if top_r:
-		UiLayout.set_rect_frac(top_r, 0.72, 0.015, 0.985, 0.075)
-	var info := root.get_node_or_null("InfoPanel") as Control
-	if info:
-		if UiLayout.is_mobile():
-			UiLayout.set_rect_frac(info, 0.62, 0.12, 0.985, 0.62)
-		else:
-			UiLayout.set_rect_frac(info, 0.74, 0.12, 0.985, 0.58)
+		UiLayout.set_rect_frac(top_r, 0.78, 0.008, 0.992, top_h)
+	var left_col := root.get_node_or_null("LeftCol") as Control
+	if left_col:
+		UiLayout.set_rect_frac(left_col, 0.006, top_h + 0.01, 0.006 + left_w, 1.0 - bottom_h - 0.02)
+	var right_col := root.get_node_or_null("RightCol") as Control
+	if right_col:
+		UiLayout.set_rect_frac(right_col, 1.0 - 0.006 - right_w, top_h + 0.01, 0.994, 1.0 - bottom_h - 0.02)
+	var shop_panel := root.get_node_or_null("Shop") as Control
+	if shop_panel:
+		UiLayout.set_bottom_strip(shop_panel, bottom_h, 0.01, 0.01, 0.008)
+	var left_content := root.get_node_or_null("LeftCol/LeftInner/LeftContent") as Control
+	if left_content:
+		left_content.visible = not _collapse_left
+	var right_content := root.get_node_or_null("RightCol/RightInner/RightContent") as Control
+	if right_content:
+		right_content.visible = not _collapse_right
+	var shop_content := root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	if shop_content:
+		shop_content.visible = not _collapse_bottom
+	var cl := root.get_node_or_null("LeftCol/LeftInner/CollapseLeftBtn") as Button
+	if cl:
+		cl.text = "▶" if _collapse_left else "◀"
+	var cr := root.get_node_or_null("RightCol/RightInner/CollapseRightBtn") as Button
+	if cr:
+		cr.text = "◀" if _collapse_right else "▶"
+	var cb := root.get_node_or_null("Shop/ShopCol/CollapseBottomBtn") as Button
+	if cb:
+		cb.text = "▲" if _collapse_bottom else "▼"
 	var notice := root.get_node_or_null("Notice") as Control
 	if notice:
-		UiLayout.set_rect_frac(notice, 0.25, 0.42, 0.75, 0.52)
+		UiLayout.set_rect_frac(notice, 0.28, 0.4, 0.72, 0.5)
+		notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _style_hud_chrome() -> void:
 	var root := hud.get_node_or_null("Root") as Control
 	if root == null:
 		return
-	for lbl_path in ["Hp", "Phase", "Placement/TimerCol/Timer", "Placement/TimerCol/StageHint", "Notice",
-			"Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels/Level",
-			"Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels/Exp",
-			"Shop/ShopCol/MetaRow/PopBox/Pop", "Shop/ShopCol/MetaRow/GoldBox/Gold", "TopRight/Version"]:
+	for lbl_path in [
+			"%s/Hp" % _ROUND, "%s/Phase" % _ROUND,
+			"%s/Placement/TimerCol/Timer" % _ROUND, "%s/Placement/TimerCol/StageHint" % _ROUND,
+			"Notice",
+			"%s/LevelExp/LEInner/LELabels/Level" % _SHOP_LEFT,
+			"%s/LevelExp/LEInner/LELabels/Exp" % _SHOP_LEFT,
+			"%s/StatsRow/PopBox/Pop" % _SHOP_MID, "%s/StatsRow/GoldBox/Gold" % _SHOP_MID,
+			"TopRight/Version",
+			"RightCol/RightInner/RightContent/BattleLog/BattleLogInner/BattleLogTitle"]:
 		var l := root.get_node_or_null(lbl_path) as Label
 		if l:
-			var design := 22 if "Timer" in lbl_path else (15 if "Shop/" in lbl_path else 14)
-			UiAssets.apply_label_font(l, false, UiLayout.font_size(design, root))
-			l.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
+			var design := 22 if "Timer" in lbl_path else (
+				32 if "Gold" in lbl_path else (
+				26 if "Pop" in lbl_path else (
+				22 if "Level" in lbl_path else 15)))
+			UiAssets.apply_label_font(l, "Gold" in lbl_path or "Level" in lbl_path, UiLayout.font_size(design, root))
+			l.add_theme_color_override("font_color", Color(1.0, 0.88, 0.2) if "Gold" in lbl_path else Color(0.95, 0.95, 0.9))
 			l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 			l.add_theme_constant_override("outline_size", UiLayout.margin_px(3, root))
-	var shop_panel := root.get_node_or_null("Shop") as PanelContainer
-	if shop_panel:
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.07, 0.09, 0.11, 0.88)
-		sb.border_color = Color(0.35, 0.72, 0.85, 0.55)
-		sb.set_border_width_all(1)
-		sb.set_corner_radius_all(4)
-		sb.set_content_margin_all(UiLayout.margin_px(6, root))
-		shop_panel.add_theme_stylebox_override("panel", sb)
-	var info := root.get_node_or_null("InfoPanel") as PanelContainer
+	for panel_path in ["RoundBar", "LeftCol", "RightCol", "Shop"]:
+		var panel := root.get_node_or_null(panel_path) as PanelContainer
+		if panel:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = Color(0.07, 0.09, 0.11, 0.88)
+			sb.border_color = Color(0.35, 0.72, 0.85, 0.55)
+			sb.set_border_width_all(1)
+			sb.set_corner_radius_all(4)
+			sb.set_content_margin_all(UiLayout.margin_px(6, root))
+			panel.add_theme_stylebox_override("panel", sb)
+			panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var info := root.get_node_or_null(_INFO_PANEL) as PanelContainer
 	if info:
 		var sb2 := StyleBoxFlat.new()
-		sb2.bg_color = Color(0.12, 0.13, 0.15, 0.95)
+		sb2.bg_color = Color(0.10, 0.12, 0.15, 0.0)
+		sb2.border_color = Color(0.35, 0.72, 0.85, 0.38)
+		sb2.set_border_width_all(1)
 		sb2.set_corner_radius_all(6)
-		sb2.set_content_margin_all(UiLayout.margin_px(10, root))
+		sb2.set_content_margin_all(UiLayout.margin_px(8, root))
 		info.add_theme_stylebox_override("panel", sb2)
-	var skip := root.get_node_or_null("Placement/SkipBtn") as Button
+	var blog := root.get_node_or_null("RightCol/RightInner/RightContent/BattleLog") as PanelContainer
+	if blog:
+		var sb3 := StyleBoxFlat.new()
+		sb3.bg_color = Color(0.08, 0.12, 0.16, 0.9)
+		sb3.set_corner_radius_all(4)
+		sb3.set_content_margin_all(UiLayout.margin_px(6, root))
+		blog.add_theme_stylebox_override("panel", sb3)
+	var skip := root.get_node_or_null("%s/Placement/SkipBtn" % _ROUND) as Button
 	if skip:
 		UiAssets.apply_button_font(skip, UiLayout.font_size(14, root))
 		skip.custom_minimum_size = Vector2(UiLayout.px(72, root), UiLayout.px(36, root))
-	for btn_name in ["TopRight/PauseBtn", "TopRight/ExitBtn"]:
+	for btn_name in ["TopRight/PauseBtn", "TopRight/ExitBtn", "TopRight/SpeedBtn",
+			"LeftCol/LeftInner/CollapseLeftBtn", "RightCol/RightInner/CollapseRightBtn",
+			"Shop/ShopCol/CollapseBottomBtn"]:
 		var b := root.get_node_or_null(btn_name) as Button
 		if b:
 			UiAssets.apply_button_font(b, UiLayout.font_size(13, root))
-			b.custom_minimum_size = Vector2(UiLayout.px(64, root), UiLayout.px(32, root))
+			b.custom_minimum_size = Vector2(UiLayout.px(56, root), UiLayout.px(28, root))
+	_ensure_speed_button(root)
+
+func _ensure_speed_button(root: Node) -> void:
+	var top_r := root.get_node_or_null("TopRight") as HBoxContainer
+	if top_r == null:
+		return
+	var btn := top_r.get_node_or_null("SpeedBtn") as Button
+	if btn == null:
+		btn = Button.new()
+		btn.name = "SpeedBtn"
+		var pause := top_r.get_node_or_null("PauseBtn")
+		if pause:
+			top_r.add_child(btn)
+			top_r.move_child(btn, pause.get_index())
+		else:
+			top_r.add_child(btn)
+		btn.pressed.connect(_on_speed_pressed)
+	btn.visible = match_ctrl.stage == MatchController.Stage.BATTLE
+	btn.text = match_ctrl.speed_label()
+	btn.tooltip_text = "战斗倍速（点按循环）"
 
 func _wire_shop_chrome() -> void:
 	var root := hud.get_node_or_null("Root")
 	if root == null:
 		return
-	_style_image_button(root.get_node_or_null("Shop/ShopCol/ShopInner/LeftBtns/ExpBtn") as Button,
-			UiAssets.shop_exp_path(), "升级", int(DataStore.economy.get("buy_exp_gold_cost", 4)))
-	_style_image_button(root.get_node_or_null("Shop/ShopCol/ShopInner/LeftBtns/RefreshBtn") as Button,
-			UiAssets.shop_refresh_path(), "刷新", int(DataStore.economy.get("refresh_cost", 2)))
-	var lock := root.get_node_or_null("Shop/ShopCol/MetaRow/LockBtn") as Button
+	# 按钮素材为横图（约 198×69）；宽度保持原设计，高度按比例，禁止再塞进正方形造成下方空白
+	var btn_w := UiLayout.px(144 if UiLayout.is_mobile() else 162, root)
+	_style_image_button(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button,
+			UiAssets.shop_exp_path(), "购买经验", int(DataStore.economy.get("buy_exp_gold_cost", 4)), btn_w)
+	_style_image_button(root.get_node_or_null("%s/LeftBtns/RefreshBtn" % _SHOP_LEFT) as Button,
+			UiAssets.shop_refresh_path(), "刷新商店", int(DataStore.economy.get("refresh_cost", 2)), btn_w)
+	var lock := root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
 	if lock:
 		var t := UiAssets.tex(UiAssets.ICON_LOCK)
 		if t:
@@ -373,40 +573,79 @@ func _wire_shop_chrome() -> void:
 			lock.expand_icon = true
 		lock.text = ""
 		UiAssets.apply_button_font(lock, UiLayout.font_size(14, root))
-		lock.custom_minimum_size = Vector2(UiLayout.px(40, root), UiLayout.px(34, root))
-	_ensure_meta_icon(root.get_node_or_null("Shop/ShopCol/MetaRow/GoldBox") as HBoxContainer, "Gold", UiAssets.ICON_MONEY)
-	_ensure_meta_icon(root.get_node_or_null("Shop/ShopCol/MetaRow/PopBox") as HBoxContainer, "Pop", UiAssets.ICON_POP)
-	var bar := root.get_node_or_null("Shop/ShopCol/MetaRow/LevelExp/LEInner/ExpBar") as ProgressBar
-	if bar:
-		bar.custom_minimum_size = Vector2(0, UiLayout.px(5, root))
-		var fill := StyleBoxFlat.new()
-		fill.bg_color = Color(0.0, 0.6, 1.0, 1.0)
-		bar.add_theme_stylebox_override("fill", fill)
-		var bg := StyleBoxFlat.new()
-		bg.bg_color = Color(0.0, 0.4, 0.7, 0.25)
-		bar.add_theme_stylebox_override("background", bg)
-	var sell := root.get_node_or_null("Shop/ShopCol/ShopInner/SellZone") as PanelContainer
+		lock.custom_minimum_size = Vector2(UiLayout.px(52, root), UiLayout.px(44, root))
+	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, 36)
+	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/PopBox" % _SHOP_MID) as HBoxContainer, "Pop", UiAssets.ICON_POP, 36)
+	var btn_h := btn_w * (69.0 / 198.0)  # 与素材比例一致
+	var le := root.get_node_or_null("%s/LevelExp" % _SHOP_LEFT) as PanelContainer
+	if le:
+		# 等级框贴合内容，高度不超过按钮行
+		var le_h := minf(UiLayout.px(64 if UiLayout.is_mobile() else 68, root), ceilf(btn_h) + float(UiLayout.margin_px(8, root)))
+		le.custom_minimum_size = Vector2(UiLayout.px(208, root), le_h)
+		le.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var le_inner := le.get_node_or_null("LEInner") as VBoxContainer
+		if le_inner:
+			le_inner.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			le_inner.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		var le_sb := StyleBoxFlat.new()
+		le_sb.bg_color = Color(0.05, 0.08, 0.1, 0.75)
+		le_sb.border_color = Color(0.25, 0.55, 0.7, 0.55)
+		le_sb.set_border_width_all(1)
+		le_sb.set_corner_radius_all(4)
+		le_sb.content_margin_left = UiLayout.margin_px(8, root)
+		le_sb.content_margin_right = UiLayout.margin_px(8, root)
+		le_sb.content_margin_top = UiLayout.margin_px(4, root)
+		le_sb.content_margin_bottom = UiLayout.margin_px(4, root)
+		le.add_theme_stylebox_override("panel", le_sb)
+	var left_ctrl := root.get_node_or_null(_SHOP_LEFT) as Control
+	if left_ctrl:
+		# 宽度保留；高度跟内容走，禁止再锁 162 把 MetaRow 撑出空白带
+		left_ctrl.custom_minimum_size = Vector2(UiLayout.px(560, root), 0)
+		left_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if left_ctrl is BoxContainer:
+			(left_ctrl as BoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	var left_btns := root.get_node_or_null("%s/LeftBtns" % _SHOP_LEFT) as Control
+	if left_btns:
+		left_btns.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var seg_row := root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as HBoxContainer
+	if seg_row:
+		seg_row.custom_minimum_size = Vector2(0, UiLayout.px(18, root))
+		seg_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		seg_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var meta_row := root.get_node_or_null(_SHOP_META) as HBoxContainer
+	if meta_row:
+		meta_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		meta_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		meta_row.add_theme_constant_override("separation", UiLayout.margin_px(10, root))
+	var shop_content := root.get_node_or_null("Shop/ShopCol/ShopContent") as VBoxContainer
+	if shop_content:
+		shop_content.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+	var stats := root.get_node_or_null("%s/StatsRow" % _SHOP_MID) as HBoxContainer
+	if stats:
+		stats.alignment = BoxContainer.ALIGNMENT_CENTER
+		stats.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var sell := root.get_node_or_null("%s/SellZone" % _SHOP_INNER) as PanelContainer
 	if sell:
-		sell.custom_minimum_size = Vector2(0, UiLayout.px(56, root))
+		sell.custom_minimum_size = Vector2(UiLayout.px(120, root), 0)
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.2, 0.22, 0.25, 0.92)
 		sb.border_color = Color(0.4, 0.75, 0.9, 0.7)
 		sb.set_border_width_all(2)
 		sb.set_corner_radius_all(4)
 		sell.add_theme_stylebox_override("panel", sb)
-	var le := root.get_node_or_null("Shop/ShopCol/MetaRow/LevelExp") as Control
-	if le:
-		le.custom_minimum_size = Vector2(UiLayout.px(96, root), UiLayout.px(34, root))
 
-func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String) -> void:
+func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String, design_px: int = 20) -> void:
 	if box == null:
 		return
 	for c in box.get_children():
 		if c is TextureRect and c.has_meta("meta_icon_for") and str(c.get_meta("meta_icon_for")) == for_name:
+			var existing_icon_sz := UiLayout.px(float(design_px), box)
+			(c as TextureRect).custom_minimum_size = Vector2(existing_icon_sz, existing_icon_sz)
 			return
 	var icon := TextureRect.new()
 	icon.set_meta("meta_icon_for", for_name)
-	icon.custom_minimum_size = Vector2(UiLayout.px(20, box), UiLayout.px(20, box))
+	var new_icon_sz := UiLayout.px(float(design_px), box)
+	icon.custom_minimum_size = Vector2(new_icon_sz, new_icon_sz)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var t := UiAssets.tex(tex_path)
@@ -415,22 +654,72 @@ func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String) -
 	box.add_child(icon)
 	box.move_child(icon, 0)
 
-func _style_image_button(btn: Button, tex_path: String, title: String, cost: int) -> void:
+func _refresh_exp_segments(root: Node) -> void:
+	var row := root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as HBoxContainer
+	if row == null:
+		return
+	for c in row.get_children():
+		row.remove_child(c)
+		c.free()
+	var demand := maxi(1, match_ctrl.up_level_demand)
+	var exp_now := clampi(match_ctrl.player_exp, 0, demand)
+	var seg_h := UiLayout.px(18, row)
+	var slots := demand if demand <= 10 else 10
+	var filled := exp_now if demand <= 10 else int(round(float(exp_now) / float(demand) * float(slots)))
+	row.add_theme_constant_override("separation", UiLayout.margin_px(4, row))
+	row.custom_minimum_size = Vector2(0, seg_h)
+	for i in range(slots):
+		var cell := PanelContainer.new()
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cell.custom_minimum_size = Vector2(UiLayout.px(10, row), seg_h)
+		var sb := StyleBoxFlat.new()
+		if i < filled:
+			sb.bg_color = Color(0.0, 0.78, 1.0, 1.0)
+			sb.border_color = Color(0.55, 0.92, 1.0, 0.95)
+		else:
+			sb.bg_color = Color(0.04, 0.16, 0.24, 0.92)
+			sb.border_color = Color(0.22, 0.48, 0.62, 0.9)
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(3)
+		sb.set_content_margin_all(0)
+		cell.add_theme_stylebox_override("panel", sb)
+		row.add_child(cell)
+	var legacy := root.get_node_or_null("%s/LevelExp/LEInner/ExpBar" % _SHOP_LEFT) as ProgressBar
+	if legacy:
+		legacy.visible = false
+
+func _style_image_button(btn: Button, tex_path: String, title: String, cost: int, width_px: float = -1.0) -> void:
 	if btn == null:
 		return
 	# Image-only: art fills the control; cost stays in tooltip / accessibility.
 	btn.text = ""
 	btn.tooltip_text = "%s  %d" % [title, cost]
+	var w := width_px if width_px > 0.0 else UiLayout.px(72 if UiLayout.is_mobile() else 88, btn)
+	var h := w
 	var t := UiAssets.tex(tex_path)
+	if t and t.get_width() > 0 and t.get_height() > 0:
+		# 横图按比例定高，避免正方形 min_size 在图标下方留出大块空白
+		h = w * (float(t.get_height()) / float(t.get_width()))
+	btn.custom_minimum_size = Vector2(w, h)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if t:
 		btn.icon = t
 		btn.expand_icon = true
 		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	btn.custom_minimum_size = Vector2(0, UiLayout.px(52 if UiLayout.is_mobile() else 64, btn))
-	btn.add_theme_constant_override("icon_max_width", 0)
+		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	# Allow large icons to fill the button face.
+	btn.add_theme_constant_override("icon_max_width", int(w))
+	var empty := StyleBoxEmpty.new()
+	btn.add_theme_stylebox_override("normal", empty)
+	btn.add_theme_stylebox_override("hover", empty)
+	btn.add_theme_stylebox_override("pressed", empty)
+	btn.add_theme_stylebox_override("disabled", empty)
 
 func show_notice(text: String) -> void:
 	AdminBus.request(&"ui.notice", {"text": text})
+	_append_battle_log(text)
 	var lbl := hud.get_node_or_null("Root/Notice") as Label
 	if lbl:
 		lbl.text = text
@@ -447,18 +736,15 @@ func _refresh_hud() -> void:
 	var root := hud.get_node_or_null("Root")
 	if root == null:
 		return
-	_set_label(root, "Hp", "HP %d" % match_ctrl.player_hp)
+	_set_label(root, "%s/Hp" % _ROUND, "HP %d" % match_ctrl.player_hp)
 	_refresh_citadel_bar()
-	_set_label(root, "Phase", "阶段 %d-%d" % [match_ctrl.battle_phase_value, match_ctrl.round_phase_value])
-	_set_label(root, "Shop/ShopCol/MetaRow/GoldBox/Gold", "%d" % match_ctrl.player_gold)
-	_set_label(root, "Shop/ShopCol/MetaRow/PopBox/Pop", "%d/%d" % [board.count_field(ShipUnit.TEAM_PLAYER), match_ctrl.population_limit()])
-	_set_label(root, "Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels/Level", "%d级" % match_ctrl.player_level)
-	_set_label(root, "Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels/Exp", "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
-	var bar := root.get_node_or_null("Shop/ShopCol/MetaRow/LevelExp/LEInner/ExpBar") as ProgressBar
-	if bar:
-		bar.max_value = maxf(1.0, float(match_ctrl.up_level_demand))
-		bar.value = float(match_ctrl.player_exp)
-	var lock := root.get_node_or_null("Shop/ShopCol/MetaRow/LockBtn") as Button
+	_set_label(root, "%s/Phase" % _ROUND, "阶段 %d-%d" % [match_ctrl.battle_phase_value, match_ctrl.round_phase_value])
+	_set_label(root, "%s/StatsRow/GoldBox/Gold" % _SHOP_MID, "%d" % match_ctrl.player_gold)
+	_set_label(root, "%s/StatsRow/PopBox/Pop" % _SHOP_MID, "%d/%d" % [board.count_field(ShipUnit.TEAM_PLAYER), match_ctrl.population_limit()])
+	_set_label(root, "%s/LevelExp/LEInner/LELabels/Level" % _SHOP_LEFT, "%d级" % match_ctrl.player_level)
+	_set_label(root, "%s/LevelExp/LEInner/LELabels/Exp" % _SHOP_LEFT, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
+	_refresh_exp_segments(root)
+	var lock := root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
 	if lock:
 		lock.set_pressed_no_signal(match_ctrl.shop_locked)
 	var stage_name := "准备" if match_ctrl.stage == MatchController.Stage.PREPARE else ("战斗" if match_ctrl.stage == MatchController.Stage.BATTLE else "结束")
@@ -466,20 +752,52 @@ func _refresh_hud() -> void:
 	if match_ctrl.stage == MatchController.Stage.PREPARE:
 		ttext = "%.0f" % match_ctrl.prepare_remaining()
 	elif match_ctrl.stage == MatchController.Stage.BATTLE:
-		ttext = "%.0f" % match_ctrl.battle_elapsed()
-	_set_label(root, "Placement/TimerCol/Timer", ttext)
-	_set_label(root, "Placement/TimerCol/StageHint", stage_name)
-	var skip := root.get_node_or_null("Placement/SkipBtn") as Button
+		ttext = "%.0f" % match_ctrl.battle_remaining()
+	_set_label(root, "%s/Placement/TimerCol/Timer" % _ROUND, ttext)
+	_set_label(root, "%s/Placement/TimerCol/StageHint" % _ROUND, stage_name)
+	var speed_btn := root.get_node_or_null("TopRight/SpeedBtn") as Button
+	if speed_btn:
+		speed_btn.visible = match_ctrl.stage == MatchController.Stage.BATTLE
+		speed_btn.text = match_ctrl.speed_label()
+	var skip := root.get_node_or_null("%s/Placement/SkipBtn" % _ROUND) as Button
 	if skip:
 		skip.visible = match_ctrl.stage == MatchController.Stage.PREPARE
 		skip.disabled = match_ctrl.stage != MatchController.Stage.PREPARE
+	_apply_shop_interactable()
 	_refresh_fetter_ui(root)
 	var ver := root.get_node_or_null("TopRight/Version") as Label
 	if ver:
 		ver.text = "壳 %s | 热更 %s" % [str(ProjectSettings.get_setting("application/config/version", "dev")), DataStore.content_version]
 
+func _apply_shop_interactable() -> void:
+	## Shop stays interactive in Prepare and Battle (no grey-lock).
+	var root := hud.get_node_or_null("Root")
+	if root == null:
+		return
+	for path in [
+			"%s/LeftBtns/ExpBtn" % _SHOP_LEFT,
+			"%s/LeftBtns/RefreshBtn" % _SHOP_LEFT,
+			"%s/StatsRow/LockBtn" % _SHOP_MID]:
+		var b := root.get_node_or_null(path) as Button
+		if b:
+			b.disabled = false
+			b.modulate = Color(1, 1, 1, 1)
+	var slots := root.get_node_or_null(_SHOP_SLOTS) as Control
+	if slots:
+		slots.modulate = Color(1, 1, 1, 1)
+		for c in slots.get_children():
+			_set_shop_card_interactable(c, true)
+
+func _set_shop_card_interactable(card: Node, enabled: bool) -> void:
+	if card == null:
+		return
+	for child in card.get_children():
+		if child is BaseButton:
+			(child as BaseButton).disabled = not enabled
+			(child as BaseButton).mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+		_set_shop_card_interactable(child, enabled)
 func _refresh_fetter_ui(root: Node) -> void:
-	var side := root.get_node_or_null("BonusContainer") as VBoxContainer
+	var side := root.get_node_or_null(_BONUS) as VBoxContainer
 	if side == null:
 		return
 	var list := side.get_node_or_null("FetterList") as VBoxContainer
@@ -493,28 +811,45 @@ func _refresh_fetter_ui(root: Node) -> void:
 		side.add_child(list)
 	for c in list.get_children():
 		c.queue_free()
-	var fetters := board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	var fetters: Array = board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	for a in fetters:
 		var fid := str(a.get("fetter_id", ""))
 		var fdata: Dictionary = DataStore.fetters.get(fid, {})
 		var fname := str(fdata.get("name", fid))
+		var count := int(a.get("count", 0))
+		var eff: Dictionary = a.get("effect", {})
+		var need := int(eff.get("champion_count", 0))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var icon := TextureRect.new()
-		icon.custom_minimum_size = Vector2(UiLayout.px(22, list), UiLayout.px(22, list))
+		icon.custom_minimum_size = Vector2(UiLayout.px(26, list), UiLayout.px(26, list))
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		var tex := UiAssets.fetter_icon(fname)
+		var tex := UiAssets.fetter_icon(fid, fname)
 		if tex:
 			icon.texture = tex
 		row.add_child(icon)
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_theme_constant_override("separation", 1)
 		var lab := Label.new()
-		lab.text = "%s %d" % [fname, int(a.get("count", 0))]
-		UiAssets.apply_label_font(lab, false, UiLayout.font_size(13, list))
+		lab.text = "%s %d/%d" % [fname, count, need] if need > 0 else "%s %d" % [fname, count]
+		UiAssets.apply_label_font(lab, false, UiLayout.font_size(15, list))
 		lab.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
 		lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		lab.add_theme_constant_override("outline_size", 3)
-		row.add_child(lab)
+		col.add_child(lab)
+		var eff_txt := UiAssets.fetter_effect_text(eff)
+		if eff_txt != "":
+			var elab := Label.new()
+			elab.text = eff_txt
+			elab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			UiAssets.apply_label_font(elab, false, UiLayout.font_size(12, list))
+			elab.add_theme_color_override("font_color", Color(0.55, 0.92, 0.72))
+			elab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+			elab.add_theme_constant_override("outline_size", 2)
+			col.add_child(elab)
+		row.add_child(col)
 		list.add_child(row)
 
 func _set_label(root: Node, path: String, text: String) -> void:
@@ -523,97 +858,170 @@ func _set_label(root: Node, path: String, text: String) -> void:
 		l.text = text
 
 func _refresh_shop_ui() -> void:
-	var box := hud.get_node_or_null("Root/Shop/ShopCol/ShopInner/ShopSlots") as VBoxContainer
+	var box := hud.get_node_or_null("Root/%s" % _SHOP_SLOTS) as HBoxContainer
 	if box == null:
 		return
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	for c in box.get_children():
 		c.queue_free()
+	var slot_count := maxi(1, shop.slots.size())
+	var card_size := _shop_card_size(slot_count, box)
 	for i in range(shop.slots.size()):
 		var slot: Dictionary = shop.slots[i]
 		var sid := int(slot.get("ship_id", 0))
-		var ship := DataStore.get_ship(sid)
+		var ship: Dictionary = DataStore.get_ship(sid)
 		var purchased := bool(slot.get("purchased", false))
 		var ship_name := str(ship.get("name", "?"))
 		var cost := int(ship.get("cost", 0))
-		var card := _make_shop_card(ship_name, ship, purchased, cost, i)
+		var card := _make_shop_card(ship_name, ship, purchased, cost, i, card_size)
 		box.add_child(card)
 	if not _dragging_sell_ui:
 		_set_sell_mode(false)
+	_apply_shop_interactable()
 
-func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int) -> Control:
+func _shop_card_size(slot_count: int, box: Control) -> Vector2:
+	var avail_w := box.size.x
+	var avail_h := box.size.y
+	if avail_w < 8.0 or avail_h < 8.0:
+		var shop_panel := hud.get_node_or_null("Root/Shop") as Control
+		if shop_panel:
+			avail_w = shop_panel.size.x * 0.88
+			avail_h = shop_panel.size.y * 0.62
+	if avail_w < 8.0:
+		avail_w = UiLayout.px(1100.0, box)
+	if avail_h < 8.0:
+		avail_h = UiLayout.px(160.0, box)
+	var sep := float(UiLayout.margin_px(6, box))
+	var total_sep := sep * float(maxi(0, slot_count - 1))
+	var w := (avail_w - total_sep) / float(slot_count)
+	var min_w := UiLayout.px(88.0 if UiLayout.is_mobile() else 100.0, box)
+	var max_w := UiLayout.px(180.0 if UiLayout.is_mobile() else 210.0, box)
+	var min_h := UiLayout.px(120.0 if UiLayout.is_mobile() else 140.0, box)
+	var max_h := UiLayout.px(180.0 if UiLayout.is_mobile() else 210.0, box)
+	return Vector2(clampf(w, min_w, max_w), clampf(avail_h, min_h, max_h))
+
+func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int, card_size: Vector2 = Vector2.ZERO) -> Control:
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(0, UiLayout.px(88 if UiLayout.is_mobile() else 108, card))
+	var sz := card_size if card_size.x > 0.0 else Vector2(UiLayout.px(140, card), UiLayout.px(170, card))
+	card.custom_minimum_size = sz
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var outer := StyleBoxFlat.new()
-	outer.bg_color = Color(0.26, 0.29, 0.3, 0.98)
-	outer.border_color = Color(0.31, 0.42, 0.47, 0.95)
+	outer.bg_color = Color(0.14, 0.16, 0.18, 0.98)
+	outer.border_color = Color(0.4, 0.65, 0.78, 0.95)
 	outer.set_border_width_all(2)
-	outer.set_corner_radius_all(3)
-	outer.set_content_margin_all(UiLayout.margin_px(4, card))
+	outer.set_corner_radius_all(5)
+	outer.set_content_margin_all(0)
 	card.add_theme_stylebox_override("panel", outer)
-	var body := PanelContainer.new()
-	var face := StyleBoxFlat.new()
-	face.bg_color = Color(0.31, 0.42, 0.47, 0.85)
-	face.set_content_margin_all(UiLayout.margin_px(4, card))
-	body.add_theme_stylebox_override("panel", face)
-	card.add_child(body)
-	var root_v := VBoxContainer.new()
-	root_v.add_theme_constant_override("separation", UiLayout.margin_px(4, card))
-	body.add_child(root_v)
+	var stack := Control.new()
+	stack.custom_minimum_size = sz
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.add_child(stack)
 	if purchased:
 		var done := Label.new()
 		done.text = "已购"
+		done.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		done.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		done.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		done.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		UiAssets.apply_label_font(done, false, UiLayout.font_size(18, card))
-		root_v.add_child(done)
+		UiAssets.apply_label_font(done, false, UiLayout.font_size(20, card))
+		done.add_theme_color_override("font_color", Color(0.85, 0.85, 0.8))
+		stack.add_child(done)
 		return card
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", UiLayout.margin_px(6, card))
-	root_v.add_child(top)
-	var fetter_col := VBoxContainer.new()
-	fetter_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	fetter_col.add_theme_constant_override("separation", UiLayout.margin_px(3, card))
-	top.add_child(fetter_col)
+	# Large centered portrait (leave room below for fetter strip + name)
+	var psz := minf(sz.x * 0.88, sz.y * 0.58)
+	psz = maxf(psz, UiLayout.px(72 if UiLayout.is_mobile() else 90, card))
+	var tex := UiAssets.champion_icon(ship_name, int(ship.get("id", 0)))
+	var art: Control
+	if tex:
+		var art_rect := TextureRect.new()
+		art_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		art_rect.texture = tex
+		art = art_rect
+	else:
+		var ph := ColorRect.new()
+		ph.color = Color(0.12, 0.16, 0.24, 1.0)
+		art = ph
+	art.custom_minimum_size = Vector2(psz, psz)
+	art.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	art.anchor_left = 0.5
+	art.anchor_right = 0.5
+	art.offset_left = -psz * 0.5
+	art.offset_right = psz * 0.5
+	art.offset_top = UiLayout.px(28, card)
+	art.offset_bottom = art.offset_top + psz
+	stack.add_child(art)
+	# 本舰可达成羁绊 · 立绘下方简展
 	var fids: Array = ship.get("fetter_ids", [])
+	var badge_icon := UiLayout.px(18 if UiLayout.is_mobile() else 22, card)
+	var fetter_box := HBoxContainer.new()
+	fetter_box.add_theme_constant_override("separation", UiLayout.margin_px(3, card))
+	fetter_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	fetter_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	fetter_box.anchor_left = 0.0
+	fetter_box.anchor_right = 1.0
+	fetter_box.offset_left = UiLayout.px(4, card)
+	fetter_box.offset_right = -UiLayout.px(4, card)
+	fetter_box.offset_top = art.offset_bottom + UiLayout.px(2, card)
+	fetter_box.offset_bottom = fetter_box.offset_top + badge_icon + 2.0
 	for fid in fids:
 		var fdata: Dictionary = DataStore.fetters.get(str(fid), {})
 		var fname := str(fdata.get("name", fid))
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", UiLayout.margin_px(4, card))
 		var fic := TextureRect.new()
-		fic.custom_minimum_size = Vector2(UiLayout.px(16, card), UiLayout.px(16, card))
+		fic.custom_minimum_size = Vector2(badge_icon, badge_icon)
 		fic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		fic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		var ft := UiAssets.fetter_icon(fname)
+		fic.tooltip_text = fname
+		var ft := UiAssets.fetter_icon(str(fid), fname)
 		if ft:
 			fic.texture = ft
-		row.add_child(fic)
-		var fl := Label.new()
-		fl.text = fname
-		UiAssets.apply_label_font(fl, false, UiLayout.font_size(11, card))
-		fl.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
-		row.add_child(fl)
-		fetter_col.add_child(row)
-	var portrait := TextureRect.new()
-	var psz := UiLayout.px(52 if UiLayout.is_mobile() else 64, card)
-	portrait.custom_minimum_size = Vector2(psz, psz)
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var tex := UiAssets.champion_icon(ship_name)
-	if tex:
-		portrait.texture = tex
-	top.add_child(portrait)
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", UiLayout.margin_px(6, card))
-	root_v.add_child(bottom)
+		else:
+			# 无图时用色块占位，避免空白缺口
+			var ph2 := ColorRect.new()
+			ph2.custom_minimum_size = Vector2(badge_icon, badge_icon)
+			ph2.color = Color(0.35, 0.4, 0.48, 0.9)
+			ph2.tooltip_text = fname
+			fetter_box.add_child(ph2)
+			continue
+		fetter_box.add_child(fic)
+	stack.add_child(fetter_box)
+	# Name under fetter strip
 	var name_l := Label.new()
 	name_l.text = ship_name
-	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	UiAssets.apply_label_font(name_l, false, UiLayout.font_size(13, card))
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	name_l.offset_top = -UiLayout.px(28, card)
+	name_l.offset_bottom = -UiLayout.px(4, card)
+	name_l.offset_left = UiLayout.px(4, card)
+	name_l.offset_right = -UiLayout.px(4, card)
+	UiAssets.apply_label_font(name_l, false, UiLayout.font_size(14, card))
 	name_l.add_theme_color_override("font_color", Color(1, 1, 1))
-	bottom.add_child(name_l)
+	name_l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	name_l.add_theme_constant_override("outline_size", 3)
+	stack.add_child(name_l)
+	# ★ 角标 · 左上
+	var star_badge := _make_corner_badge("★1", Color(0.12, 0.1, 0.05, 0.92), Color(1.0, 0.88, 0.35), card)
+	star_badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	star_badge.offset_left = UiLayout.px(4, card)
+	star_badge.offset_top = UiLayout.px(4, card)
+	star_badge.offset_right = star_badge.offset_left + UiLayout.px(42, card)
+	star_badge.offset_bottom = star_badge.offset_top + UiLayout.px(24, card)
+	stack.add_child(star_badge)
+	# 价格角标 · 右下
+	var cost_badge := PanelContainer.new()
+	var cost_sb := StyleBoxFlat.new()
+	cost_sb.bg_color = Color(0.05, 0.08, 0.1, 0.92)
+	cost_sb.border_color = Color(0.85, 0.7, 0.25, 0.9)
+	cost_sb.set_border_width_all(1)
+	cost_sb.set_corner_radius_all(4)
+	cost_sb.set_content_margin_all(UiLayout.margin_px(4, card))
+	cost_badge.add_theme_stylebox_override("panel", cost_sb)
+	var cost_row := HBoxContainer.new()
+	cost_row.add_theme_constant_override("separation", UiLayout.margin_px(3, card))
+	cost_badge.add_child(cost_row)
 	var money := TextureRect.new()
 	money.custom_minimum_size = Vector2(UiLayout.px(16, card), UiLayout.px(16, card))
 	money.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -621,21 +1029,51 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 	var mt := UiAssets.tex(UiAssets.ICON_MONEY)
 	if mt:
 		money.texture = mt
-	bottom.add_child(money)
+	cost_row.add_child(money)
 	var cost_l := Label.new()
 	cost_l.text = str(cost)
-	UiAssets.apply_label_font(cost_l, false, UiLayout.font_size(14, card))
-	cost_l.add_theme_color_override("font_color", Color(1, 1, 1))
-	bottom.add_child(cost_l)
+	UiAssets.apply_label_font(cost_l, false, UiLayout.font_size(15, card))
+	cost_l.add_theme_color_override("font_color", Color(1, 0.95, 0.7))
+	cost_row.add_child(cost_l)
+	cost_badge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	cost_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	cost_badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	cost_badge.offset_right = -UiLayout.px(4, card)
+	cost_badge.offset_bottom = -UiLayout.px(30, card)
+	cost_badge.offset_left = cost_badge.offset_right - UiLayout.px(56, card)
+	cost_badge.offset_top = cost_badge.offset_bottom - UiLayout.px(26, card)
+	stack.add_child(cost_badge)
 	var hit := Button.new()
 	hit.flat = true
 	hit.focus_mode = Control.FOCUS_NONE
 	hit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hit.pressed.connect(func(): shop.try_buy(idx); _refresh_shop_ui(); _refresh_hud())
+	hit.pressed.connect(func():
+		shop.try_buy(idx)
+		_refresh_shop_ui()
+		_refresh_hud()
+	)
 	hit.mouse_entered.connect(func(): _show_ship_info_id(int(ship.get("id", 0))))
 	hit.gui_input.connect(func(ev): _shop_gui_input(ev, idx))
-	card.add_child(hit)
+	stack.add_child(hit)
 	return card
+
+func _make_corner_badge(text: String, bg: Color, fg: Color, from: Node) -> PanelContainer:
+	var badge := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(4)
+	sb.set_content_margin_all(UiLayout.margin_px(4, from))
+	badge.add_theme_stylebox_override("panel", sb)
+	var lab := Label.new()
+	lab.text = text
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiAssets.apply_label_font(lab, false, UiLayout.font_size(13, from))
+	lab.add_theme_color_override("font_color", fg)
+	badge.add_child(lab)
+	return badge
+
+func _shop_card_height(slot_count: int, box: Control) -> float:
+	return _shop_card_size(slot_count, box).y
 
 func _shop_gui_input(ev: InputEvent, idx: int) -> void:
 	if ev is InputEventScreenTouch:
@@ -651,8 +1089,8 @@ func _shop_gui_input(ev: InputEvent, idx: int) -> void:
 			_long_press_slot = -1
 
 func _set_sell_mode(active: bool, price: int = 0) -> void:
-	var slots := hud.get_node_or_null("Root/Shop/ShopCol/ShopInner/ShopSlots") as Control
-	var sell := hud.get_node_or_null("Root/Shop/ShopCol/ShopInner/SellZone") as PanelContainer
+	var slots := hud.get_node_or_null("Root/%s" % _SHOP_SLOTS) as Control
+	var sell := hud.get_node_or_null("Root/%s/SellZone" % _SHOP_INNER) as PanelContainer
 	if slots:
 		slots.visible = not active
 	if sell:
@@ -675,7 +1113,8 @@ func _on_drag_move(world_pos: Vector3) -> void:
 
 func _on_drag_end(sell: bool, slot: Dictionary) -> void:
 	board.end_drag(sell, slot)
-	board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	var team := int(slot.get("team", ShipUnit.TEAM_PLAYER))
+	board.recalculate_fetters(team)
 	_dragging_sell_ui = false
 	_set_sell_mode(false)
 	_refresh_shop_ui()
@@ -694,23 +1133,315 @@ func _on_long_press_shop(idx: int) -> void:
 	if idx >= 0 and idx < shop.slots.size():
 		_show_ship_info_id(int(shop.slots[idx].get("ship_id", 0)))
 
-func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_txt: String, structure_txt: String, dmg: Dictionary, atk_range, fetter_ids: Array) -> void:
-	var p := hud.get_node_or_null("Root/InfoPanel") as PanelContainer
+func _weapon_kind_label(kind: String) -> String:
+	match kind:
+		"rail":
+			return "磁轨"
+		"cannon":
+			return "火炮"
+		"missile":
+			return "导弹"
+		"heal":
+			return "维修"
+		_:
+			return "激光"
+
+func _weapon_size_label(ship_data: Dictionary) -> String:
+	var tier := str(ship_data.get("weapon_tier", ""))
+	if tier == "large":
+		return "大"
+	if tier == "small":
+		return "小"
+	if tier == "medium":
+		return "中"
+	var ship_group := str(ship_data.get("ship_group", ""))
+	match ship_group:
+		"frigate", "destroyer":
+			return "小"
+		"cruiser", "battlecruiser":
+			return "中"
+		"battleship":
+			return "大"
+		_:
+			return ""
+
+func _weapon_module_type_id(ship_data: Dictionary) -> int:
+	var fx: String = str(ship_data.get("weapon_fx", "laser"))
+	var source_weapon := int(ship_data.get("source_module_type_id", 0))
+	if fx == "heal":
+		return int(ship_data.get("source_repair_module_type_id", 0))
+	if source_weapon > 0:
+		return source_weapon
+	var group := str(ship_data.get("ship_group", "frigate"))
+	var tier := str(ship_data.get("weapon_tier", ""))
+	var large := tier == "large" or group == "battleship"
+	var medium := tier == "medium" or (tier == "" and (group == "cruiser" or group == "battlecruiser"))
+	match fx:
+		"laser":
+			if large:
+				return 462
+			if medium:
+				return 456
+			return 453
+		"rail":
+			if large:
+				return 574
+			if medium:
+				return 570
+			return 561
+		"cannon":
+			if large:
+				return 498
+			if medium:
+				return 491
+			return 485
+		"missile":
+			if large or medium:
+				return 501
+			return 499
+		_:
+			return int(ship_data.get("source_module_type_id", 0))
+
+func _weapon_damage_text(dmg: Dictionary) -> String:
+	var emp := float(dmg.get("emp", 0.0))
+	var thermal := float(dmg.get("thermal", 0.0))
+	var kinetic := float(dmg.get("kinetic", 0.0))
+	var explosive := float(dmg.get("explosive", 0.0))
+	var total := emp + thermal + kinetic + explosive
+	return "总%d\n电%d 热%d\n动%d 爆%d" % [
+		int(round(total)),
+		int(round(emp)),
+		int(round(thermal)),
+		int(round(kinetic)),
+		int(round(explosive))
+	]
+
+func _weapon_or_repair_text(ship_data: Dictionary, star_data: Dictionary, dmg: Dictionary) -> String:
+	if str(ship_data.get("weapon_fx", "")) != "heal":
+		return _weapon_damage_text(dmg)
+	var repair: Dictionary = star_data.get("repair", {})
+	var lines: Array[String] = []
+	var shield := float(repair.get("shield", 0.0))
+	var armor := float(repair.get("armor", 0.0))
+	var structure := float(repair.get("structure", 0.0))
+	if shield > 0.0:
+		lines.append("护盾修理 %d" % int(round(shield)))
+	if armor > 0.0:
+		lines.append("装甲修理 %d" % int(round(armor)))
+	if structure > 0.0:
+		lines.append("结构修理 %d" % int(round(structure)))
+	if lines.is_empty():
+		lines.append("修理 0")
+	return "\n".join(lines)
+
+const _RACE_DRONE_LIGHT := {"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004}
+const _RACE_DRONE_MEDIUM := {"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008}
+
+func _drone_tier_for_carrier(ship_data: Dictionary) -> String:
+	var group := str(ship_data.get("ship_group", "frigate"))
+	if group in ["cruiser", "battlecruiser", "battleship"]:
+		return "medium"
+	return "light"
+
+func _race_drone_id(ship_data: Dictionary) -> int:
+	var race := str(ship_data.get("race", "amarr")).to_lower()
+	if _drone_tier_for_carrier(ship_data) == "medium":
+		return int(_RACE_DRONE_MEDIUM.get(race, 1005))
+	return int(_RACE_DRONE_LIGHT.get(race, 1001))
+
+func _ship_drone_bay_slots(ship_data: Dictionary) -> int:
+	var slots := int(ship_data.get("drone_bay_slots", ship_data.get("drone_count_cap", 0)))
+	if slots <= 0:
+		var bw := float(ship_data.get("drone_bandwidth", 0.0))
+		if bw > 0.0:
+			slots = int(floor(bw / 5.0))
+	return slots
+
+func _attack_cycle_s(ship_data: Dictionary, runtime_cycle: float = -1.0) -> float:
+	## Same source as ShipUnit.setup: JSON cycle (or combat fallback), then attack_cycle_cap_s.
+	var cap_s := float(DataStore.combat.get("attack_cycle_cap_s", 6.0))
+	if runtime_cycle > 0.0:
+		return minf(runtime_cycle, cap_s)
+	var cycle := float(ship_data.get("attack_cycle_s", 0.0))
+	if cycle <= 0.0:
+		var logistic := str(ship_data.get("weapon_fx", "")) == "heal" or bool(ship_data.get("is_logistic", false))
+		cycle = float(DataStore.combat.get("logistic_attack_duration_s" if logistic else "attack_duration_s", 1.0))
+	return minf(cycle, cap_s)
+
+func _weapon_stats_text(ship_data: Dictionary, star_data: Dictionary, atk_range, runtime_cycle: float = -1.0) -> String:
+	var shown_range := float(atk_range)
+	var tracking := float(star_data.get("tracking", 0.0))
+	var cycle := _attack_cycle_s(ship_data, runtime_cycle)
+	return "射程 %s\n跟踪 %.2f\nCD %.2fs" % [str(int(round(shown_range))), tracking, cycle]
+
+func _drone_stats_text(drone_data: Dictionary, drone_star: Dictionary) -> String:
+	var dmg: Dictionary = drone_star.get("damage", {})
+	var cycle := _attack_cycle_s(drone_data)
+	var speed := float(drone_data.get("speed", 0.0))
+	return "%s\nCD %.2fs\n速度 %s" % [_weapon_damage_text(dmg), cycle, str(int(round(speed)))]
+
+func _ensure_info_stat_square(parent: Control, square_name: String, min_size: Vector2) -> Dictionary:
+	var square := parent.get_node_or_null(square_name) as PanelContainer
+	if square == null:
+		square = PanelContainer.new()
+		square.name = square_name
+		square.custom_minimum_size = min_size
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0, 0, 0, 0)
+		sb.set_content_margin_all(0)
+		square.add_theme_stylebox_override("panel", sb)
+		parent.add_child(square)
+	var row := square.get_node_or_null("%sRow" % square_name) as HBoxContainer
+	if row == null:
+		row = HBoxContainer.new()
+		row.name = "%sRow" % square_name
+		row.alignment = BoxContainer.ALIGNMENT_BEGIN
+		row.add_theme_constant_override("separation", 10)
+		UiAssets.full_rect(row)
+		square.add_child(row)
+	var icon := row.get_node_or_null("%sIcon" % square_name) as TextureRect
+	if icon == null:
+		icon = TextureRect.new()
+		icon.name = "%sIcon" % square_name
+		icon.custom_minimum_size = Vector2(56, 56)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		row.add_child(icon)
+	var lbl := row.get_node_or_null("%sText" % square_name) as Label
+	if lbl == null:
+		lbl = Label.new()
+		lbl.name = "%sText" % square_name
+		lbl.custom_minimum_size = Vector2(150, 72)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(lbl)
+	return {"square": square, "icon": icon, "label": lbl}
+
+func _ensure_info_weapon_column(info_top: HBoxContainer) -> Dictionary:
+	var col := info_top.get_node_or_null("InfoWeaponColumn") as VBoxContainer
+	if col == null:
+		col = VBoxContainer.new()
+		col.name = "InfoWeaponColumn"
+		col.add_theme_constant_override("separation", 6)
+		info_top.add_child(col)
+	# Migrate legacy weapon square if it was parented directly under InfoTop.
+	var legacy := info_top.get_node_or_null("InfoWeaponSquare") as PanelContainer
+	if legacy and legacy.get_parent() == info_top:
+		info_top.remove_child(legacy)
+		legacy.queue_free()
+	var weapon := _ensure_info_stat_square(col, "InfoWeaponSquare", Vector2(228, 176))
+	var drone := _ensure_info_stat_square(col, "InfoDroneSquare", Vector2(228, 120))
+	return {"weapon": weapon, "drone": drone}
+
+func _style_info_stat_label(lbl: Label) -> void:
+	UiAssets.apply_label_font(lbl, true, 13)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.75))
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	lbl.add_theme_constant_override("outline_size", 2)
+
+func _ensure_info_weapon_square(info_top: HBoxContainer) -> Dictionary:
+	return _ensure_info_weapon_column(info_top).get("weapon", {})
+
+func _ensure_info_extra(body: VBoxContainer) -> Label:
+	var lbl := body.get_node_or_null("InfoExtra") as Label
+	if lbl == null:
+		lbl = Label.new()
+		lbl.name = "InfoExtra"
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.add_child(lbl)
+	return lbl
+
+func _resist_pct(value) -> int:
+	return int(round(float(value) * 100.0))
+
+func _resist_text(resist: Dictionary) -> String:
+	return "电%s%% 热%s%% 动%s%% 爆%s%%" % [
+		_resist_pct(resist.get("emp", 0.0)),
+		_resist_pct(resist.get("thermal", 0.0)),
+		_resist_pct(resist.get("kinetic", 0.0)),
+		_resist_pct(resist.get("explosive", 0.0))
+	]
+
+func _hp_line(layer_name: String, hp_text: String, resist: Dictionary) -> String:
+	return "%s  %s  抗性 %s" % [layer_name, hp_text, _resist_text(resist)]
+
+func _base_stats_text(ship_data: Dictionary) -> String:
+	var long_axis := float(ship_data.get("model_long_axis", 0.0))
+	var long_axis_txt := "%.0f" % long_axis if long_axis > 0.0 else "—"
+	return "信源半径 %s   速度 %s   长轴 %s\n感应强度 %s   电容量 %s   电容回复 %ss" % [
+		str(ship_data.get("signature_radius", 0)),
+		str(ship_data.get("speed", 0)),
+		long_axis_txt,
+		str(ship_data.get("sensor_strength", 0)),
+		str(ship_data.get("capacitor_capacity", 0)),
+		str(ship_data.get("capacitor_recharge_s", 0))
+	]
+
+func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_txt: String, structure_txt: String, dmg: Dictionary, atk_range, fetter_ids: Array, ship_data: Dictionary, star_data: Dictionary, ship_id: int = 0, runtime_cycle: float = -1.0) -> void:
+	var p := hud.get_node_or_null("Root/%s" % _INFO_PANEL) as PanelContainer
 	if p == null:
 		return
 	var icon := p.get_node_or_null("InfoBody/InfoTop/InfoIcon") as TextureRect
 	var title := p.get_node_or_null("InfoBody/InfoTop/InfoTitleCol/InfoTitle") as Label
+	var title_col := p.get_node_or_null("InfoBody/InfoTop/InfoTitleCol") as VBoxContainer
+	var info_top := p.get_node_or_null("InfoBody/InfoTop") as HBoxContainer
+	var weapon_col: Dictionary = {}
+	if info_top:
+		weapon_col = _ensure_info_weapon_column(info_top)
+	var weapon_square: Dictionary = weapon_col.get("weapon", {})
+	var drone_square: Dictionary = weapon_col.get("drone", {})
+	if title_col:
+		var old_badge := title_col.get_node_or_null("InfoWeaponRow")
+		if old_badge:
+			old_badge.queue_free()
 	var fetter_box := p.get_node_or_null("InfoBody/InfoFetters") as VBoxContainer
 	var sh := p.get_node_or_null("InfoBody/InfoShield") as Label
 	var ar := p.get_node_or_null("InfoBody/InfoArmor") as Label
 	var st := p.get_node_or_null("InfoBody/InfoStructure") as Label
 	var dm := p.get_node_or_null("InfoBody/InfoDmg") as Label
 	var rg := p.get_node_or_null("InfoBody/InfoRange") as Label
+	var body := p.get_node_or_null("InfoBody") as VBoxContainer
+	var extra: Label = null
+	if body:
+		extra = _ensure_info_extra(body)
 	if icon:
-		icon.texture = UiAssets.champion_icon(ship_name)
+		icon.texture = UiAssets.champion_icon(ship_name, ship_id)
 	if title:
 		title.text = "%s  ★%d" % [ship_name, star]
 		UiAssets.apply_label_font(title, true, 22)
+	if not weapon_square.is_empty():
+		var weapon_icon := weapon_square.get("icon") as TextureRect
+		var weapon_label := weapon_square.get("label") as Label
+		if weapon_icon:
+			weapon_icon.texture = UiAssets.item_icon(_weapon_module_type_id(ship_data))
+		if weapon_label:
+			weapon_label.text = "%s\n%s" % [
+				_weapon_or_repair_text(ship_data, star_data, dmg),
+				_weapon_stats_text(ship_data, star_data, atk_range, runtime_cycle)
+			]
+			_style_info_stat_label(weapon_label)
+	if not drone_square.is_empty():
+		var drone_panel := drone_square.get("square") as PanelContainer
+		var drone_icon := drone_square.get("icon") as TextureRect
+		var drone_label := drone_square.get("label") as Label
+		var bay_slots := _ship_drone_bay_slots(ship_data)
+		if drone_panel:
+			drone_panel.visible = bay_slots > 0
+		if bay_slots > 0:
+			var drone_id := _race_drone_id(ship_data)
+			var drone_data: Dictionary = DataStore.get_ship(drone_id)
+			var drone_star: Dictionary = DataStore.get_star(drone_id, 1)
+			if drone_icon:
+				drone_icon.texture = UiAssets.drone_portrait(drone_id)
+			if drone_label:
+				var drone_name := str(drone_data.get("name", "无人机"))
+				drone_label.text = "%s ×%d\n%s" % [
+					drone_name,
+					bay_slots,
+					_drone_stats_text(drone_data, drone_star)
+				]
+				_style_info_stat_label(drone_label)
 	if fetter_box:
 		for c in fetter_box.get_children():
 			c.queue_free()
@@ -722,7 +1453,7 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 			fic.custom_minimum_size = Vector2(22, 22)
 			fic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			fic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			var ft := UiAssets.fetter_icon(fname)
+			var ft := UiAssets.fetter_icon(str(fid), fname)
 			if ft:
 				fic.texture = ft
 			row.add_child(fic)
@@ -732,44 +1463,54 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 			row.add_child(fl)
 			fetter_box.add_child(row)
 	if sh:
-		sh.text = "护盾  %s" % shield_txt
+		sh.text = _hp_line("护盾", shield_txt, star_data.get("shield_resist", {}))
 		UiAssets.apply_label_font(sh, false, 16)
 	if ar:
-		ar.text = "装甲  %s" % armor_txt
+		ar.text = _hp_line("装甲", armor_txt, star_data.get("armor_resist", {}))
 		UiAssets.apply_label_font(ar, false, 16)
 	if st:
-		st.text = "结构  %s" % structure_txt
+		st.text = _hp_line("结构", structure_txt, star_data.get("structure_resist", {}))
 		UiAssets.apply_label_font(st, false, 16)
 	if dm:
-		dm.text = "电磁 %s  热能 %s\n动能 %s  爆炸 %s" % [
-			str(dmg.get("emp", 0)), str(dmg.get("thermal", 0)),
-			str(dmg.get("kinetic", 0)), str(dmg.get("explosive", 0))
-		]
-		UiAssets.apply_label_font(dm, false, 15)
+		dm.visible = false
 	if rg:
-		rg.text = "射程  %s" % str(atk_range)
-		UiAssets.apply_label_font(rg, false, 16)
+		rg.visible = false
+	if extra:
+		extra.text = _base_stats_text(ship_data)
+		UiAssets.apply_label_font(extra, false, 15)
 	p.visible = true
+	# Expand right column when showing ship info.
+	if _collapse_right:
+		_collapse_right = false
+		_apply_adaptive_hud_layout()
 
 func _show_ship_info(ship: ShipUnit) -> void:
 	_info_ship = ship
+	_suppress_headup_for_preview = ship == null or ship.slot_type != "field"
 	if ship == null:
 		return
-	var data := DataStore.get_ship(ship.ship_id)
+	var data: Dictionary = DataStore.get_ship(ship.ship_id)
+	var st: Dictionary = DataStore.get_star(ship.ship_id, ship.star)
 	_fill_info_panel(
 		str(data.get("name", "?")),
 		ship.star,
 		"%.0f/%.0f" % [ship.shield_hp, ship.max_shield],
 		"%.0f/%.0f" % [ship.armor_hp, ship.max_armor],
 		"%.0f/%.0f" % [ship.structure_hp, ship.max_structure],
-		{"emp": ship.damage_emp, "thermal": 0, "kinetic": 0, "explosive": 0},
+		{"emp": ship.damage_emp, "thermal": ship.damage_thermal, "kinetic": ship.damage_kinetic, "explosive": ship.damage_explosive},
 		ship.attack_range,
-		data.get("fetter_ids", [])
+		data.get("fetter_ids", []),
+		data,
+		st,
+		ship.ship_id,
+		ship.attack_duration
 	)
 
 func _show_ship_info_id(ship_id: int) -> void:
-	var st := DataStore.get_star(ship_id, 1)
-	var data := DataStore.get_ship(ship_id)
+	_info_ship = null
+	_suppress_headup_for_preview = true
+	var st: Dictionary = DataStore.get_star(ship_id, 1)
+	var data: Dictionary = DataStore.get_ship(ship_id)
 	var dmg: Dictionary = st.get("damage", {})
 	var armor := float(st.get("armor_hp", 0))
 	var structure := float(st.get("structure_hp", maxf(50.0, roundf(armor * 0.5))))
@@ -781,16 +1522,26 @@ func _show_ship_info_id(ship_id: int) -> void:
 		str(int(structure)),
 		dmg,
 		st.get("attack_range", 0),
-		data.get("fetter_ids", [])
+		data.get("fetter_ids", []),
+		data,
+		st,
+		ship_id
 	)
 
 func _hide_ship_info() -> void:
-	var p := hud.get_node_or_null("Root/InfoPanel") as PanelContainer
+	_info_ship = null
+	_suppress_headup_for_preview = false
+	var p := hud.get_node_or_null("Root/%s" % _INFO_PANEL) as PanelContainer
 	if p:
 		p.visible = false
 
 func _on_match_over(summary: String) -> void:
 	show_notice(summary)
+	_append_battle_log(summary)
+	_cam_headup_phase = 0
+	_cam_headup_t = 0.0
+	_cam_headup_offset_deg = 0.0
+	_cam_base_pitch_deg = _cam_default_pitch_deg
 	var delay := float(DataStore.match_flow.get("death_return_delay_s", 3))
 	await get_tree().create_timer(delay).timeout
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
@@ -816,6 +1567,11 @@ func _on_skip_pressed() -> void:
 	match_ctrl.skip_prepare()
 	_refresh_hud()
 
+func _on_speed_pressed() -> void:
+	match_ctrl.cycle_speed()
+	_refresh_hud()
+	show_notice("倍速 %s" % match_ctrl.speed_label())
+
 func _on_menu_pressed() -> void:
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
@@ -825,3 +1581,61 @@ func _on_pause_pressed() -> void:
 	if btn:
 		btn.text = "继续" if get_tree().paused else "暂停"
 	show_notice("已暂停" if get_tree().paused else "继续")
+
+func _on_collapse_left() -> void:
+	_collapse_left = not _collapse_left
+	_apply_adaptive_hud_layout()
+
+func _on_collapse_right() -> void:
+	_collapse_right = not _collapse_right
+	_apply_adaptive_hud_layout()
+
+func _on_collapse_bottom() -> void:
+	_collapse_bottom = not _collapse_bottom
+	_apply_adaptive_hud_layout()
+
+func _on_stage_changed_ui(stage: int) -> void:
+	var stage_label := "准备" if stage == MatchController.Stage.PREPARE else ("战斗" if stage == MatchController.Stage.BATTLE else "结束")
+	_append_battle_log("进入%s阶段" % stage_label)
+	# 回合结束：战斗 -> 准备；强制回到默认视角（默认视角应跟随你手动调过的 pitch）。
+	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
+		_cam_headup_phase = 0
+		_cam_headup_t = 0.0
+		_cam_headup_offset_deg = 0.0
+		_cam_base_pitch_deg = _cam_default_pitch_deg
+	else:
+		_trigger_camera_headup("stage_change")
+	_last_match_stage = stage
+	_refresh_hud()
+
+func _append_battle_log(text: String) -> void:
+	var line := str(text).strip_edges()
+	if line.is_empty():
+		return
+	_battle_log_lines.append(line)
+	while _battle_log_lines.size() > _BATTLE_LOG_MAX:
+		_battle_log_lines.pop_front()
+	_refresh_battle_log_list()
+
+func _refresh_battle_log_list() -> void:
+	var list := hud.get_node_or_null("Root/RightCol/RightInner/RightContent/BattleLog/BattleLogInner/BattleLogScroll/BattleLogList") as VBoxContainer
+	if list == null:
+		return
+	for c in list.get_children():
+		c.queue_free()
+	for entry in _battle_log_lines:
+		var lab := Label.new()
+		lab.text = str(entry)
+		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		UiAssets.apply_label_font(lab, false, UiLayout.font_size(11, list))
+		lab.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
+		list.add_child(lab)
+	call_deferred("_scroll_battle_log_to_end")
+
+func _scroll_battle_log_to_end() -> void:
+	var scroll := hud.get_node_or_null("Root/RightCol/RightInner/RightContent/BattleLog/BattleLogInner/BattleLogScroll") as ScrollContainer
+	if scroll == null:
+		return
+	var bar := scroll.get_v_scroll_bar()
+	if bar:
+		scroll.scroll_vertical = int(bar.max_value)

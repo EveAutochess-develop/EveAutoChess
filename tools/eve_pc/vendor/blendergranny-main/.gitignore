@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Private research artifacts. Do not ship.
+*.dll
+*.lib
+*.pdb
+*.so
+*.exe
+*.gbf
+*.gpr
+*_ghidra/
+vendor/
+research_artifacts/
+

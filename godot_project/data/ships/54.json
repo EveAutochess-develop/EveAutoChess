@@ -1,0 +1,169 @@
+{
+  "id": 54,
+  "name": "布鲁提克斯级",
+  "name_en": "Brutix",
+  "type_id": 16229,
+  "model_key": "glt_bulutikesi",
+  "cost": 4,
+  "ship_groups": [
+    "battlecruiser"
+  ],
+  "ship_group": "battlecruiser",
+  "fetter_ids": [
+    "gallente",
+    "battlecruiser",
+    "hybrid"
+  ],
+  "tags": [
+    "gallente",
+    "battlecruiser",
+    "hybrid"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "rail",
+  "weapon_tier": "medium",
+  "race": "gallente",
+  "signature_radius": 150.0,
+  "sensor_strength": 16.0,
+  "scan_resolution": 200.0,
+  "speed": 200.0,
+  "mass": 10000000.0,
+  "agility": 0.5,
+  "capacitor_capacity": 3000.0,
+  "capacitor_recharge_s": 500.0,
+  "mid_battle_leave_allowed": false,
+  "is_unmanned": false,
+  "unmanned_kind": "",
+  "attack_cycle_s": 5.825,
+  "drone_bandwidth": 50.0,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7,
+  "med_slots": 4,
+  "low_slots": 6,
+  "source_module_type_id": 570,
+  "source_repair_module_type_id": 0,
+  "stars": [
+    {
+      "attack_range": 4,
+      "damage": {
+        "emp": 40.0,
+        "thermal": 20.0,
+        "kinetic": 20.0,
+        "explosive": 20.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.08,
+      "optimal": 2.8,
+      "falloff": 1.6,
+      "optimal_sig_radius": 150.0,
+      "shield_hp": 1200.0,
+      "armor_hp": 1800.0,
+      "structure_hp": 900.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    },
+    {
+      "attack_range": 4,
+      "damage": {
+        "emp": 80.0,
+        "thermal": 40.0,
+        "kinetic": 40.0,
+        "explosive": 40.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.08,
+      "optimal": 2.8,
+      "falloff": 1.6,
+      "optimal_sig_radius": 150.0,
+      "shield_hp": 2400.0,
+      "armor_hp": 3600.0,
+      "structure_hp": 1800.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    },
+    {
+      "attack_range": 4,
+      "damage": {
+        "emp": 120.0,
+        "thermal": 60.0,
+        "kinetic": 60.0,
+        "explosive": 60.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.08,
+      "optimal": 2.8,
+      "falloff": 1.6,
+      "optimal_sig_radius": 150.0,
+      "shield_hp": 3600.0,
+      "armor_hp": 5400.0,
+      "structure_hp": 2700.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    }
+  ],
+  "visual": {},
+  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
+  "echoes_item_id": 10400000004
+}

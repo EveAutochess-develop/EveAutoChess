@@ -32,82 +32,55 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="Hp" type="Label" parent="HUD/Root"]
+[node name="RoundBar" type="PanelContainer" parent="HUD/Root"]
 layout_mode = 1
-offset_left = 12.0
-offset_top = 10.0
-offset_right = 300.0
-offset_bottom = 36.0
-theme_override_font_sizes/font_size = 18
+mouse_filter = 0
+
+[node name="RoundInner" type="HBoxContainer" parent="HUD/Root/RoundBar"]
+layout_mode = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="Hp" type="Label" parent="HUD/Root/RoundBar/RoundInner"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "HP 100"
 
-[node name="Phase" type="Label" parent="HUD/Root"]
-layout_mode = 1
-offset_left = 12.0
-offset_top = 34.0
-offset_right = 300.0
-offset_bottom = 58.0
+[node name="Phase" type="Label" parent="HUD/Root/RoundBar/RoundInner"]
+layout_mode = 2
 theme_override_font_sizes/font_size = 16
 text = "阶段 1-1"
 
-[node name="Placement" type="HBoxContainer" parent="HUD/Root"]
-layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -40.0
-offset_top = 16.0
-offset_right = 280.0
-offset_bottom = 84.0
-grow_horizontal = 2
+[node name="Placement" type="HBoxContainer" parent="HUD/Root/RoundBar/RoundInner"]
+layout_mode = 2
 theme_override_constants/separation = 12
 alignment = 1
 
-[node name="TimerCol" type="VBoxContainer" parent="HUD/Root/Placement"]
+[node name="TimerCol" type="VBoxContainer" parent="HUD/Root/RoundBar/RoundInner/Placement"]
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="Timer" type="Label" parent="HUD/Root/Placement/TimerCol"]
+[node name="Timer" type="Label" parent="HUD/Root/RoundBar/RoundInner/Placement/TimerCol"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 28
+theme_override_font_sizes/font_size = 22
 text = "倒计时"
 horizontal_alignment = 1
 
-[node name="StageHint" type="Label" parent="HUD/Root/Placement/TimerCol"]
+[node name="StageHint" type="Label" parent="HUD/Root/RoundBar/RoundInner/Placement/TimerCol"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 14
 text = "准备"
 horizontal_alignment = 1
 
-[node name="SkipBtn" type="Button" parent="HUD/Root/Placement"]
-custom_minimum_size = Vector2(88, 44)
+[node name="SkipBtn" type="Button" parent="HUD/Root/RoundBar/RoundInner/Placement"]
+custom_minimum_size = Vector2(72, 36)
 layout_mode = 2
 text = "跳过"
 
-[node name="BonusContainer" type="VBoxContainer" parent="HUD/Root"]
-layout_mode = 1
-offset_left = 372.0
-offset_top = 72.0
-offset_right = 580.0
-offset_bottom = 360.0
-theme_override_constants/separation = 4
-
-[node name="Fetters" type="Label" parent="HUD/Root/BonusContainer"]
-visible = false
-layout_mode = 2
-text = "羁绊"
-
 [node name="TopRight" type="HBoxContainer" parent="HUD/Root"]
 layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -280.0
-offset_top = 28.0
-offset_right = -24.0
-offset_bottom = 72.0
-grow_horizontal = 0
 theme_override_constants/separation = 10
+mouse_filter = 0
 
 [node name="Version" type="Label" parent="HUD/Root/TopRight"]
 layout_mode = 2
@@ -126,110 +99,267 @@ custom_minimum_size = Vector2(72, 36)
 layout_mode = 2
 text = "退出"
 
+[node name="LeftCol" type="PanelContainer" parent="HUD/Root"]
+layout_mode = 1
+mouse_filter = 0
+
+[node name="LeftInner" type="VBoxContainer" parent="HUD/Root/LeftCol"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CollapseLeftBtn" type="Button" parent="HUD/Root/LeftCol/LeftInner"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+text = "◀"
+
+[node name="LeftContent" type="VBoxContainer" parent="HUD/Root/LeftCol/LeftInner"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="BonusContainer" type="VBoxContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="Fetters" type="Label" parent="HUD/Root/LeftCol/LeftInner/LeftContent/BonusContainer"]
+visible = false
+layout_mode = 2
+text = "羁绊"
+
+[node name="ReserveGrid" type="GridContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
+layout_mode = 2
+columns = 4
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+
+[node name="RightCol" type="PanelContainer" parent="HUD/Root"]
+layout_mode = 1
+mouse_filter = 0
+
+[node name="RightInner" type="VBoxContainer" parent="HUD/Root/RightCol"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CollapseRightBtn" type="Button" parent="HUD/Root/RightCol/RightInner"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+text = "▶"
+
+[node name="RightContent" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="InfoPanel" type="PanelContainer" parent="HUD/Root/RightCol/RightInner/RightContent"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="InfoBody" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="InfoTop" type="HBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="InfoIcon" type="TextureRect" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop"]
+custom_minimum_size = Vector2(72, 72)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="InfoTitleCol" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="InfoTitle" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop/InfoTitleCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "舰名"
+
+[node name="InfoFetters" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="InfoShield" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+text = "盾"
+
+[node name="InfoArmor" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+text = "甲"
+
+[node name="InfoStructure" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+text = "结构"
+
+[node name="InfoDmg" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+text = "伤害"
+
+[node name="InfoRange" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+layout_mode = 2
+text = "射程"
+
+[node name="BattleLog" type="PanelContainer" parent="HUD/Root/RightCol/RightInner/RightContent"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BattleLogInner" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/BattleLog"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="BattleLogTitle" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/BattleLog/BattleLogInner"]
+layout_mode = 2
+text = "战斗日志"
+
+[node name="BattleLogScroll" type="ScrollContainer" parent="HUD/Root/RightCol/RightInner/RightContent/BattleLog/BattleLogInner"]
+custom_minimum_size = Vector2(0, 80)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="BattleLogList" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/BattleLog/BattleLogInner/BattleLogScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
 [node name="Shop" type="PanelContainer" parent="HUD/Root"]
 layout_mode = 1
-anchors_preset = 9
-anchor_bottom = 1.0
-offset_left = 8.0
-offset_top = 60.0
-offset_right = 360.0
-offset_bottom = -12.0
-grow_vertical = 2
+mouse_filter = 0
 
 [node name="ShopCol" type="VBoxContainer" parent="HUD/Root/Shop"]
 layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CollapseBottomBtn" type="Button" parent="HUD/Root/Shop/ShopCol"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "▼"
+
+[node name="ShopContent" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol"]
+layout_mode = 2
+size_flags_vertical = 3
 theme_override_constants/separation = 6
 
-[node name="MetaRow" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol"]
+[node name="MetaRow" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent"]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_constants/separation = 12
+alignment = 1
 
-[node name="LevelExp" type="PanelContainer" parent="HUD/Root/Shop/ShopCol/MetaRow"]
-custom_minimum_size = Vector2(120, 40)
+[node name="LeftCtrl" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow"]
+custom_minimum_size = Vector2(560, 0)
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_constants/separation = 10
+alignment = 1
 
-[node name="LEInner" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/MetaRow/LevelExp"]
+[node name="LevelExp" type="PanelContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl"]
+custom_minimum_size = Vector2(208, 68)
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="LEInner" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp"]
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="LELabels" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/MetaRow/LevelExp/LEInner"]
+[node name="LELabels" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp/LEInner"]
 layout_mode = 2
 
-[node name="Level" type="Label" parent="HUD/Root/Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels"]
+[node name="Level" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp/LEInner/LELabels"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 18
 text = "1级"
 
-[node name="Exp" type="Label" parent="HUD/Root/Shop/ShopCol/MetaRow/LevelExp/LEInner/LELabels"]
+[node name="Exp" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp/LEInner/LELabels"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 14
 text = "0 / 4"
 horizontal_alignment = 2
 
-[node name="ExpBar" type="ProgressBar" parent="HUD/Root/Shop/ShopCol/MetaRow/LevelExp/LEInner"]
-custom_minimum_size = Vector2(0, 6)
+[node name="ExpSegRow" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp/LEInner"]
+custom_minimum_size = Vector2(0, 18)
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ExpBar" type="ProgressBar" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LevelExp/LEInner"]
+visible = false
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 max_value = 4.0
 show_percentage = false
 
-[node name="PopBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/MetaRow"]
+[node name="LeftBtns" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl"]
 layout_mode = 2
-theme_override_constants/separation = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 10
 
-[node name="Pop" type="Label" parent="HUD/Root/Shop/ShopCol/MetaRow/PopBox"]
+[node name="ExpBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns"]
+custom_minimum_size = Vector2(162, 56)
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
+text = ""
+
+[node name="RefreshBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns"]
+custom_minimum_size = Vector2(162, 56)
+layout_mode = 2
+text = ""
+
+[node name="MetaMid" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="StatsRow" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 24
+alignment = 1
+
+[node name="PopBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Pop" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/PopBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
 text = "0/0"
 
-[node name="GoldBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/MetaRow"]
+[node name="GoldBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
 layout_mode = 2
-theme_override_constants/separation = 2
+theme_override_constants/separation = 8
 
-[node name="Gold" type="Label" parent="HUD/Root/Shop/ShopCol/MetaRow/GoldBox"]
+[node name="Gold" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/GoldBox"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 32
 text = "0"
 
-[node name="LockBtn" type="Button" parent="HUD/Root/Shop/ShopCol/MetaRow"]
-custom_minimum_size = Vector2(40, 32)
+[node name="LockBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
+custom_minimum_size = Vector2(52, 44)
 layout_mode = 2
 toggle_mode = true
 text = "锁"
 
-[node name="ShopInner" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol"]
+[node name="ShopInner" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent"]
 layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="ShopSlots" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/ShopInner"]
+layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 6
 
-[node name="LeftBtns" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopInner"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="ExpBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopInner/LeftBtns"]
-custom_minimum_size = Vector2(0, 72)
-layout_mode = 2
-size_flags_horizontal = 3
-text = ""
-
-[node name="RefreshBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopInner/LeftBtns"]
-custom_minimum_size = Vector2(0, 72)
-layout_mode = 2
-size_flags_horizontal = 3
-text = ""
-
-[node name="ShopSlots" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopInner"]
-layout_mode = 2
-size_flags_vertical = 3
-theme_override_constants/separation = 4
-
-[node name="SellZone" type="PanelContainer" parent="HUD/Root/Shop/ShopCol/ShopInner"]
+[node name="SellZone" type="PanelContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/ShopInner"]
 visible = false
-custom_minimum_size = Vector2(0, 72)
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
+size_flags_horizontal = 3
 
-[node name="SellLabel" type="Label" parent="HUD/Root/Shop/ShopCol/ShopInner/SellZone"]
+[node name="SellLabel" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/ShopInner/SellZone"]
 layout_mode = 2
 text = "售价"
 horizontal_alignment = 1
@@ -238,80 +368,17 @@ vertical_alignment = 1
 [node name="Notice" type="Label" parent="HUD/Root"]
 visible = false
 layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -240.0
-offset_top = 200.0
-offset_right = 240.0
-offset_bottom = 250.0
-grow_horizontal = 2
+mouse_filter = 2
 theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
 text = "notice"
 
-[node name="InfoPanel" type="PanelContainer" parent="HUD/Root"]
-visible = false
-layout_mode = 1
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 372.0
-offset_top = -320.0
-offset_right = 700.0
-offset_bottom = -16.0
-grow_vertical = 0
-
-[node name="InfoBody" type="VBoxContainer" parent="HUD/Root/InfoPanel"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="InfoTop" type="HBoxContainer" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="InfoIcon" type="TextureRect" parent="HUD/Root/InfoPanel/InfoBody/InfoTop"]
-custom_minimum_size = Vector2(96, 96)
-layout_mode = 2
-expand_mode = 1
-stretch_mode = 5
-
-[node name="InfoTitleCol" type="VBoxContainer" parent="HUD/Root/InfoPanel/InfoBody/InfoTop"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="InfoTitle" type="Label" parent="HUD/Root/InfoPanel/InfoBody/InfoTop/InfoTitleCol"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "舰名"
-
-[node name="InfoFetters" type="VBoxContainer" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="InfoShield" type="Label" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-text = "盾"
-
-[node name="InfoArmor" type="Label" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-text = "甲"
-
-[node name="InfoStructure" type="Label" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-text = "结构"
-
-[node name="InfoDmg" type="Label" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-text = "伤害"
-
-[node name="InfoRange" type="Label" parent="HUD/Root/InfoPanel/InfoBody"]
-layout_mode = 2
-text = "射程"
-
 [connection signal="pressed" from="HUD/Root/TopRight/PauseBtn" to="." method="_on_pause_pressed"]
 [connection signal="pressed" from="HUD/Root/TopRight/ExitBtn" to="." method="_on_menu_pressed"]
-[connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopInner/LeftBtns/RefreshBtn" to="." method="_on_refresh_pressed"]
-[connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopInner/LeftBtns/ExpBtn" to="." method="_on_exp_pressed"]
-[connection signal="toggled" from="HUD/Root/Shop/ShopCol/MetaRow/LockBtn" to="." method="_on_lock_toggled"]
-[connection signal="pressed" from="HUD/Root/Placement/SkipBtn" to="." method="_on_skip_pressed"]
+[connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/RefreshBtn" to="." method="_on_refresh_pressed"]
+[connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/ExpBtn" to="." method="_on_exp_pressed"]
+[connection signal="toggled" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/LockBtn" to="." method="_on_lock_toggled"]
+[connection signal="pressed" from="HUD/Root/RoundBar/RoundInner/Placement/SkipBtn" to="." method="_on_skip_pressed"]
+[connection signal="pressed" from="HUD/Root/LeftCol/LeftInner/CollapseLeftBtn" to="." method="_on_collapse_left"]
+[connection signal="pressed" from="HUD/Root/RightCol/RightInner/CollapseRightBtn" to="." method="_on_collapse_right"]
+[connection signal="pressed" from="HUD/Root/Shop/ShopCol/CollapseBottomBtn" to="." method="_on_collapse_bottom"]

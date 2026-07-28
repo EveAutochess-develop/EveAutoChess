@@ -1,0 +1,180 @@
+{
+  "id": 20,
+  "name": "黑鸟级",
+  "name_en": "Blackbird",
+  "type_id": 632,
+  "model_key": "jdl_heiniao",
+  "cost": 4,
+  "ship_groups": [
+    "cruiser"
+  ],
+  "ship_group": "cruiser",
+  "fetter_ids": [
+    "caldari",
+    "cruiser",
+    "ewar"
+  ],
+  "tags": [
+    "caldari",
+    "cruiser",
+    "ewar"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "missile",
+  "race": "caldari",
+  "signature_radius": 135.0,
+  "sensor_strength": 20.0,
+  "scan_resolution": 230.0,
+  "speed": 190.0,
+  "mass": 13190000.0,
+  "agility": 0.48,
+  "capacitor_capacity": 1250.0,
+  "capacitor_recharge_s": 445.0,
+  "mid_battle_leave_allowed": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 4,
+  "med_slots": 6,
+  "low_slots": 3,
+  "source_module_type_id": 501,
+  "source_charge_type_id": 209,
+  "source_repair_module_type_id": 0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "echoes_item_id": 10300000007,
+  "attack_cycle_s": 15.0,
+  "stars": [
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 149.0,
+        "thermal": 149.0,
+        "kinetic": 149.0,
+        "explosive": 149.0
+      },
+      "repair": {
+        "shield": 0.0,
+        "armor": 0.0,
+        "structure": 0.0
+      },
+      "tracking": 0.0,
+      "optimal": 0.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 1400.0,
+      "armor_hp": 1200.0,
+      "structure_hp": 1400.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": false,
+      "explosion_radius": 140.0,
+      "explosion_velocity": 85.0,
+      "drf": 0.682
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 298.0,
+        "thermal": 298.0,
+        "kinetic": 298.0,
+        "explosive": 298.0
+      },
+      "repair": {
+        "shield": 0.0,
+        "armor": 0.0,
+        "structure": 0.0
+      },
+      "tracking": 0.0,
+      "optimal": 0.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 2800.0,
+      "armor_hp": 2400.0,
+      "structure_hp": 2800.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": false,
+      "explosion_radius": 140.0,
+      "explosion_velocity": 85.0,
+      "drf": 0.682
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 447.0,
+        "thermal": 447.0,
+        "kinetic": 447.0,
+        "explosive": 447.0
+      },
+      "repair": {
+        "shield": 0.0,
+        "armor": 0.0,
+        "structure": 0.0
+      },
+      "tracking": 0.0,
+      "optimal": 0.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 4200.0,
+      "armor_hp": 3600.0,
+      "structure_hp": 4200.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.5,
+        "thermal": 0.45,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": false,
+      "explosion_radius": 140.0,
+      "explosion_velocity": 85.0,
+      "drf": 0.682
+    }
+  ],
+  "model_long_axis": 139.0
+}

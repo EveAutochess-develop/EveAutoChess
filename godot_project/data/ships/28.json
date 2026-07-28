@@ -1,0 +1,171 @@
+{
+  "id": 28,
+  "name": "镰刀级",
+  "name_en": "Scythe",
+  "type_id": 631,
+  "model_key": "mmte_liandao",
+  "cost": 4,
+  "ship_groups": [
+    "cruiser"
+  ],
+  "ship_group": "cruiser",
+  "fetter_ids": [
+    "minmatar",
+    "cruiser",
+    "logistic"
+  ],
+  "tags": [
+    "minmatar",
+    "cruiser",
+    "logistic"
+  ],
+  "is_logistic": true,
+  "weapon_fx": "heal",
+  "race": "minmatar",
+  "signature_radius": 75.0,
+  "sensor_strength": 12.0,
+  "scan_resolution": 315.0,
+  "speed": 260.0,
+  "mass": 11110000.0,
+  "agility": 0.57,
+  "capacitor_capacity": 1750.0,
+  "capacitor_recharge_s": 350.0,
+  "mid_battle_leave_allowed": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 3,
+  "med_slots": 5,
+  "low_slots": 5,
+  "source_module_type_id": 491,
+  "source_charge_type_id": 193,
+  "source_repair_module_type_id": 11357,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "echoes_item_id": 10300000015,
+  "attack_cycle_s": 6.0,
+  "stars": [
+    {
+      "attack_range": 8,
+      "damage": {
+        "emp": 155.94,
+        "thermal": 0.0,
+        "kinetic": 17.34,
+        "explosive": 34.65
+      },
+      "repair": {
+        "shield": 294.0,
+        "armor": 294.0,
+        "structure": 0.0
+      },
+      "tracking": 33.792,
+      "optimal": 17.5,
+      "falloff": 21.672,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 1400.0,
+      "armor_hp": 1100.0,
+      "structure_hp": 1300.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": true
+    },
+    {
+      "attack_range": 8,
+      "damage": {
+        "emp": 311.88,
+        "thermal": 0.0,
+        "kinetic": 34.68,
+        "explosive": 69.3
+      },
+      "repair": {
+        "shield": 588.0,
+        "armor": 588.0,
+        "structure": 0.0
+      },
+      "tracking": 33.792,
+      "optimal": 17.5,
+      "falloff": 21.672,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 2800.0,
+      "armor_hp": 2200.0,
+      "structure_hp": 2600.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": true
+    },
+    {
+      "attack_range": 8,
+      "damage": {
+        "emp": 467.82,
+        "thermal": 0.0,
+        "kinetic": 52.02,
+        "explosive": 103.95
+      },
+      "repair": {
+        "shield": 882.0,
+        "armor": 882.0,
+        "structure": 0.0
+      },
+      "tracking": 33.792,
+      "optimal": 17.5,
+      "falloff": 21.672,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 4200.0,
+      "armor_hp": 3300.0,
+      "structure_hp": 3900.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "armor_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.6,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.1
+      },
+      "is_logistic": true
+    }
+  ],
+  "model_long_axis": 134.0
+}

@@ -13,7 +13,7 @@ if (-not (Test-Path $outPck)) { throw "PCK not created: $outPck" }
 
 $sha = (Get-FileHash -Path $outPck -Algorithm SHA256).Hash.ToLowerInvariant()
 $size = (Get-Item $outPck).Length
-$ver = "202607.27.10"
+$ver = "202607.29.02"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{
@@ -23,7 +23,7 @@ $versionObj = [ordered]@{
   baseUrl = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
   entry = "res://scenes/main_menu.tscn"
   shellCompatibilityId = "eveac-shell-v1"
-  notes = "fix CheckBox apply_label_font parse error blocking mobile/PC entry"
+  notes = "shop meta row aspect fix; level box tight; small laser 453 icon; half-precision + fetters"
 }
 $manifestObj = [ordered]@{
   version = $ver
