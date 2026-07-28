@@ -1,0 +1,8 @@
+{
+  "id": "armor",
+  "name": "甲抗",
+  "effects": [
+    {"champion_count": 3, "effect_type": "FlatHP", "effect_value_type": "FixedValue", "effect_target": "SelfAll", "value": 150},
+    {"champion_count": 6, "effect_type": "FlatHP", "effect_value_type": "FixedValue", "effect_target": "SelfAll", "value": 150}
+  ]
+}

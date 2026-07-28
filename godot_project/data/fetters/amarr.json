@@ -4,10 +4,17 @@
   "effects": [
     {
       "champion_count": 2,
-      "effect_type": "Damage",
+      "effect_type": "ArmorHP",
       "effect_value_type": "Percentage",
-      "effect_target": "SelfFetter",
-      "value": 10.0
+      "effect_target": "SelfAll",
+      "value": 20
+    },
+    {
+      "champion_count": 4,
+      "effect_type": "ArmorHP",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 20
     }
   ]
 }

@@ -239,7 +239,7 @@ func _build_options() -> Control:
 	bgm_on_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
 	_bgm_check = CheckBox.new()
 	_bgm_check.text = "背景音乐"
-	_bgm_check.button_pressed = bgm.enabled if bgm else true
+	_bgm_check.button_pressed = bgm.enabled if bgm else false
 	UiAssets.apply_button_font(_bgm_check, UiLayout.font_size(16, self))
 	_bgm_check.toggled.connect(_on_bgm_toggled)
 	bgm_on_row.add_child(_bgm_check)

@@ -1,5 +1,20 @@
 {
   "id": "caldari",
   "name": "加达里",
-  "effects": []
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "ShieldHP",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 20
+    },
+    {
+      "champion_count": 4,
+      "effect_type": "ShieldHP",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 20
+    }
+  ]
 }

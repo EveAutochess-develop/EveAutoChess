@@ -2,6 +2,7 @@ extends Node
 ## Attack VFX: Unity FiringEffectController laser stretch + EVEmu kind taxonomy
 ## (effects.Laser / hybrid / projectileFired / missileLaunching).
 ## Spawns from ShipUnit.get_muzzle_global() (AABB bow tip — GLB has no turret sockets).
+## Beam/projectile endpoints re-sample firer muzzle + target each tick so FX stay tethered.
 
 var _world: Node3D
 var _active: Array = []  # Dictionary entries
@@ -9,7 +10,7 @@ var _active: Array = []  # Dictionary entries
 func setup(world_root: Node3D) -> void:
 	_world = world_root
 
-func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float) -> void:
+func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, projectile_travel_s: float = -1.0) -> void:
 	if firer == null or target == null or _world == null:
 		return
 	var cfg: Dictionary = DataStore.weapon_fx
@@ -26,19 +27,38 @@ func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float) -> v
 	var jitter_a := Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
 	var jitter_b := Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
 	if style == "projectile":
-		_spawn_projectile(firer, target, color, width, float(kdef.get("speed", 30.0)), bool(kdef.get("trail", false)), jitter_a, jitter_b)
+		_spawn_projectile(
+			firer,
+			target,
+			color,
+			width,
+			float(kdef.get("speed", 30.0)),
+			bool(kdef.get("trail", false)),
+			jitter_a,
+			jitter_b,
+			projectile_travel_s,
+			float(kdef.get("trail_lag", 0.08)),
+			float(kdef.get("trail_length", 0.6))
+		)
 	else:
 		_spawn_beam(firer, target, color, width, dur, jitter_a, jitter_b)
 
 func _process(delta: float) -> void:
+	var mul := 1.0
+	var root := get_tree().get_first_node_in_group("match_root")
+	if root and root.has_method("get") and root.get("match_ctrl"):
+		var mc = root.match_ctrl
+		if mc:
+			mul = float(mc.speed_multiplier)
+	var scaled := delta * mul
 	var i := 0
 	while i < _active.size():
 		var e: Dictionary = _active[i]
 		var alive := true
 		if str(e.get("style", "")) == "beam":
-			alive = _tick_beam(e, delta)
+			alive = _tick_beam(e, scaled)
 		else:
-			alive = _tick_projectile(e, delta)
+			alive = _tick_projectile(e, scaled)
 		if alive:
 			i += 1
 		else:
@@ -72,7 +92,7 @@ func _spawn_beam(firer: ShipUnit, target: ShipUnit, color: Color, width: float, 
 
 const MUZZLE_FALLBACK_DIST := 6.0
 
-func _muzzle_point(firer) -> Vector3:
+func _muzzle_point(firer: ShipUnit) -> Vector3:
 	if firer == null or not is_instance_valid(firer):
 		return Vector3(0.0, 0.4, 0.0)
 	var from: Vector3 = firer.get_muzzle_global()
@@ -81,9 +101,26 @@ func _muzzle_point(firer) -> Vector3:
 		return ship_pos + Vector3(0.0, 0.4, 0.0)
 	return from
 
-func _spawn_projectile(firer: ShipUnit, target: ShipUnit, color: Color, width: float, speed: float, trail: bool, ja: Vector3, jb: Vector3) -> void:
+func _target_point(target: ShipUnit, jb: Vector3, fallback: Vector3) -> Vector3:
+	if target != null and is_instance_valid(target) and not bool(target.get("is_destroyed")):
+		return target.global_position + Vector3(0, 0.4, 0) + jb
+	return fallback
+
+func _spawn_projectile(
+	firer: ShipUnit,
+	target: ShipUnit,
+	color: Color,
+	width: float,
+	speed: float,
+	trail: bool,
+	ja: Vector3,
+	jb: Vector3,
+	projectile_travel_s: float = -1.0,
+	trail_lag: float = 0.08,
+	trail_length: float = 0.6
+) -> void:
 	var from := _muzzle_point(firer) + ja
-	var to := target.global_position + Vector3(0, 0.4, 0) + jb
+	var to := _target_point(target, jb, from + Vector3(0, 0, 1))
 	var mi := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
 	sphere.radius = width * 0.5
@@ -104,7 +141,7 @@ func _spawn_projectile(firer: ShipUnit, target: ShipUnit, color: Color, width: f
 		var cyl := CylinderMesh.new()
 		cyl.top_radius = width * 0.15
 		cyl.bottom_radius = width * 0.35
-		cyl.height = 0.6
+		cyl.height = maxf(0.2, trail_length)
 		trail_mi.mesh = cyl
 		var tmat := StandardMaterial3D.new()
 		tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -116,26 +153,32 @@ func _spawn_projectile(firer: ShipUnit, target: ShipUnit, color: Color, width: f
 		"style": "projectile",
 		"node": mi,
 		"trail": trail_mi,
+		"firer": firer,
+		"target": target,
+		"ja": ja,
+		"jb": jb,
 		"from": from,
 		"to": to,
 		"speed": speed,
+		"travel_s": projectile_travel_s,
+		"trail_lag": trail_lag,
 		"progress": 0.0,
 		"dist": maxf(0.01, from.distance_to(to)),
 	})
 
 func _tick_beam(e: Dictionary, delta: float) -> bool:
 	e["t_left"] = float(e["t_left"]) - delta
-	var firer = e.get("firer")
-	var target = e.get("target")
+	var firer: ShipUnit = e.get("firer")
+	var target: ShipUnit = e.get("target")
 	var mi: MeshInstance3D = e.get("node")
 	if mi == null or not is_instance_valid(mi):
 		return false
 	if firer == null or not is_instance_valid(firer) or bool(firer.get("is_destroyed")):
 		return false
-	var from: Vector3 = _muzzle_point(firer) + e["ja"]
-	var to: Vector3 = from + Vector3(0, 0, 1)
-	if target != null and is_instance_valid(target) and not bool(target.get("is_destroyed")):
-		to = target.global_position + Vector3(0, 0.35, 0) + e["jb"]
+	var ja: Vector3 = e.get("ja", Vector3.ZERO)
+	var jb: Vector3 = e.get("jb", Vector3.ZERO)
+	var from: Vector3 = _muzzle_point(firer) + ja
+	var to: Vector3 = _target_point(target, jb, from + Vector3(0, 0, 1))
 	var diff: Vector3 = to - from
 	var length := diff.length()
 	if length < 0.05:
@@ -155,16 +198,31 @@ func _tick_projectile(e: Dictionary, delta: float) -> bool:
 	var mi: MeshInstance3D = e.get("node")
 	if mi == null or not is_instance_valid(mi):
 		return false
-	var dist: float = float(e["dist"])
-	var speed: float = float(e["speed"])
-	e["progress"] = float(e["progress"]) + (speed * delta) / dist
+	var firer: ShipUnit = e.get("firer")
+	var target: ShipUnit = e.get("target")
+	var ja: Vector3 = e.get("ja", Vector3.ZERO)
+	var jb: Vector3 = e.get("jb", Vector3.ZERO)
+	var from: Vector3 = e.get("from", Vector3.ZERO)
+	var to: Vector3 = e.get("to", Vector3.ZERO)
+	if firer != null and is_instance_valid(firer) and not bool(firer.get("is_destroyed")):
+		from = _muzzle_point(firer) + ja
+	to = _target_point(target, jb, to)
+	e["from"] = from
+	e["to"] = to
+	var dist: float = maxf(0.01, from.distance_to(to))
+	e["dist"] = dist
+	var travel_s := float(e.get("travel_s", -1.0))
+	if travel_s > 0.0:
+		e["progress"] = float(e["progress"]) + delta / travel_s
+	else:
+		var speed: float = float(e["speed"])
+		e["progress"] = float(e["progress"]) + (speed * delta) / dist
 	var t: float = clampf(float(e["progress"]), 0.0, 1.0)
-	var from: Vector3 = e["from"]
-	var to: Vector3 = e["to"]
 	mi.global_position = from.lerp(to, t)
 	var trail: MeshInstance3D = e.get("trail")
 	if trail != null and is_instance_valid(trail):
-		var back := from.lerp(to, maxf(0.0, t - 0.08))
+		var lag := clampf(float(e.get("trail_lag", 0.08)), 0.02, 0.35)
+		var back := from.lerp(to, maxf(0.0, t - lag))
 		trail.global_position = (mi.global_position + back) * 0.5
 		if mi.global_position.distance_to(back) > 0.01:
 			trail.look_at(mi.global_position, Vector3.UP)

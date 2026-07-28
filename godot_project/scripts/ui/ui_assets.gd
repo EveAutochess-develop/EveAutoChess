@@ -17,10 +17,24 @@ const ICON_POP := "res://assets/ui/sprites/Population.png"
 const ICON_LOCK := "res://assets/ui/sprites/Lock.png"
 const ICON_COIN := "res://assets/ui/sprites/coin 64.png"
 const TERRAIN_DIFFUSE := "res://assets/textures/terrain diffuse.png"
+const ENTITY_ICON_DIR := "E:/game_dev/icon_for_entity"
+const ECHOES_ITEM_ICON_DIR := "H:/eve手游/history/asset_library/items/icons"
+const TONNAGE_ICON_MAP := {
+	"frigate": "frigate_32.png",
+	"destroyer": "destroyer_32.png",
+	"cruiser": "cruiser_32.png",
+	"battlecruiser": "battleCruiser_32.png",
+	"battleship": "battleship_32.png",
+	"drone_light": "droneLightScout_16.png",
+	"drone_medium": "droneMediumScout_16.png",
+	"drone_heavy": "droneHeavyAttack_16.png"
+}
 
 static var _champ_cache: Dictionary = {}
 static var _champ_path_map: Dictionary = {}
 static var _fetter_cache: Dictionary = {}
+static var _tonnage_cache: Dictionary = {}
+static var _item_icon_cache: Dictionary = {}
 static var _font_display: Font
 static var _font_body: Font
 static var _shop_refresh: String = ""
@@ -76,7 +90,16 @@ static func tex_ship_bake(path: String) -> Texture2D:
 	return tex(path)
 
 static func _tex_from_image_file(path: String) -> Texture2D:
-	var abs_path := ProjectSettings.globalize_path(path)
+	var abs_path := path
+	# res:// is NOT a real filesystem path; globalize it so FileAccess + Image.load work
+	# even when PNGs were just written and .import is not settled yet.
+	if path.begins_with("res://"):
+		abs_path = ProjectSettings.globalize_path(path)
+	# Windows absolute path: C:\xxx or C:/xxx
+	elif path.length() >= 3 and path[1] == ":" and (path[2] == "\\" or path[2] == "/"):
+		abs_path = path
+	elif not (path.contains(":/") or path.begins_with("/") or path.begins_with("\\") ):
+		abs_path = ProjectSettings.globalize_path(path)
 	if abs_path == "" or not FileAccess.file_exists(abs_path):
 		return null
 	var img := Image.new()
@@ -115,17 +138,41 @@ static func apply_button_font(b: Button, size: int = 22) -> void:
 		b.add_theme_font_override("font", f)
 	b.add_theme_font_size_override("font_size", size)
 
-static func champion_icon(ship_name: String) -> Texture2D:
-	if _champ_cache.has(ship_name):
-		return _champ_cache[ship_name]
-	_ensure_champ_map()
-	var t: Texture2D = null
-	# Prefer ASCII copies — Chinese path .import often stays valid=false on Windows
-	if _champ_path_map.has(ship_name):
-		t = tex(str(_champ_path_map[ship_name]))
+static func drone_portrait(drone_id: int) -> Texture2D:
+	var cache_key := "drone#%d" % drone_id
+	if _champ_cache.has(cache_key) and _champ_cache[cache_key] != null:
+		return _champ_cache[cache_key]
+	var t: Texture2D = champion_icon("", drone_id)
 	if t == null:
-		t = _find_named_tex(CHAMPION_ICON_DIR, ship_name)
-	_champ_cache[ship_name] = t
+		var data: Dictionary = DataStore.get_ship(drone_id)
+		var key := str(data.get("model_key", ""))
+		if key != "":
+			t = tex("res://assets/ui/portraits/%s.png" % key)
+	if t == null:
+		t = tonnage_icon("drone_light")
+	if t != null:
+		_champ_cache[cache_key] = t
+	else:
+		_champ_cache.erase(cache_key)
+	return t
+
+static func champion_icon(ship_name: String, ship_id: int = 0) -> Texture2D:
+	## Portraits only — Echoes ship_portraits; never ChampionIcons fallback.
+	var cache_key := "%s#%d" % [ship_name, ship_id]
+	if _champ_cache.has(cache_key) and _champ_cache[cache_key] != null:
+		return _champ_cache[cache_key]
+	var t: Texture2D = null
+	if ship_id > 0:
+		var ppath := DataStore.ship_portrait_path(ship_id)
+		if ppath != "":
+			## Prefer raw ImageTexture so newly written PNGs show before .import settles.
+			t = _tex_from_image_file(ppath)
+			if t == null:
+				t = tex(ppath)
+	if t != null:
+		_champ_cache[cache_key] = t
+	else:
+		_champ_cache.erase(cache_key)
 	return t
 
 static func _ensure_champ_map() -> void:
@@ -139,11 +186,107 @@ static func _ensure_champ_map() -> void:
 			if typeof(parsed) == TYPE_DICTIONARY:
 				_champ_path_map = parsed
 
-static func fetter_icon(fetter_name: String) -> Texture2D:
-	if _fetter_cache.has(fetter_name):
-		return _fetter_cache[fetter_name]
-	var t := _find_named_tex(FETTER_ICON_DIR, fetter_name)
-	_fetter_cache[fetter_name] = t
+## Resolve by fetter id (ASCII `{id}.png`) first, then Chinese display name.
+## `fetter_key` may be id (`amarr`) or name (`艾玛`).
+static func fetter_icon(fetter_key: String, display_name: String = "") -> Texture2D:
+	var cache_key := "%s|%s" % [fetter_key, display_name]
+	if _fetter_cache.has(cache_key) and _fetter_cache[cache_key] != null:
+		return _fetter_cache[cache_key]
+	var t: Texture2D = null
+	if fetter_key != "":
+		t = tex(FETTER_ICON_DIR.path_join(fetter_key + ".png"))
+		if t == null:
+			t = _find_named_tex(FETTER_ICON_DIR, fetter_key)
+	if t == null and display_name != "" and display_name != fetter_key:
+		t = _find_named_tex(FETTER_ICON_DIR, display_name)
+	if t != null:
+		_fetter_cache[cache_key] = t
+	else:
+		_fetter_cache.erase(cache_key)
+	return t
+
+## Short Chinese line for an active fetter effect dict (from JSON / recalculate_fetters).
+static func fetter_effect_text(eff: Dictionary) -> String:
+	if eff.is_empty():
+		return ""
+	var et := str(eff.get("effect_type", ""))
+	var vt := str(eff.get("effect_value_type", ""))
+	var val := float(eff.get("value", 0.0))
+	var target := str(eff.get("effect_target", ""))
+	var scope := ""
+	match target:
+		"SelfFetter":
+			scope = "本羁绊"
+		"SelfAll":
+			scope = "全队"
+		"SelfOne":
+			scope = "单体"
+		_:
+			scope = ""
+	var what := et
+	match et:
+		"Damage":
+			what = "伤害"
+		"ArmorHP":
+			what = "装甲"
+		"ShieldHP":
+			what = "护盾"
+		"FlatHP":
+			what = "HP"
+		"AttackSpeed":
+			what = "攻速"
+		"Speed":
+			what = "移速"
+		"ArmorHeal", "RemoteRepair", "Repair":
+			what = "装甲回复"
+		"ShieldResist":
+			what = "盾抗"
+		"ArmorResist":
+			what = "甲抗"
+	var amount := ""
+	var signed := ("+" if val > 0.0 else "") + str(int(round(val)))
+	if vt == "Percentage":
+		amount = signed + "%"
+	elif vt == "Multiplier":
+		amount = "×%.2f" % val
+	else:
+		amount = signed
+	if scope != "":
+		return "%s%s%s" % [scope, what, amount]
+	return "%s%s" % [what, amount]
+
+static func tonnage_icon(ship_group: String) -> Texture2D:
+	if _tonnage_cache.has(ship_group):
+		return _tonnage_cache[ship_group]
+	var file_name := str(TONNAGE_ICON_MAP.get(ship_group, ""))
+	if file_name == "":
+		return null
+	var external_path := ENTITY_ICON_DIR.path_join(file_name)
+	var t := _tex_from_image_file(external_path)
+	if t == null:
+		t = tex("res://assets/ui/sprites/tonnage".path_join(file_name))
+	_tonnage_cache[ship_group] = t
+	return t
+
+static func item_icon(type_id: int) -> Texture2D:
+	if type_id <= 0:
+		return null
+	if _item_icon_cache.has(type_id) and _item_icon_cache[type_id] != null:
+		return _item_icon_cache[type_id]
+	var stem := str(type_id)
+	var res_path := "res://assets/ui/item_icons".path_join(stem + ".png")
+	## Prefer raw ImageTexture — extract_module_icons.py may rewrite PNG while .import lags.
+	var t := _tex_from_image_file(res_path)
+	if t == null:
+		t = tex(res_path)
+	if t == null:
+		t = _tex_from_image_file(ECHOES_ITEM_ICON_DIR.path_join(stem + ".ktx"))
+	if t == null:
+		t = _tex_from_image_file(ECHOES_ITEM_ICON_DIR.path_join(stem + ".png"))
+	if t != null:
+		_item_icon_cache[type_id] = t
+	else:
+		_item_icon_cache.erase(type_id)
 	return t
 
 static func shop_refresh_path() -> String:

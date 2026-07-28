@@ -33,6 +33,7 @@ func _ready() -> void:
 	_started_at_msec = Time.get_ticks_msec()
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	push_runtime_log("info", "MCPRuntime starting (project=%s)" % _project_path)
+	print("[MCPRuntime] starting project=%s url=%s" % [_project_path, SERVER_URL])
 	_attempt_connect()
 
 
@@ -57,15 +58,26 @@ func _process(_delta: float) -> void:
 				"started_at": _started_at_msec,
 			})
 			push_runtime_log("info", "MCPRuntime connected to MCP server.")
+			print("[MCPRuntime] connected to MCP server")
 
 		while _socket.get_available_packet_count() > 0:
 			var raw := _socket.get_packet().get_string_from_utf8()
 			_handle_message(raw)
 
+	elif st == WebSocketPeer.STATE_CONNECTING:
+		# Don't hang forever if handshake never completes.
+		if Time.get_ticks_msec() >= _reconnect_at_msec:
+			push_runtime_log("warn", "MCPRuntime CONNECTING timeout; closing and retry")
+			print("[MCPRuntime] CONNECTING timeout; retry")
+			_socket.close()
+			_connected = false
+			_attempt_connect()
+
 	elif st == WebSocketPeer.STATE_CLOSED:
 		if _connected:
 			_connected = false
 			push_runtime_log("warn", "MCPRuntime disconnected; will retry.")
+			print("[MCPRuntime] disconnected; will retry")
 		var now := Time.get_ticks_msec()
 		if now >= _reconnect_at_msec:
 			_attempt_connect()
@@ -79,7 +91,9 @@ func _attempt_connect() -> void:
 	_reconnect_at_msec = Time.get_ticks_msec() + 2000
 	if err != OK:
 		push_runtime_log("warn", "MCPRuntime connect_to_url failed: %d (%s)" % [err, error_string(err)])
-
+		print("[MCPRuntime] connect_to_url failed: %d (%s)" % [err, error_string(err)])
+	else:
+		print("[MCPRuntime] connect_to_url OK → %s" % SERVER_URL)
 
 func _handle_message(json_string: String) -> void:
 	var msg = JSON.parse_string(json_string)

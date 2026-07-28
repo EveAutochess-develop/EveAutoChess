@@ -1,0 +1,14 @@
+gr2=res:/dx9/model/drone/gallente/light/gdl1/gdl1_t1.gr2
+sources:
+  a=dx9_model_drone_gallente_light_gdl1_gdl1_t1_a.dds
+  n=dx9_model_drone_gallente_light_gdl1_gdl1_t1_n.dds
+  r=dx9_model_drone_gallente_light_gdl1_gdl1_t1_r.dds
+  g=dx9_model_drone_gallente_light_gdl1_gdl1_t1_g.dds
+  m=dx9_model_drone_gallente_light_gdl1_gdl1_t1_m.dds
+  d=dx9_model_drone_gallente_light_gdl1_gdl1_t1_d.dds
+written:
+  albedo=res://assets/models/ships/wrj_g_dijingling/albedo.png
+  normal=res://assets/models/ships/wrj_g_dijingling/normal.png
+  rg=res://assets/models/ships/wrj_g_dijingling/rg.png
+  pmwo=res://assets/models/ships/wrj_g_dijingling/pmwo.png
+  reduction=res://assets/models/ships/wrj_g_dijingling/reduction.png

@@ -1,0 +1,14 @@
+gr2=res:/dx9/model/drone/minmatar/medium/mdm1/mdm1_t1.gr2
+sources:
+  a=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_a.dds
+  n=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_n.dds
+  r=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_r.dds
+  g=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_g.dds
+  m=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_m.dds
+  d=dx9_model_drone_minmatar_medium_mdm1_mdm1_t1_d.dds
+written:
+  albedo=res://assets/models/ships/wrj_m_waerjili/albedo.png
+  normal=res://assets/models/ships/wrj_m_waerjili/normal.png
+  rg=res://assets/models/ships/wrj_m_waerjili/rg.png
+  pmwo=res://assets/models/ships/wrj_m_waerjili/pmwo.png
+  reduction=res://assets/models/ships/wrj_m_waerjili/reduction.png

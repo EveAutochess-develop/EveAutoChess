@@ -3,8 +3,9 @@
   "deploy_try_limit": 28,
   "cruiser_block_battle_stages": 3,
   "cruiser_ship_group_tag": "cruiser",
-  "random_deploy": true,
-  "uses_shop_economy": false,
-  "_comment_cap": "AI field hard cap = floor(player population_limit * field_cap_vs_player_pop). population_limit = player_level (+ ship_count_buff). Gold/exp only raise level → raise player pop → raise AI cap.",
-  "field_cap_vs_player_pop": 2.5
+  "random_deploy": false,
+  "uses_shop_economy": true,
+  "ai_gold_income_buff_mul": 2.0,
+  "_comment_cap": "AI field hard cap = min(ai_pop, floor(player_pop * field_cap_vs_player_pop)).",
+  "field_cap_vs_player_pop": 2.0
 }

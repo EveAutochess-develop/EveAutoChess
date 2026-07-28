@@ -1,8 +1,17 @@
 {
   "prepare_duration_s": 16,
-  "battle_duration_s": 60,
+  "battle_duration_s": 1800,
   "min_battle_duration_s": 1.25,
-  "citadel_damage_constant": 18,
+  "speed_steps": [0.2, 0.5, 1, 2, 4, 8, 16],
+  "speed_multiplier": 1.0,
+  "sim_fixed_step_s": 0.05,
+  "citadel_base_damage_by_round_band": [
+    {"max_round": 3, "base": 0},
+    {"max_round": 6, "base": 2},
+    {"max_round": 9, "base": 4},
+    {"max_round": 999, "base": 6}
+  ],
+  "citadel_ship_damage_cost_star": true,
   "player_max_hp": 1000,
   "max_round_phase_value": 5,
   "death_return_delay_s": 3

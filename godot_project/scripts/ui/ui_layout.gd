@@ -27,7 +27,6 @@ static func scale(from: Node = null) -> float:
 	if base > 0.88 and base < 1.12:
 		base = 1.0
 	if is_mobile():
-		# Denser on phones / emulators so left shop + menu don't dominate.
 		return clampf(base * 0.78, 0.55, 0.92)
 	return clampf(base, 0.7, 1.2)
 
@@ -55,8 +54,16 @@ static func set_rect_frac(c: Control, left: float, top: float, right: float, bot
 	c.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 static func set_left_strip(c: Control, width_frac: float, top_frac: float = 0.055, bottom_frac: float = 0.012, left_frac: float = 0.006) -> void:
-	width_frac = clampf(width_frac, 0.12, 0.28)
+	width_frac = clampf(width_frac, 0.08, 0.28)
 	set_rect_frac(c, left_frac, top_frac, left_frac + width_frac, 1.0 - bottom_frac)
+
+static func set_right_strip(c: Control, width_frac: float, top_frac: float = 0.07, bottom_frac: float = 0.18, right_margin: float = 0.008) -> void:
+	width_frac = clampf(width_frac, 0.12, 0.3)
+	set_rect_frac(c, 1.0 - right_margin - width_frac, top_frac, 1.0 - right_margin, 1.0 - bottom_frac)
+
+static func set_bottom_strip(c: Control, height_frac: float, left_frac: float = 0.01, right_frac: float = 0.01, bottom_margin: float = 0.01) -> void:
+	height_frac = clampf(height_frac, 0.08, 0.32)
+	set_rect_frac(c, left_frac, 1.0 - bottom_margin - height_frac, 1.0 - right_frac, 1.0 - bottom_margin)
 
 static func set_center_panel_frac(c: Control, width_frac: float, height_frac: float) -> void:
 	width_frac = clampf(width_frac, 0.35, 0.92)
@@ -65,5 +72,30 @@ static func set_center_panel_frac(c: Control, width_frac: float, height_frac: fl
 	var t := 0.5 - height_frac * 0.5
 	set_rect_frac(c, l, t, l + width_frac, t + height_frac)
 
+static func top_bar_height_frac() -> float:
+	return 0.055 if is_mobile() else 0.06
+
+static func left_col_width_frac() -> float:
+	return 0.12 if is_mobile() else 0.13
+
+static func right_col_width_frac() -> float:
+	return 0.18 if is_mobile() else 0.2
+
+static func bottom_shop_height_frac() -> float:
+	return 0.22 if is_mobile() else 0.26
+
+## Collapsed strip thickness (fraction of viewport).
+static func collapse_strip_frac() -> float:
+	return 0.028 if is_mobile() else 0.024
+
+## Playfield open window as viewport fractions: left, top, right, bottom edges.
+static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, collapse_bottom: bool) -> Rect2:
+	var top := top_bar_height_frac() + 0.01
+	var left := collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
+	var right := (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
+	var bottom := (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac() - 0.012)
+	return Rect2(left, top, maxf(0.2, right - left), maxf(0.2, bottom - top))
+
+## Deprecated name kept for callers; prefer left_col_width_frac.
 static func shop_width_frac() -> float:
-	return 0.16 if is_mobile() else 0.185
+	return left_col_width_frac()

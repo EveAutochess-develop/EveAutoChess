@@ -9,7 +9,7 @@ const SETTINGS_PATH := "user://player_settings.cfg"
 const BUS_NAME := &"BGM"
 const _SELF := "res://scripts/audio/bg_music.gd"
 
-var enabled: bool = true
+var enabled: bool = false
 var volume_pct: float = 60.0
 
 var _player: AudioStreamPlayer
@@ -28,7 +28,7 @@ static func instance() -> Node:
 		return null
 	var n: Node = scr.new()
 	n.name = String(NODE_NAME)
-	tree.root.add_child(n)
+	tree.root.add_child.call_deferred(n)
 	return n
 
 
@@ -95,7 +95,7 @@ func _load_settings() -> void:
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS_PATH) != OK:
 		return
-	enabled = bool(cf.get_value("audio", "bgm_enabled", true))
+	enabled = bool(cf.get_value("audio", "bgm_enabled", false))
 	volume_pct = float(cf.get_value("audio", "bgm_volume", 60.0))
 	volume_pct = clampf(volume_pct, 0.0, 100.0)
 

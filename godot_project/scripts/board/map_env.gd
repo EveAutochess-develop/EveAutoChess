@@ -39,8 +39,8 @@ func _leftmost_field_cell() -> Vector3:
 
 func _extreme_field_cell(want_max_x: bool) -> Vector3:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 7))
-	var fh := int(b.get("field_height", 4))
+	var fw := int(b.get("field_width", 11))
+	var fh := int(b.get("field_height", 6))
 	var best := Vector3.ZERO
 	var best_x := -INF if want_max_x else INF
 	var best_z := -INF
@@ -67,35 +67,7 @@ func _extreme_field_cell(want_max_x: bool) -> Vector3:
 	return best
 
 func _cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vector3:
-	var b := DataStore.board
-	var ox := float(b.get("hex_offset_x", -3.0))
-	var nudge := float(b.get("hex_row_nudge", 1.5))
-	var oz := float(b.get("hex_offset_z", -2.5))
-	var hox := float(b.get("hangar_offset_x", -2.5))
-	var origin: Array = b.get(
-		"hangar_origin_player" if slot_type == "hangar" else "field_origin_player",
-		[10.0, 0.0, 12.0] if slot_type == "hangar" else [8.5, 0.0, 8.75]
-	) as Array
-	if team == ShipUnit.TEAM_AI:
-		origin = b.get(
-			"hangar_origin_ai" if slot_type == "hangar" else "field_origin_ai",
-			[-10.0, 0.0, -12.0] if slot_type == "hangar" else [-8.0, 0.0, -8.75]
-		) as Array
-	var ox0 := float(origin[0])
-	var oy0 := float(origin[1]) if origin.size() > 1 else 0.0
-	var oz0 := float(origin[2]) if origin.size() > 2 else 0.0
-	if slot_type == "hangar":
-		var step := float(x) * hox
-		if team == ShipUnit.TEAM_AI:
-			step = -step
-		return Vector3(ox0 + step, oy0, oz0)
-	var row_offset := z % 2
-	var offset_x := float(x) * ox + float(row_offset) * nudge
-	var offset_z := float(z) * oz
-	if team == ShipUnit.TEAM_AI:
-		offset_x = -offset_x
-		offset_z = -offset_z
-	return Vector3(ox0 + offset_x, oy0 + 0.05, oz0 + offset_z)
+	return BoardController.cell_to_world(slot_type, team, x, z)
 
 func _spawn_citadel_under_board(
 		stem: String, target_size: float, team_id: int, anchor_cell: Vector3, player_side: bool
@@ -142,7 +114,7 @@ func _spawn_citadel_under_board(
 	if mapped != "":
 		tex_path = mapped
 	_apply_ship_like_hull(n, tex_path, team_id)
-	MobileModelLoad.apply_tree(n)
+	MobileModelLoad.apply_tree(n, target_size)
 	n.position.y -= 0.02
 	var scaled_size := Vector3(aabb.size.x * n.scale.x, aabb.size.y * n.scale.y, aabb.size.z * n.scale.z)
 	print("[MapEnv] citadel under board team=%d pos=%s anchor=%s scaled_size=%s corner=%s" % [

@@ -1,0 +1,8 @@
+{
+  "id": "hybrid",
+  "name": "混合",
+  "effects": [
+    {"champion_count": 3, "effect_type": "Damage", "effect_value_type": "Percentage", "effect_target": "SelfFetter", "value": 10},
+    {"champion_count": 6, "effect_type": "Damage", "effect_value_type": "Percentage", "effect_target": "SelfFetter", "value": 10}
+  ]
+}

@@ -2,12 +2,7 @@
   "id": "defense",
   "name": "防御",
   "effects": [
-    {
-      "champion_count": 2,
-      "effect_type": "ArmorResist",
-      "effect_value_type": "Percentage",
-      "effect_target": "SelfFetter",
-      "value": 10.0
-    }
+    {"champion_count": 3, "effect_type": "FlatHP", "effect_value_type": "FixedValue", "effect_target": "SelfAll", "value": 150},
+    {"champion_count": 6, "effect_type": "FlatHP", "effect_value_type": "FixedValue", "effect_target": "SelfAll", "value": 150}
   ]
 }
