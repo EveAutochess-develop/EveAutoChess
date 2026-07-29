@@ -4,7 +4,7 @@
   "name_en": "Maller",
   "type_id": 624,
   "model_key": "am_baojun",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

@@ -7,7 +7,7 @@ const SHIP_UNIT_SCRIPT := preload("res://scripts/ship/ship_unit.gd")
 @export var team_id: int = ShipUnit.TEAM_PLAYER
 
 # 启动时预设索引（对应 PRESETS 数组下标）。
-@export var start_preset_idx: int = 3
+@export var start_preset_idx: int = 0
 
 # 是否使用上面的导出 ship_id 作为初始船只。
 @export var use_export_ship_id: bool = true
@@ -15,6 +15,7 @@ const SHIP_UNIT_SCRIPT := preload("res://scripts/ship/ship_unit.gd")
 const TEST_SHIPS := [10, 8, 6, 41, 53, 51]
 const BASE_PRESET := {
 	"name": "base",
+	"mode": "high_contrast",
 	"sky_energy": 0.92,
 	"ambient_energy": 0.70,
 	"exposure": 0.86,
@@ -44,7 +45,50 @@ const BASE_PRESET := {
 }
 const PRESETS := [
 	{
+		"name": "unity-standard",
+		"mode": "unity_standard",
+		"sky_energy": 1.0,
+		"ambient_energy": 1.15,
+		"ambient_r": 0.212,
+		"ambient_g": 0.227,
+		"ambient_b": 0.259,
+		"exposure": 0.9,
+		"brightness": 1.0,
+		"contrast": 1.0,
+		"saturation": 1.0,
+		"key_energy": 1.0,
+		"key_color_r": 1.0,
+		"key_color_g": 1.0,
+		"key_color_b": 1.0,
+		"key_pitch_deg": -57.3,
+		"key_yaw_deg": 107.7,
+		"key_roll_deg": 0.0,
+		"rim_energy": 0.0,
+		"fill_energy": 0.0,
+		"scene_key_energy": 0.0,
+		"glow_enabled": true,
+		"glow_intensity": 0.55,
+		"glow_strength": 0.9,
+		"glow_bloom": 0.35,
+		"glow_hdr_threshold": 0.45,
+		"threshold1": -0.1,
+		"threshold2": 0.35,
+		"threshold3": 0.68,
+		"metallic_threshold": 0.75,
+		"color1_r": 0.0, "color1_g": 0.0, "color1_b": 0.0,
+		"color2_r": 1.0, "color2_g": 1.0, "color2_b": 1.0,
+		"color3_r": 0.1981132, "color3_g": 0.1981132, "color3_b": 0.1981132,
+		"color4_r": 1.0, "color4_g": 0.84931314, "color4_b": 0.0,
+		"color_light_r": 0.0, "color_light_g": 0.9270375, "color_light_b": 1.0,
+		"glow_mul": 1.0,
+		"albedo_mul": 1.0,
+		"emission": 0.08,
+		"normal_scale": 1.0,
+		"portrait_tint_strength": 0.0,
+	},
+	{
 		"name": "soft",
+		"mode": "high_contrast",
 		"sky_energy": 0.86,
 		"ambient_energy": 0.62,
 		"exposure": 0.80,
@@ -75,6 +119,7 @@ const PRESETS := [
 	BASE_PRESET,
 	{
 		"name": "portrait-match",
+		"mode": "high_contrast",
 		"sky_energy": 0.72,
 		"ambient_energy": 0.48,
 		"exposure": 0.66,
@@ -105,6 +150,7 @@ const PRESETS := [
 	,
 	{
 		"name": "high-contrast",
+		"mode": "high_contrast",
 		# 环境更暗、关键光更强：先把明暗拉开，后续再用 W/S/E/D/Z/X 微调。
 		"sky_energy": 0.78,
 		"ambient_energy": 0.30,
@@ -154,7 +200,7 @@ const TWEAK_DEFAULTS := {
 }
 
 var _ship_idx := 0
-var _preset_idx := 2
+var _preset_idx := 0
 var _ship: ShipUnit
 var _cam: Camera3D
 var _env: WorldEnvironment
@@ -185,8 +231,10 @@ func _ready() -> void:
 	elif _preset_idx >= PRESETS.size():
 		_preset_idx = PRESETS.size() - 1
 	_live_cfg = _current_preset()
+	_sync_look_cfg(_live_cfg)
 	_spawn_ship()
-	_apply_preset()
+	_apply_environment_tune(_live_cfg)
+	_refresh_hud()
 
 
 func _disable_preview_decimation() -> void:
@@ -279,7 +327,7 @@ func _input(event: InputEvent) -> void:
 		KEY_M:
 			_tweak("metallic", -0.10)
 		KEY_R:
-			_preset_idx = 1
+			_preset_idx = 0
 			_live_cfg = _current_preset()
 			_apply_preset()
 		KEY_P:
@@ -398,7 +446,10 @@ func _spawn_ship() -> void:
 	_refresh_hud()
 	await get_tree().process_frame
 	_frame_ship()
-	_apply_material_tune()
+	if ShipLook.is_unity_standard():
+		_apply_unity_material_tune(_live_cfg if not _live_cfg.is_empty() else _current_preset())
+	else:
+		_apply_material_tune()
 
 
 func _frame_ship() -> void:
@@ -456,25 +507,66 @@ func _current_preset() -> Dictionary:
 
 func _apply_preset() -> void:
 	var cfg := _live_cfg if not _live_cfg.is_empty() else _current_preset()
+	_sync_look_cfg(cfg)
 	_apply_environment_tune(cfg)
-	_apply_material_tune(cfg)
+	# Re-tint via spawn so unity_standard shader is picked at _tint_model time.
+	_spawn_ship()
 	_refresh_hud()
 
 
-func _tweak(key: String, delta: float) -> void:
-	if _live_cfg.is_empty():
-		_live_cfg = _current_preset()
-	var base_val := float(_live_cfg.get(key, TWEAK_DEFAULTS.get(key, 0.0)))
-	_live_cfg[key] = base_val + delta
-	_apply_environment_tune(_live_cfg)
-	_apply_material_tune(_live_cfg)
-	_refresh_hud()
+func _sync_look_cfg(cfg: Dictionary) -> void:
+	if typeof(DataStore) == TYPE_NIL or not (DataStore.visual is Dictionary):
+		return
+	var vis := DataStore.visual as Dictionary
+	var look: Dictionary = {}
+	if vis.get("ship_look") is Dictionary:
+		look = (vis["ship_look"] as Dictionary).duplicate(true)
+	for k in cfg.keys():
+		look[k] = cfg[k]
+	if not look.has("mode"):
+		var n := str(look.get("name", "")).to_lower()
+		look["mode"] = "unity_standard" if n == "unity-standard" or n == "unity_standard" else "high_contrast"
+	vis["ship_look"] = look
+	ShipLook.clear_caches()
+
+
+func _apply_unity_material_tune(cfg: Dictionary = {}) -> void:
+	if _ship == null or not is_instance_valid(_ship):
+		return
+	if cfg.is_empty():
+		cfg = _live_cfg if not _live_cfg.is_empty() else _current_preset()
+	_sync_look_cfg(cfg)
+	for mi in _find_meshes(_ship):
+		if mi.material_override is ShaderMaterial:
+			var smat := mi.material_override as ShaderMaterial
+			ShipLook.apply_to_unity_shader_material(smat)
+		elif mi.material_override is StandardMaterial3D:
+			var mat := mi.material_override as StandardMaterial3D
+			ShipLook.apply_to_standard_material(mat, _current_ship_id(), mat.albedo_texture, "")
 
 
 func _apply_environment_tune(cfg: Dictionary = {}) -> void:
 	if cfg.is_empty():
 		cfg = _live_cfg if not _live_cfg.is_empty() else _current_preset()
+	_sync_look_cfg(cfg)
 	var env := _env.environment
+	ShipLook.apply_match_environment(env)
+	if str(cfg.get("mode", "")).to_lower() == "unity_standard" or str(cfg.get("name", "")).to_lower() == "unity-standard":
+		_key_light.light_energy = float(cfg.get("key_energy", 1.0))
+		_key_light.light_color = Color(
+			float(cfg.get("key_color_r", 1.0)),
+			float(cfg.get("key_color_g", 1.0)),
+			float(cfg.get("key_color_b", 1.0))
+		)
+		_key_light.rotation_degrees = Vector3(
+			float(cfg.get("key_pitch_deg", -57.3)),
+			float(cfg.get("key_yaw_deg", 107.7)),
+			float(cfg.get("key_roll_deg", 0.0))
+		)
+		_rim_light.light_energy = float(cfg.get("rim_energy", 0.0))
+		_fill_light.light_energy = float(cfg.get("fill_energy", 0.0))
+		_scene_key.light_energy = float(cfg.get("scene_key_energy", 0.0))
+		return
 	env.ambient_light_energy = float(cfg.get("ambient_energy", 0.7))
 	env.tonemap_exposure = float(cfg.get("exposure", 0.86))
 	env.adjustment_brightness = float(cfg.get("brightness", 0.97))
@@ -485,11 +577,29 @@ func _apply_environment_tune(cfg: Dictionary = {}) -> void:
 	_fill_light.light_energy = float(cfg.get("fill_energy", 0.18))
 
 
+func _tweak(key: String, delta: float) -> void:
+	if _live_cfg.is_empty():
+		_live_cfg = _current_preset()
+	var base_val := float(_live_cfg.get(key, TWEAK_DEFAULTS.get(key, 0.0)))
+	_live_cfg[key] = base_val + delta
+	_sync_look_cfg(_live_cfg)
+	_apply_environment_tune(_live_cfg)
+	if ShipLook.is_unity_standard():
+		_apply_unity_material_tune(_live_cfg)
+	else:
+		_apply_material_tune(_live_cfg)
+	_refresh_hud()
+
+
 func _apply_material_tune(cfg: Dictionary = {}) -> void:
 	if _ship == null or not is_instance_valid(_ship):
 		return
 	if cfg.is_empty():
 		cfg = _live_cfg if not _live_cfg.is_empty() else _current_preset()
+	_sync_look_cfg(cfg)
+	if ShipLook.is_unity_standard():
+		_apply_unity_material_tune(cfg)
+		return
 	var albedo_mul := float(cfg.get("albedo_mul", 0.82))
 	var portrait_tint_strength := float(cfg.get("portrait_tint_strength", 0.42))
 	var manual_tint := Color(

@@ -4,7 +4,7 @@
   "name_en": "Osprey",
   "type_id": 620,
   "model_key": "jdl_yuying",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

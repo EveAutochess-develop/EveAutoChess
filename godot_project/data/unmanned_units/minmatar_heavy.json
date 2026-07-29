@@ -1,0 +1,78 @@
+{
+  "id": 1014,
+  "name": "狂战士重型无人机",
+  "name_en": "Berserker",
+  "model_key": "wrj_m_waerjili",
+  "echoes_item_id": 14000230008,
+  "cost": 0,
+  "ship_group": "drone_heavy",
+  "ship_groups": [
+    "drone_heavy"
+  ],
+  "fetter_ids": [],
+  "tags": [
+    "minmatar",
+    "drone"
+  ],
+  "is_logistic": false,
+  "is_unmanned": true,
+  "unmanned_kind": "combat_drone",
+  "weapon_fx": "cannon",
+  "race": "minmatar",
+  "signature_radius": 35.0,
+  "sensor_strength": 5.0,
+  "scan_resolution": 520.0,
+  "speed": 420.0,
+  "mass": 8000.0,
+  "agility": 0.65,
+  "capacitor_capacity": 80.0,
+  "capacitor_recharge_s": 25.0,
+  "attack_cycle_s": 2.8,
+  "drone_bandwidth": 0,
+  "function_slots": {
+    "slots": []
+  },
+  "stars": [
+    {
+      "attack_range": 4,
+      "damage": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 25.6,
+        "explosive": 38.4
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.4,
+      "optimal": 3.8,
+      "falloff": 1.8,
+      "optimal_sig_radius": 45.0,
+      "shield_hp": 162.0,
+      "armor_hp": 162.0,
+      "structure_hp": 162.0,
+      "shield_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      },
+      "armor_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      }
+    }
+  ],
+  "portrait": "res://assets/ui/drone_icons/heavy_minmatar_berserker.png",
+  "model_long_axis": 34.0
+}

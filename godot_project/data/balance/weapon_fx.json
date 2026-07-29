@@ -41,7 +41,7 @@
       "trail": true,
       "trail_lag": 0.12,
       "trail_length": 1.1,
-      "_comment": "travel_s driven by combat.missile_delay_per_cell_s (1.5s/cell); speed is fallback ≈ world_units_per_cell/1.5"
+      "_comment": "Missile chase uses combat.missile_speed_cells_per_s / fighter_missile_speed_cells_per_s; speed here is non-missile projectile fallback only"
     },
     "heal": {
       "evemu_effect": "effects.Laser",

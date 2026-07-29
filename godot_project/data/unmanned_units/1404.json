@@ -1,0 +1,168 @@
+{
+  "id": 1404,
+  "name": "拉格墨",
+  "name_en": "Gram I",
+  "type_id": 40361,
+  "model_key": "gram",
+  "portrait": "res://assets/ui/fighter_icons/gram.png",
+  "cost": 0,
+  "ship_groups": [
+    "fighter"
+  ],
+  "ship_group": "fighter",
+  "fetter_ids": [],
+  "tags": [
+    "minmatar",
+    "fighter"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "missile",
+  "weapon_tier": "light",
+  "race": "minmatar",
+  "signature_radius": 88.0,
+  "speed": 1048.0,
+  "attack_cycle_s": 3.5,
+  "is_unmanned": true,
+  "unmanned_kind": "fighter",
+  "tube_hp": 1700,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "med_slots": 0,
+  "low_slots": 0,
+  "source_module_type_id": 0,
+  "stars": [
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 144.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.0,
+      "optimal": 2.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 700,
+      "armor_hp": 500,
+      "structure_hp": 500,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "explosion_radius": 40.0,
+      "explosion_velocity": 300.0,
+      "drf": 1.0,
+      "drs": 1.0
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 288.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.0,
+      "optimal": 2.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 1400,
+      "armor_hp": 1000,
+      "structure_hp": 1000,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "explosion_radius": 40.0,
+      "explosion_velocity": 300.0,
+      "drf": 1.0,
+      "drs": 1.0
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 432.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.0,
+      "optimal": 2.0,
+      "falloff": 0.0,
+      "optimal_sig_radius": 40.0,
+      "shield_hp": 2100,
+      "armor_hp": 1500,
+      "structure_hp": 1500,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "explosion_radius": 40.0,
+      "explosion_velocity": 300.0,
+      "drf": 1.0,
+      "drs": 1.0
+    }
+  ],
+  "model_long_axis": 34.0,
+  "scan_resolution": 850.0
+}

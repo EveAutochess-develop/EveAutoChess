@@ -1,13 +1,21 @@
 {
   "base_gold": 5,
   "base_gold_income": 5,
-  "base_gold_income_by_round": [2, 3, 4],
+  "base_gold_income_by_round": [
+    2,
+    3,
+    4
+  ],
   "interest_divisor": 10,
   "interest_cap": 5,
   "interest_capped": true,
   "kill_gold_per_ship": 1,
   "win_gold": 1,
-  "streak_gold": {"3": 1, "5": 2, "7": 3},
+  "streak_gold": {
+    "3": 1,
+    "5": 2,
+    "7": 3
+  },
   "refresh_cost": 2,
   "buy_exp_gold_cost": 4,
   "buy_exp_amount": 4,
@@ -20,14 +28,57 @@
   "shop_unlock_level_by_group": {
     "cruiser": 5,
     "battlecruiser": 5,
-    "battleship": 10
+    "battleship": 10,
+    "carrier": 15,
+    "dreadnought": 15,
+    "force_auxiliary": 15
   },
-  "shop_odds_by_level": [
-    [100, 0, 0, 0, 0],
-    [70, 30, 0, 0, 0],
-    [50, 30, 20, 0, 0],
-    [30, 25, 30, 15, 0],
-    [15, 20, 25, 25, 15]
+  "shop_capital_min_level": 15,
+  "shop_capital_costs": [
+    22,
+    24
   ],
-  "sell_price_equals_cost": true
+  "shop_capital_roll_weight_pct": 12,
+  "shop_tonnage_pity_window": 5,
+  "shop_tier_costs": [2, 3, 5, 7, 13],
+  "shop_odds_by_level": [
+    [
+      100,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      70,
+      30,
+      0,
+      0,
+      0
+    ],
+    [
+      50,
+      30,
+      20,
+      0,
+      0
+    ],
+    [
+      30,
+      25,
+      30,
+      15,
+      0
+    ],
+    [
+      15,
+      20,
+      25,
+      25,
+      15
+    ]
+  ],
+  "sell_price_equals_cost": false,
+  "sell_price_discount": 3,
+  "sell_price_min": 1
 }

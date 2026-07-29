@@ -4,7 +4,7 @@
   "name_en": "Apocalypse",
   "type_id": 642,
   "model_key": "am_zainan",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],

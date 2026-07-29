@@ -27,11 +27,13 @@ METERS_PER_CELL = 500.0
 
 UNIFIED_COST_BY_GROUP = {
     "frigate": 2,
-    "destroyer": 2,
-    "cruiser": 4,
-    "battlecruiser": 6,
-    "battleship": 12,
+    "destroyer": 3,
+    "cruiser": 5,
+    "battlecruiser": 7,
+    "battleship": 13,
 }
+ATTACK_BATTLECRUISER_COST = 8
+ATTACK_BATTLECRUISER_IDS = {41, 64, 65, 66}
 
 # Turret / repair attack_range (grid cells) — design-locked; see COMBAT.md §3.1
 TURRET_RANGE_CELLS = {
@@ -178,7 +180,9 @@ def load_optional_json(path: Path) -> dict:
     return {}
 
 
-def resolve_cost(ship_group: str, fallback_cost: int) -> int:
+def resolve_cost(ship_group: str, fallback_cost: int, ship_id: int = 0) -> int:
+    if int(ship_id) in ATTACK_BATTLECRUISER_IDS:
+        return ATTACK_BATTLECRUISER_COST
     return UNIFIED_COST_BY_GROUP.get(ship_group, fallback_cost)
 
 
@@ -203,7 +207,7 @@ def expand_ships(rows: list[dict]) -> list[dict]:
                     "weapon_fx": row[f"{col}_weapon_fx"],
                     "race": race,
                     "role": row["role"],
-                    "cost": resolve_cost(row["ship_group"], int(row["cost"])),
+                    "cost": resolve_cost(row["ship_group"], int(row["cost"]), int(row[f"{col}_id"])),
                     "ship_group": row["ship_group"],
                     "is_logistic": row["is_logistic"] == "1",
                     "mid_battle_leave_allowed": row["mid_battle_leave"] == "1",

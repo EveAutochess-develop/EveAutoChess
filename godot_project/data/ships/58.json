@@ -4,7 +4,7 @@
   "name_en": "Hyperion",
   "type_id": 24690,
   "model_key": "glt_haibolongshen",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],

@@ -1,0 +1,174 @@
+{
+  "id": 102,
+  "name": "黑鸟级隐匿型",
+  "name_en": "Falcon",
+  "type_id": 11957,
+  "model_key": "jdl_heiniao",
+  "portrait": "res://assets/ui/ship_portraits_capital/falcon.png",
+  "cost": 5,
+  "shop_min_level": 15,
+  "ship_groups": [
+    "cruiser"
+  ],
+  "ship_group": "cruiser",
+  "capital_role": "covert_cyno",
+  "fetter_ids": [
+    "caldari",
+    "cruiser",
+    "ewar"
+  ],
+  "tags": [
+    "caldari",
+    "cruiser",
+    "ewar",
+    "cyno"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "laser",
+  "weapon_tier": "medium",
+  "race": "caldari",
+  "signature_radius": 165.0,
+  "speed": 192.0,
+  "attack_cycle_s": 90.0,
+  "drone_bandwidth": 0.0,
+  "function_slots": {
+    "slots": [
+      {
+        "id": "covert_cyno",
+        "name": "诱导",
+        "name_en": "Covert Cynosural Field",
+        "icon_item_id": 11114010000,
+        "duration_s": 90.0,
+        "kind": "cyno"
+      }
+    ]
+  },
+  "hi_slots": 4,
+  "med_slots": 7,
+  "low_slots": 3,
+  "source_module_type_id": 11114010000,
+  "source_repair_module_type_id": 0,
+  "requires_cyno_entry": false,
+  "deploy_enemy_half_only": true,
+  "allow_enemy_cell_overlap": true,
+  "immobile_in_combat": true,
+  "stars": [
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.01,
+      "optimal": 50000.0,
+      "falloff": 10000.0,
+      "optimal_sig_radius": 165.0,
+      "shield_hp": 1750.0,
+      "armor_hp": 940.0,
+      "structure_hp": 945.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.01,
+      "optimal": 50000.0,
+      "falloff": 10000.0,
+      "optimal_sig_radius": 165.0,
+      "shield_hp": 3500.0,
+      "armor_hp": 1880.0,
+      "structure_hp": 1890.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0,
+        "thermal": 0,
+        "kinetic": 0,
+        "explosive": 0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.01,
+      "optimal": 50000.0,
+      "falloff": 10000.0,
+      "optimal_sig_radius": 165.0,
+      "shield_hp": 5250.0,
+      "armor_hp": 2820.0,
+      "structure_hp": 2835.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "armor_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      },
+      "structure_resist": {
+        "emp": 0.2,
+        "thermal": 0.2,
+        "kinetic": 0.2,
+        "explosive": 0.2
+      }
+    }
+  ]
+}

@@ -4,7 +4,7 @@
   "name_en": "Dragoon",
   "type_id": 32874,
   "model_key": "am_longqibing",
-  "cost": 2,
+  "cost": 3,
   "ship_groups": [
     "destroyer"
   ],

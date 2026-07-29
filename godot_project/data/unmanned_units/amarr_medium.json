@@ -6,9 +6,14 @@
   "echoes_item_id": 14000100006,
   "cost": 0,
   "ship_group": "drone_medium",
-  "ship_groups": ["drone_medium"],
+  "ship_groups": [
+    "drone_medium"
+  ],
   "fetter_ids": [],
-  "tags": ["amarr", "drone"],
+  "tags": [
+    "amarr",
+    "drone"
+  ],
   "is_logistic": false,
   "is_unmanned": true,
   "unmanned_kind": "combat_drone",
@@ -24,12 +29,23 @@
   "capacitor_recharge_s": 25.0,
   "attack_cycle_s": 2.0,
   "drone_bandwidth": 0,
-  "function_slots": {"slots": []},
+  "function_slots": {
+    "slots": []
+  },
   "stars": [
     {
       "attack_range": 3,
-      "damage": {"emp": 24, "thermal": 16, "kinetic": 0, "explosive": 0},
-      "repair": {"shield": 0, "armor": 0, "structure": 0},
+      "damage": {
+        "emp": 24,
+        "thermal": 16,
+        "kinetic": 0,
+        "explosive": 0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
       "tracking": 0.35,
       "optimal": 3.0,
       "falloff": 1.5,
@@ -37,9 +53,25 @@
       "shield_hp": 80,
       "armor_hp": 160,
       "structure_hp": 80,
-      "shield_resist": {"emp": 0.1, "thermal": 0.1, "kinetic": 0.1, "explosive": 0.1},
-      "armor_resist": {"emp": 0.1, "thermal": 0.1, "kinetic": 0.1, "explosive": 0.1},
-      "structure_resist": {"emp": 0.1, "thermal": 0.1, "kinetic": 0.1, "explosive": 0.1}
+      "shield_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      },
+      "armor_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      },
+      "structure_resist": {
+        "emp": 0.1,
+        "thermal": 0.1,
+        "kinetic": 0.1,
+        "explosive": 0.1
+      }
     }
-  ]
+  ],
+  "model_long_axis": 34.0
 }

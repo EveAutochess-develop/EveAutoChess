@@ -80,6 +80,14 @@ static func lock_time_s(scan_resolution: float, target_signature: float) -> floa
 	var k := float(DataStore.combat.get("lock_time_constant", 40000.0))
 	return k / (scan * sig)
 
+static func missile_speed_cells_per_s(firer: ShipUnit = null) -> float:
+	## After launch missiles chase at constant cells/s (independent of target motion).
+	if firer != null and is_instance_valid(firer) and firer.is_unmanned and str(firer.unmanned_kind) == "fighter":
+		return float(DataStore.combat.get("fighter_missile_speed_cells_per_s", 999.0))
+	return float(DataStore.combat.get("missile_speed_cells_per_s", 1.5))
+
+
 static func missile_impact_delay_s(distance_cells: float) -> float:
-	var per_cell := float(DataStore.combat.get("missile_delay_per_cell_s", 1.5))
-	return ceilf(maxf(distance_cells, 0.0)) * per_cell
+	## Legacy estimate only (FX/docs); live missiles use missile_speed_cells_per_s chase.
+	var spd := maxf(float(DataStore.combat.get("missile_speed_cells_per_s", 1.5)), 0.001)
+	return ceilf(maxf(distance_cells, 0.0)) / spd

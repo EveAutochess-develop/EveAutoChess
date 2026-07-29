@@ -4,7 +4,7 @@
   "name_en": "Caracal",
   "type_id": 621,
   "model_key": "jdl_ninghuan",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

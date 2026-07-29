@@ -4,7 +4,7 @@
   "name_en": "Vexor",
   "type_id": 626,
   "model_key": "glt_kuangnuzhe",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

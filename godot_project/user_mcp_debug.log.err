@@ -1,0 +1,53 @@
+WARNING: GENERAL - Message Id Number: 0 | Message Id Name: Loader Message
+	windows_read_data_files_in_registry: Registry lookup failed to get layer manifest files.
+	Objects - 1
+		Object[0] - VK_OBJECT_TYPE_INSTANCE, Handle 2190779010144
+   at: _debug_messenger_callback (drivers/vulkan/rendering_context_driver_vulkan.cpp:654)
+SCRIPT ERROR: Parse Error: Cannot infer the type of "back" variable because the value doesn't have a set type.
+   at: GDScript::reload (res://scripts/combat/combat_resolver.gd:167)
+SCRIPT ERROR: Parse Error: The variable type is being inferred from a Variant value, so it will be typed as Variant. (Warning treated as error.)
+   at: GDScript::reload (res://scripts/combat/combat_resolver.gd:152)
+SCRIPT ERROR: Parse Error: The variable type is being inferred from a Variant value, so it will be typed as Variant. (Warning treated as error.)
+   at: GDScript::reload (res://scripts/combat/combat_resolver.gd:165)
+SCRIPT ERROR: Parse Error: The variable type is being inferred from a Variant value, so it will be typed as Variant. (Warning treated as error.)
+   at: GDScript::reload (res://scripts/combat/combat_resolver.gd:176)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://scripts/match/match_controller.gd:0)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+   at: GDScript::reload (res://scripts/match/match_root.gd:0)
+ERROR: Failed to load script "res://scripts/match/match_root.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript_resource_format.cpp:46)
+ERROR: [MCPRuntime] _ready project=H:/game_dev/eveautochess-dev/godot_project/
+   at: push_error (core/variant/variant_utility.cpp:1023)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://addons/godot_mcp/runtime/mcp_runtime.gd:36)
+ERROR: [MCPRuntime] connect_to_url OK, state=0
+   at: push_error (core/variant/variant_utility.cpp:1023)
+   GDScript backtrace (most recent call first):
+       [0] _attempt_connect (res://addons/godot_mcp/runtime/mcp_runtime.gd:94)
+       [1] _ready (res://addons/godot_mcp/runtime/mcp_runtime.gd:37)
+ERROR: Parent node is busy setting up children, `add_child()` failed. Consider using `add_child.call_deferred(child)` instead.
+   at: add_child (scene/main/node.cpp:1721)
+   GDScript backtrace (most recent call first):
+       [0] instance (res://scripts/audio/bg_music.gd:31)
+       [1] _ready (res://scripts/match/match_root.gd:33)
+SCRIPT ERROR: Invalid call. Nonexistent function 'new' in base 'GDScript'.
+   at: MatchRoot._ready (res://scripts/match/match_root.gd:37)
+   GDScript backtrace (most recent call first):
+       [0] _ready (res://scripts/match/match_root.gd:37)
+ERROR: [MCPRuntime] CONNECTED to MCP server
+   at: push_error (core/variant/variant_utility.cpp:1023)
+   GDScript backtrace (most recent call first):
+       [0] _process (res://addons/godot_mcp/runtime/mcp_runtime.gd:61)
+WARNING: 11 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2536)
+ERROR: Cannot get path of node as it is not in a scene tree.
+   at: get_path (scene/main/node.cpp:2431)
+ERROR: Cannot get path of node as it is not in a scene tree.
+   at: get_path (scene/main/node.cpp:2431)
+ERROR: Cannot get path of node as it is not in a scene tree.
+   at: get_path (scene/main/node.cpp:2431)
+ERROR: Cannot get path of node as it is not in a scene tree.
+   at: get_path (scene/main/node.cpp:2431)
+ERROR: 5 resources still in use at exit.
+   at: clear (core/io/resource.cpp:817)

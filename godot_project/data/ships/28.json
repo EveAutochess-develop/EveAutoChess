@@ -4,7 +4,7 @@
   "name_en": "Scythe",
   "type_id": 631,
   "model_key": "mmte_liandao",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

@@ -1,0 +1,666 @@
+WorkerThreadPool: 16 threads, 4 max low-priority.
+Godot Engine v4.7.1.stable.official.a13da4feb - https://godotengine.org
+TextServer: Added interface "Dummy"
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Accessibility: AccessKit driver loaded.
+Accessibility: window 0 adapter created.
+Devices:
+  #0: NVIDIA NVIDIA RTX A4000 - Supported, Discrete
+Optional Vulkan device extension VK_EXT_fragment_density_map not found
+Optional Vulkan device extension VK_EXT_fragment_density_map2 not found
+Optional Vulkan device extension VK_QCOM_fragment_density_map_offset not found
+Optional Vulkan device extension VK_EXT_astc_decode_mode not found
+Optional Vulkan device extension VK_EXT_texture_compression_astc_hdr not found
+Optional Vulkan device extension VK_NV_ray_tracing_validation not found
+Optional Vulkan device extension VK_KHR_external_memory_fd not found
+Optional Vulkan device extension VK_EXT_debug_marker not found
+- Vulkan Fragment Shading Rate supported:
+  Pipeline fragment shading rate
+  Primitive fragment shading rate
+  Attachment fragment shading rate, min texel size: (16, 16), max texel size: (16, 16), max fragment size: (4, 4)
+- Vulkan Fragment Density Map not supported
+- Vulkan multiview supported:
+  max view count: 32
+  max instances: 134217727
+- Vulkan subgroup:
+  size: 32
+  min size: 32
+  max size: 32
+  stages: STAGE_VERTEX, STAGE_TESSELLATION_CONTROL, STAGE_TESSELLATION_EVALUATION, STAGE_GEOMETRY, STAGE_FRAGMENT, STAGE_COMPUTE, STAGE_RAYGEN_KHR, STAGE_ANY_HIT_KHR, STAGE_CLOSEST_HIT_KHR, STAGE_MISS_KHR, STAGE_INTERSECTION_KHR, STAGE_CALLABLE_KHR, STAGE_TASK_NV, STAGE_MESH_NV
+  supported ops: FEATURE_BASIC, FEATURE_VOTE, FEATURE_ARITHMETIC, FEATURE_BALLOT, FEATURE_SHUFFLE, FEATURE_SHUFFLE_RELATIVE, FEATURE_CLUSTERED, FEATURE_QUAD, FEATURE_PARTITIONED_NV
+  quad operations in all stages
+- Vulkan Acceleration Structure supported
+  min acceleration structure scratch offset alignment: 128
+- Vulkan Raytracing supported
+  shader group handle size: 32
+  shader group handle alignment: 32
+  shader group handle size aligned: 32
+  shader group base alignment: 64
+Vulkan 1.4.325 - Forward+ - Using Device #0: NVIDIA - NVIDIA RTX A4000
+Startup PSO cache (7.6 MiB)
+SDL: Init OK!
+Accessibility: window 0 adapter activated.
+Using "winink" pen tablet driver...
+Creating VMA small objects pool for memory type index 1
+Shader 'CanvasSdfShaderRD' (group 0) SHA256: 54b47da3ce58bfeb483acea9e9e45b5de11793d45b2a38279aa17b08296ef514
+Loading cache for shader CanvasSdfShaderRD, variant 0
+Loading cache for shader CanvasSdfShaderRD, variant 1
+Loading cache for shader CanvasSdfShaderRD, variant 2
+Loading cache for shader CanvasSdfShaderRD, variant 3
+Loading cache for shader CanvasSdfShaderRD, variant 4
+Loading cache for shader CanvasSdfShaderRD, variant 5
+Shader 'SkeletonShaderRD' (group 0) SHA256: 08b4464d16133f4db97a8df4663b95b2b956ecd3e7addf44a16e644f488157c2
+Loading cache for shader SkeletonShaderRD, variant 0
+Loading cache for shader SkeletonShaderRD, variant 1
+Shader 'SortShaderRD' (group 0) SHA256: 8e4ebbbb19fcd734c6f15656afbe1bcd5eb3acdfdae9cab023ebd6f54c901ef8
+Loading cache for shader SortShaderRD, variant 0
+Loading cache for shader SortShaderRD, variant 1
+Loading cache for shader SortShaderRD, variant 2
+Shader 'ParticlesShaderRD' (group 0) SHA256: 8f4c25caa97a2f74d5fa5f299aabdd514f57d9737b8642ed65c20e846dad5db0
+Loading cache for shader ParticlesShaderRD, variant 0
+Shader 'ParticlesCopyShaderRD' (group 0) SHA256: 688d10aec3c2e17e8c578ba3e2db1ea2f054eedd511b1e1647952c0acaeeab72
+Loading cache for shader ParticlesCopyShaderRD, variant 0
+Loading cache for shader ParticlesCopyShaderRD, variant 1
+Loading cache for shader ParticlesCopyShaderRD, variant 2
+Loading cache for shader ParticlesCopyShaderRD, variant 3
+Loading cache for shader ParticlesCopyShaderRD, variant 4
+Loading cache for shader ParticlesCopyShaderRD, variant 5
+Loading cache for shader ParticlesCopyShaderRD, variant 6
+Loading cache for shader ParticlesCopyShaderRD, variant 7
+Loading cache for shader ParticlesCopyShaderRD, variant 8
+Loading cache for shader ParticlesCopyShaderRD, variant 9
+Loading cache for shader ParticlesCopyShaderRD, variant 10
+Loading cache for shader ParticlesCopyShaderRD, variant 11
+Loading cache for shader ParticlesCopyShaderRD, variant 12
+Loading cache for shader ParticlesCopyShaderRD, variant 13
+Loading cache for shader ParticlesCopyShaderRD, variant 14
+Loading cache for shader ParticlesCopyShaderRD, variant 15
+Loading cache for shader ParticlesCopyShaderRD, variant 16
+Loading cache for shader ParticlesCopyShaderRD, variant 17
+Loading cache for shader ParticlesCopyShaderRD, variant 18
+Loading cache for shader ParticlesCopyShaderRD, variant 19
+Loading cache for shader ParticlesCopyShaderRD, variant 20
+Shader 'CanvasShaderRD' (group 0) SHA256: 1ac5f6c8d534ebab572b3f886e38134784245fbd5fa01c7cbb6cc452e5400080
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Shader 'CanvasOcclusionShaderRD' (group 0) SHA256: 3b765d5624135f9fbf3199b6660b8387d5b904f48be0914a622e5da9b906b504
+Loading cache for shader CanvasOcclusionShaderRD, variant 0
+Loading cache for shader CanvasOcclusionShaderRD, variant 1
+Loading cache for shader CanvasOcclusionShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Shader 'TexBlitShaderRD' (group 0) SHA256: ce377a6d54cd54d45abdd915ec4cf3877fef3cbace94de3df4ed73ec0124ea0c
+Loading cache for shader TexBlitShaderRD, variant 0
+Loading cache for shader TexBlitShaderRD, variant 1
+Loading cache for shader TexBlitShaderRD, variant 2
+Loading cache for shader TexBlitShaderRD, variant 3
+Shader 'ClusterRenderShaderRD' (group 0) SHA256: e1824bcfaf9ebab715957f09e04336284255c4a495944e7ca919e9c20509cf78
+Loading cache for shader ClusterRenderShaderRD, variant 0
+Loading cache for shader ClusterRenderShaderRD, variant 1
+Shader 'ClusterStoreShaderRD' (group 0) SHA256: 552b8bd4a514bf18836a8f9d32f41185bdb0efa58da3d5b3e68a39d68f6cecfc
+Loading cache for shader ClusterStoreShaderRD, variant 0
+Shader 'ClusterDebugShaderRD' (group 0) SHA256: 0825a26b8d0923d82c8881fc87e3d931ea89a116d0550106157b7033dfa382a7
+Loading cache for shader ClusterDebugShaderRD, variant 0
+Shader 'SceneForwardClusteredShaderRD' (group 0) SHA256: 069fad9662d1c110a7284347f6822a7ae0bb9be399f57215e33231e68a6e4692
+Shader 'SceneForwardClusteredShaderRD' (group 1) SHA256: e6ddf6e05db4f231ee7be3016d02a9e703882c6b2e93191499ae729257086fbf
+Shader 'SceneForwardClusteredShaderRD' (group 2) SHA256: 03231cc5a2baf868ce6ae9ca41bb9f199e71fe058e538a5f5121bcec6a77e72d
+Shader 'SceneForwardClusteredShaderRD' (group 3) SHA256: e3d89c1bd8f3ff6a0fef46ab1650f9c56e7ec927639ae227579c7831b94bc4ae
+Loading cache for shader SceneForwardClusteredShaderRD, variant 0
+Loading cache for shader SceneForwardClusteredShaderRD, variant 1
+Loading cache for shader SceneForwardClusteredShaderRD, variant 2
+Loading cache for shader SceneForwardClusteredShaderRD, variant 3
+Loading cache for shader SceneForwardClusteredShaderRD, variant 4
+Loading cache for shader SceneForwardClusteredShaderRD, variant 5
+Loading cache for shader SceneForwardClusteredShaderRD, variant 6
+Loading cache for shader SceneForwardClusteredShaderRD, variant 7
+Loading cache for shader SceneForwardClusteredShaderRD, variant 0
+Loading cache for shader SceneForwardClusteredShaderRD, variant 1
+Loading cache for shader SceneForwardClusteredShaderRD, variant 2
+Loading cache for shader SceneForwardClusteredShaderRD, variant 3
+Loading cache for shader SceneForwardClusteredShaderRD, variant 4
+Loading cache for shader SceneForwardClusteredShaderRD, variant 5
+Loading cache for shader SceneForwardClusteredShaderRD, variant 6
+Loading cache for shader SceneForwardClusteredShaderRD, variant 7
+Loading cache for shader SceneForwardClusteredShaderRD, variant 0
+Loading cache for shader SceneForwardClusteredShaderRD, variant 1
+Loading cache for shader SceneForwardClusteredShaderRD, variant 2
+Loading cache for shader SceneForwardClusteredShaderRD, variant 3
+Loading cache for shader SceneForwardClusteredShaderRD, variant 4
+Loading cache for shader SceneForwardClusteredShaderRD, variant 5
+Loading cache for shader SceneForwardClusteredShaderRD, variant 6
+Loading cache for shader SceneForwardClusteredShaderRD, variant 7
+Shader 'BestFitNormalShaderRD' (group 0) SHA256: 522b47cc4c3c4b572bc28faadfdeea9c0a31b5381e4ea2e3406d0f6fda73d52b
+Loading cache for shader BestFitNormalShaderRD, variant 0
+Shader 'IntegrateDfgShaderRD' (group 0) SHA256: 83448d29d7232c732c9d312b8e7faaa363fd72cf79165ec15256862089ebd46e
+Loading cache for shader IntegrateDfgShaderRD, variant 0
+Shader 'TaaResolveShaderRD' (group 0) SHA256: c5152f5d8d5e919024126af06b7cf1a216b5184957e1946e198175642a86027f
+Loading cache for shader TaaResolveShaderRD, variant 0
+Shader 'Fsr2DepthClipPassShaderRD' (group 0) SHA256: a20cc609c661dbc20c0e6a50851d7ef432d89eb01d24ccf77a8d354b1003b593
+Shader 'Fsr2ReconstructPreviousDepthPassShaderRD' (group 0) SHA256: cbbdd1c21ee3ee90d8d06a9dd43063e4947406284591dc52cda4af06f70cf4c5
+Shader 'Fsr2LockPassShaderRD' (group 0) SHA256: 995caf07233459282796e20cf661d1dff50d44e7f6b71a02f50ff28852375d11
+Shader 'Fsr2AccumulatePassShaderRD' (group 0) SHA256: 5d2518fa9d077ed7e9937130bcc8f122a0c112da50e4102e291ff2e2e3b3655a
+Shader 'Fsr2RcasPassShaderRD' (group 0) SHA256: 1a214ec56a6146372aa5be425b51e322c000385e510d969388b8a7b64e8633fe
+Shader 'Fsr2ComputeLuminancePyramidPassShaderRD' (group 0) SHA256: 858215f4d90283500ee2148c5aa0e0849b1581cc1eff4a636e59f7ab9c107253
+Shader 'Fsr2AutogenReactivePassShaderRD' (group 0) SHA256: 4c3e8464d1a8b62c5285265b7d298da6fd431f85d1353a00f4791bde194cda86
+Shader 'Fsr2TcrAutogenPassShaderRD' (group 0) SHA256: 6259947a4b72af42bd9446599035d159f6a0f4ad7816329d4ce18d50bf4ec655
+Shader 'SsEffectsDownsampleShaderRD' (group 0) SHA256: ccf4e10c5ab4528ecf8f9b97dbc17f491b409915c7c64f533bcc896c43acdfb0
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 0
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 1
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 2
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 3
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 4
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 5
+Loading cache for shader SsEffectsDownsampleShaderRD, variant 6
+Shader 'SsilShaderRD' (group 0) SHA256: 2b3bf37ba8a45aa5cbc064da9031687142e6f007565f6dee75f83189a9edcfa3
+Loading cache for shader SsilShaderRD, variant 0
+Loading cache for shader SsilShaderRD, variant 1
+Loading cache for shader SsilShaderRD, variant 2
+Shader 'SsilImportanceMapShaderRD' (group 0) SHA256: 1c4d07be7a352b493a9afdef9363514c1f219eb178911ec18626ea542c3b1334
+Loading cache for shader SsilImportanceMapShaderRD, variant 0
+Loading cache for shader SsilImportanceMapShaderRD, variant 1
+Loading cache for shader SsilImportanceMapShaderRD, variant 2
+Shader 'SsilBlurShaderRD' (group 0) SHA256: ba99bf82030acafb5628e8fbd1e0a70fb6a1fa2af5283800a6585fa9c71317d5
+Loading cache for shader SsilBlurShaderRD, variant 0
+Loading cache for shader SsilBlurShaderRD, variant 1
+Loading cache for shader SsilBlurShaderRD, variant 2
+Shader 'SsilInterleaveShaderRD' (group 0) SHA256: e3b6eab6e5b68136736435a560115616f4074e0be5dca3e2242912a504320162
+Loading cache for shader SsilInterleaveShaderRD, variant 0
+Loading cache for shader SsilInterleaveShaderRD, variant 1
+Loading cache for shader SsilInterleaveShaderRD, variant 2
+Shader 'SsaoShaderRD' (group 0) SHA256: 66a821ba71909db6948ec1aded9d3ee630866bfb4556c2e275650a1ba3b8f5e3
+Loading cache for shader SsaoShaderRD, variant 0
+Loading cache for shader SsaoShaderRD, variant 1
+Loading cache for shader SsaoShaderRD, variant 2
+Shader 'SsaoImportanceMapShaderRD' (group 0) SHA256: 8701d1e664bf71d29af6f5d0a42ba62d7efbdec7f5f82064ea3b0fe3eef94361
+Loading cache for shader SsaoImportanceMapShaderRD, variant 0
+Loading cache for shader SsaoImportanceMapShaderRD, variant 1
+Loading cache for shader SsaoImportanceMapShaderRD, variant 2
+Shader 'SsaoBlurShaderRD' (group 0) SHA256: 75c97c3818b26631d447852881b25a2a80e6c894e956c009b714072cbd46c1ef
+Loading cache for shader SsaoBlurShaderRD, variant 0
+Loading cache for shader SsaoBlurShaderRD, variant 1
+Loading cache for shader SsaoBlurShaderRD, variant 2
+Shader 'SsaoInterleaveShaderRD' (group 0) SHA256: bee8210303269b0457bb9b0180392661b1c86739a5b9b2efe8a252021fcca1f5
+Loading cache for shader SsaoInterleaveShaderRD, variant 0
+Loading cache for shader SsaoInterleaveShaderRD, variant 1
+Loading cache for shader SsaoInterleaveShaderRD, variant 2
+Shader 'ScreenSpaceReflectionDownsampleShaderRD' (group 0) SHA256: ce68b2844d60e91b13d566f130e5e6be4924ecd57975c33ed49db903d1d10cdd
+Loading cache for shader ScreenSpaceReflectionDownsampleShaderRD, variant 0
+Loading cache for shader ScreenSpaceReflectionDownsampleShaderRD, variant 1
+Loading cache for shader ScreenSpaceReflectionDownsampleShaderRD, variant 2
+Loading cache for shader ScreenSpaceReflectionDownsampleShaderRD, variant 3
+Shader 'ScreenSpaceReflectionHizShaderRD' (group 0) SHA256: d816ec3b916a39c24ef8495a965202569a714911181fd70869fdc76e1647898d
+Loading cache for shader ScreenSpaceReflectionHizShaderRD, variant 0
+Loading cache for shader ScreenSpaceReflectionHizShaderRD, variant 1
+Loading cache for shader ScreenSpaceReflectionHizShaderRD, variant 2
+Loading cache for shader ScreenSpaceReflectionHizShaderRD, variant 3
+Shader 'ScreenSpaceReflectionShaderRD' (group 0) SHA256: dd5e885eefeba0f65c2678de75b986844fb186f0d2a38e39381b435388d51dbb
+Loading cache for shader ScreenSpaceReflectionShaderRD, variant 0
+Shader 'ScreenSpaceReflectionFilterShaderRD' (group 0) SHA256: adaaba74fde6be6ed9036c3b4e1988baef6dcb0a7cc9aa46eee0f81796fd1ee7
+Loading cache for shader ScreenSpaceReflectionFilterShaderRD, variant 0
+Shader 'ScreenSpaceReflectionResolveShaderRD' (group 0) SHA256: 7179c7134fdf0cbefc7c3244957827cbec1fd0180b3dfa0ea580579b7b83a06c
+Loading cache for shader ScreenSpaceReflectionResolveShaderRD, variant 0
+Shader 'SubsurfaceScatteringShaderRD' (group 0) SHA256: 7c8ee12c5109342b5667f38d6fda4ec1c20f0d014ad9690457e6f19d602b96d9
+Loading cache for shader SubsurfaceScatteringShaderRD, variant 0
+Loading cache for shader SubsurfaceScatteringShaderRD, variant 1
+Loading cache for shader SubsurfaceScatteringShaderRD, variant 2
+Shader 'SkyShaderRD' (group 0) SHA256: 9be8c23dcd20154e4a1ab0bef919421f8c51853d47c2fe6dc91221f8cfc74997
+Loading cache for shader SkyShaderRD, variant 0
+Loading cache for shader SkyShaderRD, variant 1
+Loading cache for shader SkyShaderRD, variant 2
+Loading cache for shader SkyShaderRD, variant 3
+Loading cache for shader SkyShaderRD, variant 4
+Loading cache for shader SkyShaderRD, variant 5
+Loading cache for shader SkyShaderRD, variant 0
+Loading cache for shader SkyShaderRD, variant 1
+Loading cache for shader SkyShaderRD, variant 2
+Loading cache for shader SkyShaderRD, variant 3
+Loading cache for shader SkyShaderRD, variant 4
+Loading cache for shader SkyShaderRD, variant 5
+Shader 'VoxelGiShaderRD' (group 0) SHA256: be32ca7811c1d8efa7aea8f6759edee078b2130e3ae5a44ffb2866906b7f344a
+Loading cache for shader VoxelGiShaderRD, variant 0
+Loading cache for shader VoxelGiShaderRD, variant 1
+Loading cache for shader VoxelGiShaderRD, variant 2
+Loading cache for shader VoxelGiShaderRD, variant 3
+Loading cache for shader VoxelGiShaderRD, variant 4
+Loading cache for shader VoxelGiShaderRD, variant 5
+Loading cache for shader VoxelGiShaderRD, variant 6
+Loading cache for shader VoxelGiShaderRD, variant 7
+Shader 'VoxelGiDebugShaderRD' (group 0) SHA256: 9a34146b67b3016d20f7a43d89748fc6c5eb980a677a57e30e08f4db1bc9a2c6
+Loading cache for shader VoxelGiDebugShaderRD, variant 0
+Loading cache for shader VoxelGiDebugShaderRD, variant 1
+Loading cache for shader VoxelGiDebugShaderRD, variant 2
+Loading cache for shader VoxelGiDebugShaderRD, variant 3
+Shader 'SdfgiPreprocessShaderRD' (group 0) SHA256: 1df3f43771989a4c102242eeab16de469b18c89bbd7ff3866c4fd78a99d2e961
+Loading cache for shader SdfgiPreprocessShaderRD, variant 0
+Loading cache for shader SdfgiPreprocessShaderRD, variant 1
+Loading cache for shader SdfgiPreprocessShaderRD, variant 2
+Loading cache for shader SdfgiPreprocessShaderRD, variant 3
+Loading cache for shader SdfgiPreprocessShaderRD, variant 4
+Loading cache for shader SdfgiPreprocessShaderRD, variant 5
+Loading cache for shader SdfgiPreprocessShaderRD, variant 6
+Loading cache for shader SdfgiPreprocessShaderRD, variant 7
+Loading cache for shader SdfgiPreprocessShaderRD, variant 8
+Shader 'SdfgiDirectLightShaderRD' (group 0) SHA256: 60b8f559824902a3ba6f601c82ba13bb027a01cf114421e8b3e7f1577251f982
+Loading cache for shader SdfgiDirectLightShaderRD, variant 0
+Loading cache for shader SdfgiDirectLightShaderRD, variant 1
+Shader 'SdfgiIntegrateShaderRD' (group 0) SHA256: 8402e25fb473b17f05fd8134b61bac8272f9bb13ec37039e0f82a546918f3004
+Loading cache for shader SdfgiIntegrateShaderRD, variant 0
+Loading cache for shader SdfgiIntegrateShaderRD, variant 1
+Loading cache for shader SdfgiIntegrateShaderRD, variant 2
+Loading cache for shader SdfgiIntegrateShaderRD, variant 3
+Shader 'GiShaderRD' (group 0) SHA256: a60cccbead6fab980bf996289c17b9a77b68a540d44ab8a15ec477060a5862cf
+Shader 'GiShaderRD' (group 1) SHA256: 4b8662cdf9663cca618a7d8d793e816df7b2d7e775eefbb9eb5fbb0bdbe7d3d3
+Loading cache for shader GiShaderRD, variant 0
+Loading cache for shader GiShaderRD, variant 1
+Loading cache for shader GiShaderRD, variant 2
+Loading cache for shader GiShaderRD, variant 3
+Loading cache for shader GiShaderRD, variant 4
+Loading cache for shader GiShaderRD, variant 0
+Loading cache for shader GiShaderRD, variant 1
+Loading cache for shader GiShaderRD, variant 2
+Loading cache for shader GiShaderRD, variant 3
+Loading cache for shader GiShaderRD, variant 4
+Shader 'SdfgiDebugShaderRD' (group 0) SHA256: 6c94a7679fba279d983d32e141b6648229956762362a863275c13ba2608c7e4d
+Loading cache for shader SdfgiDebugShaderRD, variant 0
+Shader 'SdfgiDebugProbesShaderRD' (group 0) SHA256: 9067100a09ae2d21f3f325a69e660546baba568b663847a9ba75cbdc3ea337ee
+Loading cache for shader SdfgiDebugProbesShaderRD, variant 0
+Loading cache for shader SdfgiDebugProbesShaderRD, variant 1
+Loading cache for shader SdfgiDebugProbesShaderRD, variant 2
+Loading cache for shader SdfgiDebugProbesShaderRD, variant 3
+Shader 'VolumetricFogShaderRD' (group 0) SHA256: 4fcd7eea54024fa982593be8aed8c9df465d0c4f629d7d1d1dfdf887cdaca664
+Shader 'VolumetricFogShaderRD' (group 1) SHA256: ca7636fab5e9482809eef50fa6684b206f196dada5f05272cb6f04bab7b39ad4
+Shader 'VolumetricFogShaderRD' (group 2) SHA256: cb01070fac4570703f705033e78fe8f33ec0bc024a29f53170c0e593709e87ce
+Shader 'VolumetricFogShaderRD' (group 3) SHA256: c66c1f9d3ee29cfbd36a5292e40323598a914dddef06f93951451c87654fd3ca
+Loading cache for shader VolumetricFogShaderRD, variant 0
+Shader 'VolumetricFogProcessShaderRD' (group 0) SHA256: b3d8b51125b8cc82b65e91af793ad8427f49e486687dd0559cabc908674c4390
+Shader 'VolumetricFogProcessShaderRD' (group 1) SHA256: fb70f1d0cde8662299c3e8439861294b94192590612d199e70f0f2380126ce56
+Shader 'VolumetricFogProcessShaderRD' (group 2) SHA256: ea198e67c91d4d2ddf767049e2aede96f6c4a7ebb51ac9f6f9bbb89e28b083df
+Shader 'VolumetricFogProcessShaderRD' (group 3) SHA256: 89e722db621fadf587f712b1100bfe8ade1e7ad5051befa7e3c3bb7bae4a1c18
+Loading cache for shader VolumetricFogProcessShaderRD, variant 0
+Loading cache for shader VolumetricFogProcessShaderRD, variant 1
+Loading cache for shader VolumetricFogProcessShaderRD, variant 2
+Loading cache for shader VolumetricFogProcessShaderRD, variant 3
+Loading cache for shader VolumetricFogProcessShaderRD, variant 4
+Shader 'BokehDofShaderRD' (group 0) SHA256: 07a1c984a30f7beb4c3290c8d0216119327b1f6eb8b36e5c96cfb751f30742e6
+Loading cache for shader BokehDofShaderRD, variant 0
+Loading cache for shader BokehDofShaderRD, variant 1
+Loading cache for shader BokehDofShaderRD, variant 3
+Loading cache for shader BokehDofShaderRD, variant 5
+Loading cache for shader BokehDofShaderRD, variant 6
+Shader 'CopyShaderRD' (group 0) SHA256: 23f6cf7986b46c68792dfd3f087267f14eebc49382f0c0fd265b45462b58afcf
+Loading cache for shader CopyShaderRD, variant 0
+Loading cache for shader CopyShaderRD, variant 1
+Loading cache for shader CopyShaderRD, variant 2
+Loading cache for shader CopyShaderRD, variant 3
+Loading cache for shader CopyShaderRD, variant 4
+Loading cache for shader CopyShaderRD, variant 5
+Loading cache for shader CopyShaderRD, variant 6
+Loading cache for shader CopyShaderRD, variant 7
+Loading cache for shader CopyShaderRD, variant 8
+Loading cache for shader CopyShaderRD, variant 9
+Loading cache for shader CopyShaderRD, variant 10
+Loading cache for shader CopyShaderRD, variant 11
+Loading cache for shader CopyShaderRD, variant 12
+Shader 'CopyToFbShaderRD' (group 0) SHA256: d00e29e632391ed3791124b988da290d922da3d9e2083273523bd8173b24ff97
+Loading cache for shader CopyToFbShaderRD, variant 0
+Loading cache for shader CopyToFbShaderRD, variant 1
+Loading cache for shader CopyToFbShaderRD, variant 2
+Loading cache for shader CopyToFbShaderRD, variant 3
+Shader 'CubeToDpShaderRD' (group 0) SHA256: 9825f5ee942047b6912a1b6fe49935a8c928598f40d2cdfc64a0f61134deed27
+Loading cache for shader CubeToDpShaderRD, variant 0
+Shader 'CubeToOctmapShaderRD' (group 0) SHA256: 8bf32929c5b41445f085dd302ccba233028481a94d43ce1b531bc8e2e66677a4
+Loading cache for shader CubeToOctmapShaderRD, variant 0
+Shader 'OctmapDownsamplerShaderRD' (group 0) SHA256: c79c7ea0ebc9a0833c5f465f1c555216a15727d2c4e3a227e9d5cd1e80f0669e
+Loading cache for shader OctmapDownsamplerShaderRD, variant 0
+Loading cache for shader OctmapDownsamplerShaderRD, variant 1
+Shader 'OctmapFilterShaderRD' (group 0) SHA256: a511f5ad922f5d701a26f801b4f9c96406071103345fa83fd394f8954c1dd7ac
+Loading cache for shader OctmapFilterShaderRD, variant 0
+Loading cache for shader OctmapFilterShaderRD, variant 1
+Loading cache for shader OctmapFilterShaderRD, variant 2
+Loading cache for shader OctmapFilterShaderRD, variant 3
+Loading cache for shader OctmapFilterShaderRD, variant 4
+Loading cache for shader OctmapFilterShaderRD, variant 5
+Loading cache for shader OctmapFilterShaderRD, variant 6
+Loading cache for shader OctmapFilterShaderRD, variant 7
+Shader 'OctmapRoughnessShaderRD' (group 0) SHA256: 9f66b38742366834aef44d557fed0d0753432ffb2cf24eebb14792092fc26b83
+Loading cache for shader OctmapRoughnessShaderRD, variant 0
+Loading cache for shader OctmapRoughnessShaderRD, variant 1
+Shader 'SpecularMergeShaderRD' (group 0) SHA256: 38d1cf8969e8f223baa218cbcd7ad415e6e945247fdb8cefddabba66acaab0e4
+Loading cache for shader SpecularMergeShaderRD, variant 0
+Loading cache for shader SpecularMergeShaderRD, variant 1
+Loading cache for shader SpecularMergeShaderRD, variant 2
+Loading cache for shader SpecularMergeShaderRD, variant 3
+Shader 'ShadowFrustumShaderRD' (group 0) SHA256: 7aba7a73f7499f30591bb36c54f106926052cdc0048232d9054de723408b1ea2
+Loading cache for shader ShadowFrustumShaderRD, variant 0
+Shader 'MotionVectorsShaderRD' (group 0) SHA256: 21fe2ffffa991405f5c0b4bb35dd8789b4049f8e56d80a5aa61aa8233992e3c1
+Loading cache for shader MotionVectorsShaderRD, variant 0
+Shader 'LuminanceReduceShaderRD' (group 0) SHA256: 926f3544c80af9c002aea2fe9f66f19b40ec81e54f627608fc28573493ac5edb
+Loading cache for shader LuminanceReduceShaderRD, variant 0
+Loading cache for shader LuminanceReduceShaderRD, variant 1
+Loading cache for shader LuminanceReduceShaderRD, variant 2
+Shader 'SmaaEdgeDetectionShaderRD' (group 0) SHA256: 749ffc0281a6ab411cf5a66f2560a2f33f9a258f57c513c67047f363e5e7ab33
+Loading cache for shader SmaaEdgeDetectionShaderRD, variant 0
+Shader 'SmaaWeightCalculationShaderRD' (group 0) SHA256: 510ed0d4e978b1a21f4e459da4ee2516c38f4460931e2a5714dae17c8b5547c2
+Loading cache for shader SmaaWeightCalculationShaderRD, variant 0
+Shader 'SmaaBlendingShaderRD' (group 0) SHA256: daa696d3938d7aadbc85111a68936e774199a2ded78d364782d43ef580b5296d
+Loading cache for shader SmaaBlendingShaderRD, variant 0
+Shader 'TonemapShaderRD' (group 0) SHA256: 6d008fe28b8fd25f510d360d45c329659bbd6cc2a222dc519c18fea4a3c17a36
+Loading cache for shader TonemapShaderRD, variant 0
+Loading cache for shader TonemapShaderRD, variant 1
+Loading cache for shader TonemapShaderRD, variant 2
+Loading cache for shader TonemapShaderRD, variant 3
+Shader 'VrsShaderRD' (group 0) SHA256: 9df305f4045418de07830cd11c3be6abf40ea73a66b1fc87b5e04821ac4f402c
+Loading cache for shader VrsShaderRD, variant 0
+Loading cache for shader VrsShaderRD, variant 2
+Loading cache for shader VrsShaderRD, variant 3
+Shader 'FsrUpscaleShaderRD' (group 0) SHA256: de60781f9669b1455afc7507208cad7b3c71f8e59f4c894548899e482420e8dd
+Loading cache for shader FsrUpscaleShaderRD, variant 0
+Loading cache for shader FsrUpscaleShaderRD, variant 1
+Shader 'ResolveShaderRD' (group 0) SHA256: b92e1e567b3ce7b008af4819aa7a8f7848a6f4dd09e28737bcd07456b04c2c7e
+Loading cache for shader ResolveShaderRD, variant 0
+Loading cache for shader ResolveShaderRD, variant 1
+Loading cache for shader ResolveShaderRD, variant 2
+Shader 'BlitShaderRD' (group 0) SHA256: 29b32016e1c23e0db5906fbe9b87108e39e7f5965c0016eb53fc5e1c03293243
+WASAPI: Activated output_device using IAudioClient3 interface
+WASAPI: wFormatTag = 65534
+WASAPI: nChannels = 2
+WASAPI: nSamplesPerSec = 48000
+WASAPI: nAvgBytesPerSec = 384000
+WASAPI: nBlockAlign = 8
+WASAPI: wBitsPerSample = 32
+WASAPI: cbSize = 22
+WASAPI: mix_rate = 48000
+WASAPI: fundamental_period_frames = 480
+WASAPI: min_period_frames = 480
+WASAPI: max_period_frames = 480
+WASAPI: selected a period frame size of 480
+WASAPI: detected 2 channels
+WASAPI: audio buffer frames: 480 calculated latency: 10ms
+
+Loading cache for shader BlitShaderRD, variant 0
+Loading cache for shader BlitShaderRD, variant 1
+Loading cache for shader BlitShaderRD, variant 2
+Loading cache for shader BlitShaderRD, variant 3
+TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+CORE API HASH: 3769296884
+EDITOR API HASH: 3146738256
+SceneTreeFTI: traversal method DEFAULT
+Loading resource: res://scripts/admin/admin_bus.gd remapped: res://scripts/admin/admin_bus.gd
+Completed load for: 'res://scripts/admin/admin_bus.gd' remapped 'res://scripts/admin/admin_bus.gd' at thread -1
+Loading resource: res://scripts/core/data_store.gd remapped: res://scripts/core/data_store.gd
+Completed load for: 'res://scripts/core/data_store.gd' remapped 'res://scripts/core/data_store.gd' at thread -1
+Loading resource: res://scripts/core/game_session.gd remapped: res://scripts/core/game_session.gd
+Completed load for: 'res://scripts/core/game_session.gd' remapped 'res://scripts/core/game_session.gd' at thread -1
+Loading resource: res://addons/godot_mcp/runtime/mcp_runtime.gd remapped: res://addons/godot_mcp/runtime/mcp_runtime.gd
+Completed load for: 'res://addons/godot_mcp/runtime/mcp_runtime.gd' remapped 'res://addons/godot_mcp/runtime/mcp_runtime.gd' at thread -1
+Loaded system CA certificates
+Loading resource: res://scenes/match.tscn remapped: res://scenes/match.tscn
+Loading resource: res://scripts/match/match_root.gd remapped: res://scripts/match/match_root.gd
+Completed load for: 'res://scripts/match/match_root.gd' remapped 'res://scripts/match/match_root.gd' at thread -1
+Completed load for: 'res://scenes/match.tscn' remapped 'res://scenes/match.tscn' at thread -1
+[GameSession] desktop render profile: scaling_3d=1.5 msaa=4x editor=true
+XR: Clearing primary interface
+XR: Removed interface "Native mobile"
+XR: Removed interface "OpenXR"
+Freeing Default Tex_Blit Shader
+MultiUmaBuffer 'RENDER_LIST_OPAQUE' used a total of 1 buffers. A large number may indicate a waste of VRAM and can be brought down by tweaking MAX_EXTRA_BUFFERS for this buffer.
+MultiUmaBuffer 'RENDER_LIST_MOTION' used a total of 0 buffers. A large number may indicate a waste of VRAM and can be brought down by tweaking MAX_EXTRA_BUFFERS for this buffer.
+MultiUmaBuffer 'RENDER_LIST_ALPHA' used a total of 1 buffers. A large number may indicate a waste of VRAM and can be brought down by tweaking MAX_EXTRA_BUFFERS for this buffer.
+MultiUmaBuffer 'RENDER_LIST_SECONDARY' used a total of 1 buffers. A large number may indicate a waste of VRAM and can be brought down by tweaking MAX_EXTRA_BUFFERS for this buffer.
+MultiUmaBuffer 'CANVAS_INSTANCE_DATA' used a total of 1 buffers. A large number may indicate a waste of VRAM and can be brought down by tweaking MAX_EXTRA_BUFFERS for this buffer.
+Accessibility: window 0 adapter destroyed.
+Updated PSO cache (7.6 MiB)
+Leaked instance: GDScriptNativeClass:9223372056802886370 - Reference count: 3
+Leaked instance: GDScriptNativeClass:9223372056836440804 - Reference count: 2
+Leaked instance: GDScript:9223372073395553767 - Reference count: 1
+Leaked instance: GDScript:9223372074989389297 - Reference count: 1
+Leaked instance: GDScript:9223372075106829810 - Reference count: 1
+Leaked instance: GDScript:9223372075224270323 - Reference count: 1
+Leaked instance: GDScript:9223372075694032375 - Reference count: 1
+Leaked instance: Node:57512298090 - Node path: 
+Leaked instance: Node:57545852523 - Node path: 
+Leaked instance: Node3D:57562629740 - Node path: 
+Leaked instance: Node:57579406957 - Node path: 
+Hint: Leaked instances typically happen when nodes are removed from the scene tree (with `remove_child()`) but not freed (with `free()` or `queue_free()`).
+Resource still in use: res://scripts/ship/ship_unit.gd (GDScript)
+Resource still in use: res://scripts/board/board_controller.gd (GDScript)
+Resource still in use: res://scripts/shop/shop_controller.gd (GDScript)
+Resource still in use: res://scripts/match/match_controller.gd (GDScript)
+Resource still in use: res://scripts/audio/bg_music.gd (GDScript)
+Orphan StringName: explosion_velocity (static: 0, total: 3)
+Orphan StringName: falloff_cells (static: 0, total: 3)
+Orphan StringName: _board (static: 0, total: 5)
+Orphan StringName: _health_bar (static: 0, total: 2)
+Orphan StringName: is_missile_weapon (static: 0, total: 1)
+Orphan StringName: _mat (static: 0, total: 2)
+Orphan StringName: apply_fetter_mods (static: 0, total: 1)
+Orphan StringName: is_destroyed (static: 0, total: 3)
+Orphan StringName: combat_target (static: 0, total: 3)
+Orphan StringName: _sim_accum (static: 0, total: 3)
+Orphan StringName: _ensure_mesh (static: 0, total: 1)
+Orphan StringName: _HEALTH_BAR_SCRIPT (static: 0, total: 1)
+Orphan StringName: _base_armor_resist_emp (static: 0, total: 3)
+Orphan StringName: _structure_resist (static: 0, total: 2)
+Orphan StringName: _ready (static: 1, total: 2)
+Orphan StringName: get_muzzle_global (static: 0, total: 1)
+Orphan StringName: armor_hp (static: 0, total: 3)
+Orphan StringName: world_range_cells (static: 0, total: 1)
+Orphan StringName: ShopController (static: 0, total: 3)
+Orphan StringName: base_speed (static: 0, total: 3)
+Orphan StringName: shop_changed (static: 0, total: 2)
+Orphan StringName: tick_capacitor (static: 0, total: 1)
+Orphan StringName: star (static: 0, total: 3)
+Orphan StringName: player_max_hp (static: 0, total: 3)
+Orphan StringName: BgMusic (static: 0, total: 4)
+Orphan StringName: needs_heal_for_logistic (static: 0, total: 1)
+Orphan StringName: apply_heal (static: 0, total: 1)
+Orphan StringName: end_drag (static: 0, total: 1)
+Orphan StringName: structure_resist_emp (static: 0, total: 3)
+Orphan StringName: instance (static: 0, total: 1)
+Orphan StringName: slots (static: 0, total: 3)
+Orphan StringName: cap_fraction (static: 0, total: 1)
+Orphan StringName: tracking (static: 0, total: 3)
+Orphan StringName: fetter_speed_mul (static: 0, total: 3)
+Orphan StringName: optimal_cells (static: 0, total: 3)
+Orphan StringName: _xform_to_ancestor (static: 0, total: 1)
+Orphan StringName: _shield_resist (static: 0, total: 2)
+Orphan StringName: reset_combat_runtime (static: 0, total: 1)
+Orphan StringName: armor_resist_emp (static: 0, total: 3)
+Orphan StringName: _build_slot_markers (static: 0, total: 1)
+Orphan StringName: _aabb_in_root_space (static: 0, total: 1)
+Orphan StringName: try_upgrades_all (static: 0, total: 1)
+Orphan StringName: player_exp (static: 0, total: 3)
+Orphan StringName: last_attack_time (static: 0, total: 3)
+Orphan StringName: pick_ship_at (static: 0, total: 1)
+Orphan StringName: consume_cap_for_cycle (static: 0, total: 1)
+Orphan StringName: set_prepare_mode (static: 0, total: 1)
+Orphan StringName: _muzzle_local (static: 0, total: 3)
+Orphan StringName: _find_meshes (static: 0, total: 1)
+Orphan StringName: BoardController (static: 0, total: 3)
+Orphan StringName: race (static: 0, total: 3)
+Orphan StringName: _tint_model (static: 0, total: 1)
+Orphan StringName: board_changed (static: 0, total: 2)
+Orphan StringName: player_gold (static: 0, total: 3)
+Orphan StringName: combat_move_speed (static: 0, total: 1)
+Orphan StringName: sum_damage_amount (static: 0, total: 1)
+Orphan StringName: stage (static: 0, total: 3)
+Orphan StringName: repair_armor (static: 0, total: 3)
+Orphan StringName: repair_structure (static: 0, total: 3)
+Orphan StringName: _aabb_mesh_local (static: 0, total: 1)
+Orphan StringName: _make_hollow_fallback (static: 0, total: 1)
+Orphan StringName: face_dir_xz (static: 0, total: 1)
+Orphan StringName: _world_root (static: 0, total: 3)
+Orphan StringName: lock_target_id (static: 0, total: 3)
+Orphan StringName: volume_pct (static: 0, total: 4)
+Orphan StringName: _save_settings (static: 0, total: 1)
+Orphan StringName: _ai (static: 0, total: 2)
+Orphan StringName: _make_indicator (static: 0, total: 1)
+Orphan StringName: max_shield (static: 0, total: 3)
+Orphan StringName: player_level (static: 0, total: 3)
+Orphan StringName: update_drag (static: 0, total: 1)
+Orphan StringName: apply_hit_dict (static: 0, total: 1)
+Orphan StringName: _cancel_drag (static: 0, total: 1)
+Orphan StringName: grid_dist_to (static: 0, total: 1)
+Orphan StringName: _base_shield_resist_emp (static: 0, total: 3)
+Orphan StringName: setup (static: 0, total: 2)
+Orphan StringName: in_retreat (static: 0, total: 1)
+Orphan StringName: _stat_modifiers (static: 0, total: 2)
+Orphan StringName: _ensure_health_bar (static: 0, total: 1)
+Orphan StringName: attacks_enabled (static: 0, total: 1)
+Orphan StringName: damage_dict_scaled (static: 0, total: 1)
+Orphan StringName: update_retreat (static: 0, total: 1)
+Orphan StringName: missile_drf (static: 0, total: 3)
+Orphan StringName: missile_drs (static: 0, total: 3)
+Orphan StringName: reset_ships_after_round (static: 0, total: 1)
+Orphan StringName: turret_hit_chance_vs (static: 0, total: 1)
+Orphan StringName: lock_timer (static: 0, total: 3)
+Orphan StringName: _tint_meshes (static: 0, total: 1)
+Orphan StringName: damage_kinetic (static: 0, total: 3)
+Orphan StringName: get_stat (static: 0, total: 1)
+Orphan StringName: _base_structure_resist_emp (static: 0, total: 3)
+Orphan StringName: damage_pct_bonus (static: 0, total: 3)
+Orphan StringName: structure_hp (static: 0, total: 3)
+Orphan StringName: STREAM_PATH (static: 0, total: 1)
+Orphan StringName: _on_purchase (static: 0, total: 1)
+Orphan StringName: cap_capacity (static: 0, total: 3)
+Orphan StringName: heal_dict_scaled (static: 0, total: 1)
+Orphan StringName: BUS_NAME (static: 0, total: 1)
+Orphan StringName: notice (static: 0, total: 1)
+Orphan StringName: ship_id (static: 0, total: 3)
+Orphan StringName: signature_radius (static: 0, total: 3)
+Orphan StringName: max_structure (static: 0, total: 3)
+Orphan StringName: cap_current (static: 0, total: 3)
+Orphan StringName: _player (static: 0, total: 3)
+Orphan StringName: damage_explosive (static: 0, total: 3)
+Orphan StringName: max_armor (static: 0, total: 3)
+Orphan StringName: shield_hp (static: 0, total: 3)
+Orphan StringName: timer (static: 0, total: 3)
+Orphan StringName: _on_deploy (static: 0, total: 1)
+Orphan StringName: retreat_until_time (static: 0, total: 3)
+Orphan StringName: TEAM_AI (static: 0, total: 1)
+Orphan StringName: _running (static: 0, total: 3)
+Orphan StringName: Node3D (static: 0, total: 2)
+Orphan StringName: cell_to_world (static: 0, total: 1)
+Orphan StringName: field_ships (static: 0, total: 1)
+Orphan StringName: grid_x (static: 0, total: 3)
+Orphan StringName: grid_z (static: 0, total: 3)
+Orphan StringName: damage_thermal (static: 0, total: 3)
+Orphan StringName: apply_heal_racial (static: 0, total: 1)
+Orphan StringName: count_alive_field (static: 0, total: 1)
+Orphan StringName: explosion_radius (static: 0, total: 3)
+Orphan StringName: count_field (static: 0, total: 1)
+Orphan StringName: bind (static: 0, total: 1)
+Orphan StringName: try_buy (static: 0, total: 1)
+Orphan StringName: _mesh (static: 0, total: 2)
+Orphan StringName: get_cost (static: 0, total: 1)
+Orphan StringName: _model_root (static: 0, total: 2)
+Orphan StringName: _fetter_multiplier (static: 0, total: 1)
+Orphan StringName: tick_stat_modifiers (static: 0, total: 1)
+Orphan StringName: pick_slot_at (static: 0, total: 1)
+Orphan StringName: _on_refresh (static: 0, total: 1)
+Orphan StringName: _speed_step_index (static: 0, total: 3)
+Orphan StringName: set_volume_pct (static: 0, total: 1)
+Orphan StringName: _prepare_mode (static: 0, total: 4)
+Orphan StringName: battle_game_stage_count (static: 0, total: 3)
+Orphan StringName: slot_type (static: 0, total: 3)
+Orphan StringName: attack_range (static: 0, total: 3)
+Orphan StringName: _field_occupied (static: 0, total: 3)
+Orphan StringName: recalculate_fetters (static: 0, total: 1)
+Orphan StringName: add_stat_modifier (static: 0, total: 1)
+Orphan StringName: restore_team_yaw (static: 0, total: 1)
+Orphan StringName: apply_hit (static: 0, total: 1)
+Orphan StringName: _match (static: 0, total: 3)
+Orphan StringName: scan_resolution (static: 0, total: 3)
+Orphan StringName: cap_recharge_s (static: 0, total: 3)
+Orphan StringName: reset_match (static: 0, total: 1)
+Orphan StringName: _apply (static: 0, total: 1)
+Orphan StringName: fetter_repair_mul (static: 0, total: 3)
+Orphan StringName: all_ships (static: 0, total: 1)
+Orphan StringName: _armor_resist (static: 0, total: 2)
+Orphan StringName: world_range_wu (static: 0, total: 1)
+Orphan StringName: _aabb_in_ship_space (static: 0, total: 1)
+Orphan StringName: shop_locked (static: 0, total: 3)
+Orphan StringName: mode (static: 0, total: 3)
+Orphan StringName: Node (static: 4, total: 5)
+Orphan StringName: battle_phase_value (static: 0, total: 3)
+Orphan StringName: shield_resist_emp (static: 0, total: 3)
+Orphan StringName: refresh_shop (static: 0, total: 1)
+Orphan StringName: _load_settings (static: 0, total: 1)
+Orphan StringName: optimal_sig_radius (static: 0, total: 3)
+Orphan StringName: NODE_NAME (static: 0, total: 1)
+Orphan StringName: set_combat_tint (static: 0, total: 1)
+Orphan StringName: TEAM_PLAYER (static: 0, total: 1)
+Orphan StringName: _remove_ship (static: 0, total: 1)
+Orphan StringName: _hangar_occupied (static: 0, total: 3)
+Orphan StringName: _SELF (static: 0, total: 1)
+Orphan StringName: _ensure_bus (static: 0, total: 1)
+Orphan StringName: spawn_ship (static: 0, total: 1)
+Orphan StringName: find_empty_field (static: 0, total: 1)
+Orphan StringName: missile_damage_factor_vs (static: 0, total: 1)
+Orphan StringName: up_level_demand (static: 0, total: 3)
+Orphan StringName: lock_duration_s (static: 0, total: 3)
+Orphan StringName: round_phase_value (static: 0, total: 3)
+Orphan StringName: field_origin (static: 0, total: 1)
+Orphan StringName: player_hp (static: 0, total: 3)
+Orphan StringName: _roll_ship_id (static: 0, total: 1)
+Orphan StringName: manual_refresh (static: 0, total: 1)
+Orphan StringName: upgrade_level (static: 0, total: 1)
+Orphan StringName: _normalize_model_scale (static: 0, total: 1)
+Orphan StringName: is_logistic (static: 0, total: 3)
+Orphan StringName: reload_stats (static: 0, total: 1)
+Orphan StringName: is_one_side_cleared (static: 0, total: 1)
+Orphan StringName: _on_move (static: 0, total: 1)
+Orphan StringName: team_id (static: 0, total: 3)
+Orphan StringName: MatchController (static: 0, total: 2)
+Orphan StringName: ShipUnit (static: 0, total: 3)
+Orphan StringName: SETTINGS_PATH (static: 0, total: 1)
+Orphan StringName: advance_lock (static: 0, total: 1)
+Orphan StringName: _markers (static: 0, total: 3)
+Orphan StringName: is_heal_full_for_race (static: 0, total: 1)
+Orphan StringName: no_target_acc (static: 0, total: 3)
+Orphan StringName: _square_frame_mesh (static: 0, total: 1)
+Orphan StringName: hangar_origin (static: 0, total: 1)
+Orphan StringName: damage_emp (static: 0, total: 3)
+Orphan StringName: world_range (static: 0, total: 1)
+Orphan StringName: cap_cost_per_cycle (static: 0, total: 3)
+Orphan StringName: repair_shield (static: 0, total: 3)
+Orphan StringName: find_empty_hangar (static: 0, total: 1)
+Orphan StringName: enabled (static: 0, total: 4)
+Orphan StringName: begin_drag (static: 0, total: 1)
+Orphan StringName: match_over (static: 0, total: 1)
+Orphan StringName: stage_changed (static: 0, total: 1)
+Orphan StringName: resolve_weapon_fx_kind (static: 0, total: 1)
+Orphan StringName: speed_multiplier (static: 0, total: 3)
+Orphan StringName: _ships (static: 0, total: 3)
+Orphan StringName: _shop (static: 0, total: 2)
+Orphan StringName: _combat (static: 0, total: 2)
+Orphan StringName: sync_lock (static: 0, total: 1)
+Orphan StringName: set_enabled (static: 0, total: 1)
+Orphan StringName: _drag_ship (static: 0, total: 4)
+Orphan StringName: _on_sell (static: 0, total: 1)
+Orphan StringName: needs_heal_for_race (static: 0, total: 1)
+Orphan StringName: hud_refresh (static: 0, total: 1)
+Orphan StringName: attack_duration (static: 0, total: 3)
+Orphan StringName: _key (static: 0, total: 1)
+Orphan StringName: is_target_locked (static: 0, total: 1)
+StringName: 216 unclaimed string names at exit.

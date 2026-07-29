@@ -25,10 +25,18 @@ const TONNAGE_ICON_MAP := {
 	"cruiser": "cruiser_32.png",
 	"battlecruiser": "battleCruiser_32.png",
 	"battleship": "battleship_32.png",
+	"carrier": "carrier_32.png",
+	"dreadnought": "dreadnought_32.png",
+	"force_auxiliary": "force_auxiliary_32.png",
 	"drone_light": "droneLightScout_16.png",
 	"drone_medium": "droneMediumScout_16.png",
-	"drone_heavy": "droneHeavyAttack_16.png"
+	"drone_heavy": "droneHeavyAttack_16.png",
+	"fighter": "fighter.png",
+	"heavy_repair_drone": "droneHeavyAttack_16.png",
+	"repair_drone": "droneHeavyAttack_16.png",
 }
+const SHIPGROUP_ICON_DIR := "res://assets/ui/icons/ShipGroup"
+const TONNAGE_DIR := "res://assets/ui/sprites/tonnage"
 
 static var _champ_cache: Dictionary = {}
 static var _champ_path_map: Dictionary = {}
@@ -76,18 +84,16 @@ static func tex(path: String) -> Texture2D:
 	# Fallback: Chinese / broken .import → load pixels via absolute path
 	return _tex_from_image_file(path)
 
-## Prefer raw ImageTexture for hull bakes on desktop (avoids mid-reimport CompressedTexture2D blanks).
-## On mobile, res:// cannot be Image.load()'d via globalize_path — use ResourceLoader only.
+## Prefer ResourceLoader (works inside exported PCK). Raw Image.load is editor-only refresh aid.
 static func tex_ship_bake(path: String) -> Texture2D:
 	if path == "":
 		return null
-	var mobile := OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
-	if mobile:
-		return tex(path)
-	var img_tex := _tex_from_image_file(path)
-	if img_tex:
-		return img_tex
-	return tex(path)
+	var t := tex(path)
+	if t != null:
+		return t
+	if OS.has_feature("editor"):
+		return _tex_from_image_file(path)
+	return null
 
 static func _tex_from_image_file(path: String) -> Texture2D:
 	var abs_path := path
@@ -142,19 +148,51 @@ static func drone_portrait(drone_id: int) -> Texture2D:
 	var cache_key := "drone#%d" % drone_id
 	if _champ_cache.has(cache_key) and _champ_cache[cache_key] != null:
 		return _champ_cache[cache_key]
-	var t: Texture2D = champion_icon("", drone_id)
+	var t: Texture2D = null
+	var data: Dictionary = DataStore.get_ship(drone_id) if DataStore else {}
+	## Prefer explicit portrait (heavy repair / fighter icons live outside ship_portraits fallbacks).
+	var portrait := str(data.get("portrait", ""))
+	if portrait != "":
+		t = tex(portrait)
+		if t == null and OS.has_feature("editor"):
+			t = _tex_from_image_file(portrait)
 	if t == null:
-		var data: Dictionary = DataStore.get_ship(drone_id)
+		t = champion_icon(str(data.get("name", "")), drone_id)
+	if t == null:
 		var key := str(data.get("model_key", ""))
 		if key != "":
 			t = tex("res://assets/ui/portraits/%s.png" % key)
 	if t == null:
-		t = tonnage_icon("drone_light")
+		var kind := str(data.get("unmanned_kind", ""))
+		if kind == "heavy_repair_drone":
+			t = tex("res://assets/ui/heavy_repair_drone_icons/%s.png" % str(data.get("model_key", "heavy_repair_amarr")))
+		elif kind.find("heavy") >= 0:
+			t = tonnage_icon("drone_heavy")
+		else:
+			t = tonnage_icon("drone_light")
 	if t != null:
 		_champ_cache[cache_key] = t
 	else:
 		_champ_cache.erase(cache_key)
 	return t
+
+## Shell Autoload DataStore may lag content; never hard-crash on missing APIs.
+static func _ship_portrait_path_safe(ship_id: int) -> String:
+	if DataStore != null and DataStore.has_method("ship_portrait_path"):
+		return str(DataStore.ship_portrait_path(ship_id))
+	if DataStore != null:
+		var portraits: Variant = DataStore.get("ship_portraits")
+		if typeof(portraits) == TYPE_DICTIONARY:
+			var m: Dictionary = (portraits as Dictionary).get("ships", {})
+			return str(m.get(str(ship_id), ""))
+	# Last resort: read map from mounted content JSON.
+	var path := "res://data/ship_portraits.json"
+	if FileAccess.file_exists(path):
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			var ships_map: Dictionary = (parsed as Dictionary).get("ships", {})
+			return str(ships_map.get(str(ship_id), ""))
+	return ""
 
 static func champion_icon(ship_name: String, ship_id: int = 0) -> Texture2D:
 	## Portraits only — Echoes ship_portraits; never ChampionIcons fallback.
@@ -163,12 +201,12 @@ static func champion_icon(ship_name: String, ship_id: int = 0) -> Texture2D:
 		return _champ_cache[cache_key]
 	var t: Texture2D = null
 	if ship_id > 0:
-		var ppath := DataStore.ship_portrait_path(ship_id)
+		var ppath := _ship_portrait_path_safe(ship_id)
 		if ppath != "":
-			## Prefer raw ImageTexture so newly written PNGs show before .import settles.
-			t = _tex_from_image_file(ppath)
-			if t == null:
-				t = tex(ppath)
+			# Exported PCK: ResourceLoader first. Raw Image.load only helps editor reimports.
+			t = tex(ppath)
+			if t == null and OS.has_feature("editor"):
+				t = _tex_from_image_file(ppath)
 	if t != null:
 		_champ_cache[cache_key] = t
 	else:
@@ -186,10 +224,10 @@ static func _ensure_champ_map() -> void:
 			if typeof(parsed) == TYPE_DICTIONARY:
 				_champ_path_map = parsed
 
-## Resolve by fetter id (ASCII `{id}.png`) first, then Chinese display name.
-## `fetter_key` may be id (`amarr`) or name (`艾玛`).
-static func fetter_icon(fetter_key: String, display_name: String = "") -> Texture2D:
-	var cache_key := "%s|%s" % [fetter_key, display_name]
+## Resolve by fetter id ASCII `{id}.png` only (no Chinese filename fallback).
+## Battlecruiser/battleship may fall back to tonnage icons.
+static func fetter_icon(fetter_key: String, _display_name: String = "") -> Texture2D:
+	var cache_key := fetter_key
 	if _fetter_cache.has(cache_key) and _fetter_cache[cache_key] != null:
 		return _fetter_cache[cache_key]
 	var t: Texture2D = null
@@ -197,8 +235,10 @@ static func fetter_icon(fetter_key: String, display_name: String = "") -> Textur
 		t = tex(FETTER_ICON_DIR.path_join(fetter_key + ".png"))
 		if t == null:
 			t = _find_named_tex(FETTER_ICON_DIR, fetter_key)
-	if t == null and display_name != "" and display_name != fetter_key:
-		t = _find_named_tex(FETTER_ICON_DIR, display_name)
+		if t == null and fetter_key in ["battlecruiser", "battleship"]:
+			t = tonnage_icon(fetter_key)
+		if t == null and fetter_key == "fighter":
+			t = tex(FETTER_ICON_DIR.path_join("fighter.png"))
 	if t != null:
 		_fetter_cache[cache_key] = t
 	else:
@@ -261,31 +301,55 @@ static func tonnage_icon(ship_group: String) -> Texture2D:
 	var file_name := str(TONNAGE_ICON_MAP.get(ship_group, ""))
 	if file_name == "":
 		return null
-	var external_path := ENTITY_ICON_DIR.path_join(file_name)
-	var t := _tex_from_image_file(external_path)
-	if t == null:
-		t = tex("res://assets/ui/sprites/tonnage".path_join(file_name))
-	_tonnage_cache[ship_group] = t
+	var t: Texture2D = null
+	## Capitals use the same hollow outline sprites under tonnage/ (not solid ShipGroup art).
+	if ship_group == "fighter":
+		t = tex(FETTER_ICON_DIR.path_join(file_name))
+		if t == null:
+			t = _tex_from_image_file(FETTER_ICON_DIR.path_join(file_name))
+	else:
+		t = tex(TONNAGE_DIR.path_join(file_name))
+		if t == null:
+			t = _tex_from_image_file(TONNAGE_DIR.path_join(file_name))
+		## Legacy ShipGroup fallback only if tonnage sprite missing.
+		if t == null and ship_group in ["carrier", "dreadnought", "force_auxiliary"]:
+			t = tex(SHIPGROUP_ICON_DIR.path_join(file_name))
+			if t == null:
+				t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join(file_name))
+	if t != null:
+		_tonnage_cache[ship_group] = t
 	return t
 
 static func item_icon(type_id: int) -> Texture2D:
 	if type_id <= 0:
 		return null
-	if _item_icon_cache.has(type_id) and _item_icon_cache[type_id] != null:
-		return _item_icon_cache[type_id]
-	var stem := str(type_id)
+	## Medium/large remote repair → small-tier art (same PNG family).
+	var resolved := type_id
+	match type_id:
+		11357, 11359:
+			resolved = 11355
+		3596, 3606:
+			resolved = 3586
+		27930, 27904, 27932:
+			resolved = 11355
+	if _item_icon_cache.has(resolved) and _item_icon_cache[resolved] != null:
+		return _item_icon_cache[resolved]
+	var stem := str(resolved)
 	var res_path := "res://assets/ui/item_icons".path_join(stem + ".png")
-	## Prefer raw ImageTexture — extract_module_icons.py may rewrite PNG while .import lags.
-	var t := _tex_from_image_file(res_path)
+	## Prefer ResourceLoader (works in exported PCK); raw Image only as editor refresh aid.
+	var t := tex(res_path)
 	if t == null:
-		t = tex(res_path)
-	if t == null:
+		t = _tex_from_image_file(res_path)
+	# Dev-only Echoes unpack fallback — never required for shipped builds.
+	if t == null and OS.has_feature("editor"):
 		t = _tex_from_image_file(ECHOES_ITEM_ICON_DIR.path_join(stem + ".ktx"))
-	if t == null:
-		t = _tex_from_image_file(ECHOES_ITEM_ICON_DIR.path_join(stem + ".png"))
+		if t == null:
+			t = _tex_from_image_file(ECHOES_ITEM_ICON_DIR.path_join(stem + ".png"))
 	if t != null:
+		_item_icon_cache[resolved] = t
 		_item_icon_cache[type_id] = t
 	else:
+		_item_icon_cache.erase(resolved)
 		_item_icon_cache.erase(type_id)
 	return t
 
@@ -345,17 +409,13 @@ static func announcement_textures() -> Array[Texture2D]:
 	return out
 
 static func qq_qr_texture() -> Texture2D:
-	var dir := DirAccess.open("res://assets/ui/main_menu")
-	if dir == null:
-		return null
-	dir.list_dir_begin()
-	var fn := dir.get_next()
-	while fn != "":
-		if not dir.current_is_dir() and fn.get_extension().to_lower() == "png" and ("二维码" in fn or "qq" in fn.to_lower() or fn.length() > 20):
-			var t := tex("res://assets/ui/main_menu".path_join(fn))
-			if t:
-				return t
-		fn = dir.get_next()
+	var ascii := "res://assets/ui/main_menu/dev_qq_group_qr.png"
+	var t := tex(ascii)
+	if t:
+		return t
+	t = _tex_from_image_file(ascii)
+	if t:
+		return t
 	return null
 
 static func _find_named_tex(dir_path: String, stem: String) -> Texture2D:

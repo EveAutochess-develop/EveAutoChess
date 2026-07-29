@@ -10,13 +10,25 @@ var _prepare_mode: bool = true
 var _drag_ship: ShipUnit = null
 var _world_root: Node3D
 var _markers: Node3D
+var _field_markers: Node3D
+var _hangar_markers: Node3D
 var _boundary_markers: Node3D
 
 func setup(world_root: Node3D) -> void:
 	_world_root = world_root
+	if _markers != null and is_instance_valid(_markers):
+		_markers.queue_free()
+	if _boundary_markers != null and is_instance_valid(_boundary_markers):
+		_boundary_markers.queue_free()
 	_markers = Node3D.new()
 	_markers.name = "Markers"
 	_world_root.add_child(_markers)
+	_field_markers = Node3D.new()
+	_field_markers.name = "FieldMarkers"
+	_markers.add_child(_field_markers)
+	_hangar_markers = Node3D.new()
+	_hangar_markers.name = "HangarMarkers"
+	_markers.add_child(_hangar_markers)
 	_boundary_markers = Node3D.new()
 	_boundary_markers.name = "BoundaryMarkers"
 	_world_root.add_child(_boundary_markers)
@@ -25,6 +37,9 @@ func setup(world_root: Node3D) -> void:
 	AdminBus.register_handler(&"board.deploy", _on_deploy)
 	AdminBus.register_handler(&"board.move", _on_move)
 	AdminBus.register_handler(&"board.sell", _on_sell)
+
+func get_world_root() -> Node3D:
+	return _world_root
 
 func reset_match() -> void:
 	for s in _ships:
@@ -38,17 +53,34 @@ func reset_match() -> void:
 
 func set_prepare_mode(v: bool) -> void:
 	_prepare_mode = v
-	# Slot grid only in Prepare; boundary only in Battle.
-	if _markers:
-		_markers.visible = v
-	if _boundary_markers:
-		_boundary_markers.visible = false
+	## Prepare: show field hexes. Hangar blue frames stay visible in Battle too.
+	if v:
+		set_field_markers_visible(true)
+		set_hangar_markers_visible(true)
 	if not v and _drag_ship:
 		_cancel_drag()
 
+func set_field_markers_visible(v: bool) -> void:
+	if _field_markers:
+		_field_markers.visible = v
+	if _boundary_markers:
+		_boundary_markers.visible = false
+
+func set_hangar_markers_visible(v: bool) -> void:
+	if _hangar_markers:
+		_hangar_markers.visible = v
+
+func set_slot_markers_visible(v: bool) -> void:
+	## Legacy: toggles Field only when hiding (Battle); show restores both.
+	set_field_markers_visible(v)
+	if v:
+		set_hangar_markers_visible(true)
+
+func slot_markers_visible() -> bool:
+	return _field_markers != null and _field_markers.visible
+
 func _build_slot_markers() -> void:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
 	var hexa_path := "res://assets/models/env/Models_indicator_hexa.glb"
 	var square_path := "res://assets/models/env/Models_indicator_square.glb"
@@ -56,20 +88,21 @@ func _build_slot_markers() -> void:
 	var square_ps: PackedScene = load(square_path) if ResourceLoader.exists(square_path) else null
 	for team in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
 		for z in range(fh):
-			for x in range(fw):
+			var cols := field_cols_at(z)
+			for x in range(cols):
 				var m := _make_indicator(hexa_ps, true)
 				m.position = cell_to_world("field", team, x, z)
-				_markers.add_child(m)
-				var is_edge := x == 0 or x == fw - 1 or z == 0 or z == fh - 1
+				_field_markers.add_child(m)
+				var is_edge := x == 0 or x == cols - 1 or z == 0 or z == fh - 1
 				if is_edge and _boundary_markers:
 					var bm := _make_indicator(hexa_ps, true)
 					bm.position = cell_to_world("field", team, x, z)
 					_boundary_markers.add_child(bm)
-		var hw := int(b.get("hangar_width", 14))
+		var hw := int(b.get("hangar_width", 15))
 		for x in range(hw):
 			var m2 := _make_indicator(square_ps, false)
 			m2.position = cell_to_world("hangar", team, x, 0)
-			_markers.add_child(m2)
+			_hangar_markers.add_child(m2)
 			var is_edge_h := x == 0 or x == hw - 1
 			if is_edge_h and _boundary_markers:
 				var bm2 := _make_indicator(square_ps, false)
@@ -197,21 +230,26 @@ func _aabb_in_root_space(root: Node3D) -> AABB:
 			stack.append([c, child_xf])
 	return result
 
-static func field_origin(team: int) -> Vector3:
-	## BOARD_AND_INPUT §2.1 — derived from field_width/height; JSON may override x/z keys.
+static func field_cols_at(z: int) -> int:
+	## Even rows: field_width. Odd rows: +field_odd_row_extra (default 1) so L/R zigzag phase matches.
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
+	var fw := int(b.get("field_width", 12))
+	var extra := int(b.get("field_odd_row_extra", 1))
+	if z % 2 == 1:
+		return fw + extra
+	return fw
+
+static func field_origin(team: int) -> Vector3:
+	## Rows self-center on world X=0; origin only carries half-field Z (and overrides).
+	var b := DataStore.board
 	var fh := int(b.get("field_height", 6))
-	var hox := absf(float(b.get("hex_offset_x", -3.0)))
 	var hoz := absf(float(b.get("hex_offset_z", -2.5)))
 	var gap := float(b.get("center_gap_z", 1.25))
-	var ox := (fw - 1) * hox * 0.5
+	var ox := 0.0
 	var oz := (fh - 1) * hoz + gap
 	if team == ShipUnit.TEAM_AI:
 		if b.has("ai_origin_x"):
 			ox = float(b.get("ai_origin_x"))
-		else:
-			ox = -ox
 		if b.has("ai_origin_z"):
 			oz = float(b.get("ai_origin_z"))
 		else:
@@ -223,54 +261,69 @@ static func field_origin(team: int) -> Vector3:
 			oz = float(b.get("player_origin_z"))
 	return Vector3(ox, 0.0, oz)
 
+static func field_span_x() -> float:
+	## Widest row (odd row with +1) — player/AI share the same X silhouette.
+	var b := DataStore.board
+	var fw := int(b.get("field_width", 12))
+	var extra := int(b.get("field_odd_row_extra", 1))
+	var hox := absf(float(b.get("hex_offset_x", -3.0)))
+	var widest := fw + maxi(0, extra)
+	return float(widest - 1) * hox
+
+static func hangar_step_x() -> float:
+	## Default: span matches Field silhouette so Hangar edges align with hex outer tips.
+	var b := DataStore.board
+	if b.has("hangar_offset_x"):
+		return float(b.get("hangar_offset_x"))
+	var hw := maxi(2, int(b.get("hangar_width", 15)))
+	return -field_span_x() / float(hw - 1)
+
 static func hangar_origin(team: int) -> Vector3:
 	var b := DataStore.board
-	var fh := int(b.get("field_height", 6))
-	var hw := int(b.get("hangar_width", 14))
+	var fo := field_origin(team)
 	var hoz := absf(float(b.get("hex_offset_z", -2.5)))
-	var hgap_x := absf(float(b.get("hangar_offset_x", -2.5)))
-	var gap := float(b.get("center_gap_z", 1.25))
-	var field_oz := (fh - 1) * hoz + gap
-	var ox := (hw - 1) * hgap_x * 0.5
-	var oz := field_oz + hoz
-	if team == ShipUnit.TEAM_AI:
+	var half := field_span_x() * 0.5
+	## Hangar x=0 at Field outer +X (player) / −X (AI) so L/R edges match both half-fields.
+	var ox := half if team == ShipUnit.TEAM_PLAYER else -half
+	ox += fo.x
+	var oz := fo.z + (hoz if team == ShipUnit.TEAM_PLAYER else -hoz)
+	if team == ShipUnit.TEAM_PLAYER:
 		if b.has("hangar_origin_x"):
 			ox = float(b.get("hangar_origin_x"))
-		else:
-			ox = -ox
 		if b.has("hangar_origin_z"):
 			oz = float(b.get("hangar_origin_z"))
-		else:
-			oz = -oz
 	else:
-		if b.has("hangar_origin_x"):
-			ox = float(b.get("hangar_origin_x"))
-		if b.has("hangar_origin_z"):
-			oz = float(b.get("hangar_origin_z"))
+		if b.has("ai_hangar_origin_x"):
+			ox = float(b.get("ai_hangar_origin_x"))
+		elif b.has("hangar_origin_x"):
+			ox = -float(b.get("hangar_origin_x"))
+		if b.has("ai_hangar_origin_z"):
+			oz = float(b.get("ai_hangar_origin_z"))
+		elif b.has("hangar_origin_z"):
+			oz = -float(b.get("hangar_origin_z"))
 	return Vector3(ox, 0.0, oz)
 
 static func cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vector3:
 	## Unity BoardController: origin + right*offsetX + forward*offsetZ (identity axes).
 	var b := DataStore.board
 	var ox := float(b.get("hex_offset_x", -3.0))
-	var nudge := float(b.get("hex_row_nudge", 1.5))
 	var oz := float(b.get("hex_offset_z", -2.5))
-	var hox := float(b.get("hangar_offset_x", -2.5))
+	var hox_step := hangar_step_x()
 	var origin := hangar_origin(team) if slot_type == "hangar" else field_origin(team)
 	var ox0 := origin.x
 	var oy0 := origin.y
 	var oz0 := origin.z
 	if slot_type == "hangar":
-		# AI hangar uses yaw 180 in Unity → negate X step relative to origin
-		var step := float(x) * hox
+		var step := float(x) * hox_step
 		if team == ShipUnit.TEAM_AI:
 			step = -step
 		return Vector3(ox0 + step, oy0, oz0)
-	var row_offset := z % 2
-	var offset_x := float(x) * ox + float(row_offset) * nudge
+	## Each row self-centers on X=0; odd rows have +1 cell → both edges share the same zigzag phase.
+	var cols := field_cols_at(z)
+	var row_left := float(cols - 1) * absf(ox) * 0.5
+	var offset_x := row_left + float(x) * ox
 	var offset_z := float(z) * oz
 	if team == ShipUnit.TEAM_AI:
-		# Unity fieldZoneTransforms[1] euler Y=180 → negate local XZ
 		offset_x = -offset_x
 		offset_z = -offset_z
 	return Vector3(ox0 + offset_x, oy0 + 0.05, oz0 + offset_z)
@@ -278,7 +331,6 @@ static func cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vecto
 ## Axis-aligned playable combat rect in XZ (both team fields + margin). Returns [min_x, max_x, min_z, max_z].
 static func combat_play_bounds_xz(margin_wu: float = 0.75) -> Vector4:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
 	var min_x := INF
 	var max_x := -INF
@@ -286,7 +338,8 @@ static func combat_play_bounds_xz(margin_wu: float = 0.75) -> Vector4:
 	var max_z := -INF
 	for team in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
 		for z in [0, fh - 1]:
-			for x in [0, fw - 1]:
+			var cols := field_cols_at(z)
+			for x in [0, cols - 1]:
 				var p := cell_to_world("field", team, x, z)
 				min_x = minf(min_x, p.x)
 				max_x = maxf(max_x, p.x)
@@ -302,16 +355,16 @@ static func clamp_to_combat_play_area(pos: Vector3, margin_wu: float = 0.75) -> 
 
 static func prepare_slot_bounds_xz(slot_type: String, team: int, margin_wu: float = 0.0) -> Vector4:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
-	var hw := int(b.get("hangar_width", 14))
+	var hw := int(b.get("hangar_width", 15))
 	var min_x := INF
 	var max_x := -INF
 	var min_z := INF
 	var max_z := -INF
 	if slot_type == "field":
 		for z in range(fh):
-			for x in range(fw):
+			var cols := field_cols_at(z)
+			for x in range(cols):
 				var p := cell_to_world("field", team, x, z)
 				min_x = minf(min_x, p.x)
 				max_x = maxf(max_x, p.x)
@@ -350,11 +403,12 @@ static func clamp_to_prepare_play_area(pos: Vector3, team: int, margin_wu: float
 
 static func _in_bounds(slot_type: String, x: int, z: int = 0) -> bool:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
-	var hw := int(b.get("hangar_width", 14))
+	var hw := int(b.get("hangar_width", 15))
 	if slot_type == "field":
-		return x >= 0 and x < fw and z >= 0 and z < fh
+		if z < 0 or z >= fh or x < 0:
+			return false
+		return x < field_cols_at(z)
 	return x >= 0 and x < hw and z == 0
 
 func _key(slot_type: String, team: int, x: int, z: int) -> String:
@@ -375,16 +429,18 @@ func spawn_ship(ship_id: int, star: int, team: int, slot_type: String, x: int, z
 	board_changed.emit()
 	return ship
 
-func spawn_unmanned(ship_id: int, team: int, world_pos: Vector3, mother: ShipUnit) -> ShipUnit:
+func spawn_unmanned(ship_id: int, team: int, world_pos: Vector3, mother: ShipUnit, star: int = -1, squadron_id: int = -1) -> ShipUnit:
 	var ship := ShipUnit.new()
 	_world_root.add_child(ship)
-	ship.setup(ship_id, 1, team)
+	var use_star := star if star > 0 else (mother.star if mother else 1)
+	ship.setup(ship_id, use_star, team)
 	ship.slot_type = "field"
 	ship.grid_x = mother.grid_x if mother else 0
 	ship.grid_z = mother.grid_z if mother else 0
 	ship.is_unmanned = true
 	ship.unmanned_kind = str(DataStore.get_ship(ship_id).get("unmanned_kind", "combat_drone"))
 	ship.mother_ship_id = mother.get_instance_id() if mother else 0
+	ship.fighter_squadron_id = squadron_id
 	ship.clear_health_bar()
 	ship.global_position = world_pos
 	_ships.append(ship)
@@ -396,50 +452,96 @@ func remove_ship_node(ship: ShipUnit) -> void:
 		return
 	if not ship.is_unmanned:
 		var occ := _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
+		## Prefer exact key; also scrub any occupancy entry still pointing at this instance.
 		occ.erase(_key(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z))
+		var stale: Array = []
+		for k in occ.keys():
+			if occ[k] == ship:
+				stale.append(k)
+		for k2 in stale:
+			occ.erase(k2)
 	_ships.erase(ship)
 	if is_instance_valid(ship):
+		ship.visible = false
 		ship.queue_free()
 	board_changed.emit()
 
+func is_field_cell_free_for(team: int, x: int, z: int) -> bool:
+	if not _in_bounds("field", x, z):
+		return false
+	return not _field_occupied.has(_key("field", team, x, z))
+
+
+func move_ship_to_field_side(ship: ShipUnit, x: int, z: int, side_team: int) -> void:
+	## Place hangar/field ship onto field at (x,z) using side_team world coords (cyno warp).
+	if ship == null:
+		return
+	var occ_from := _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
+	occ_from.erase(_key(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z))
+	ship.slot_type = "field"
+	ship.grid_x = x
+	ship.grid_z = z
+	ship.field_side_team = side_team
+	ship.global_position = cell_to_world("field", side_team, x, z)
+	_field_occupied[_key("field", ship.team_id, x, z)] = ship
+	board_changed.emit()
+
+
+func release_field_occupancy(ship: ShipUnit) -> void:
+	## Free the ship's current field/hangar occupancy key without freeing the node (AI reshuffle).
+	if ship == null or not is_instance_valid(ship):
+		return
+	var occ := _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
+	occ.erase(_key(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z))
+
+
+func ship_world_side(ship: ShipUnit) -> int:
+	if ship == null:
+		return ShipUnit.TEAM_PLAYER
+	if ship.field_side_team >= 0:
+		return ship.field_side_team
+	return ship.team_id
+
+
 func find_empty_hangar(team: int) -> Vector2i:
-	var hw := int(DataStore.board.get("hangar_width", 14))
+	var hw := int(DataStore.board.get("hangar_width", 15))
 	for x in range(hw):
 		if not _hangar_occupied.has(_key("hangar", team, x, 0)):
 			return Vector2i(x, 0)
 	return Vector2i(-1, -1)
 
 func find_empty_field(team: int) -> Vector2i:
-	var fw := int(DataStore.board.get("field_width", 11))
 	var fh := int(DataStore.board.get("field_height", 6))
 	var random_deploy := bool(DataStore.ai.get("random_deploy", false))
 	if random_deploy:
 		var empties: Array[Vector2i] = []
 		for z in range(fh):
-			for x in range(fw):
+			var cols := field_cols_at(z)
+			for x in range(cols):
 				if not _field_occupied.has(_key("field", team, x, z)):
 					empties.append(Vector2i(x, z))
 		if empties.is_empty():
 			return Vector2i(-1, -1)
 		return empties[randi() % empties.size()]
-	## Front row toward enemy first (z=max), then center-out on X.
+	## Front row toward enemy first (z=max), then center-out on X (per-row width).
 	var z_order: Array[int] = []
 	for z in range(fh - 1, -1, -1):
 		z_order.append(z)
-	var cx := fw / 2
-	var x_order: Array[int] = []
-	for d in range(fw):
-		var left := cx - d
-		var right := cx + d
-		if d == 0:
-			if left >= 0 and left < fw:
-				x_order.append(left)
-		else:
-			if left >= 0 and left < fw:
-				x_order.append(left)
-			if right >= 0 and right < fw and right != left:
-				x_order.append(right)
 	for z in z_order:
+		var cols := field_cols_at(z)
+		var cx := cols >> 1
+		var x_order: Array[int] = []
+		for d in range(cols):
+			var left := cx - d
+			var right := cx + d
+			if d == 0:
+				if left >= 0 and left < cols:
+					x_order.append(left)
+			else:
+				if left >= 0 and left < cols:
+					x_order.append(left)
+				if right >= 0 and right < cols and right != left:
+					x_order.append(right)
 		for x in x_order:
 			if not _field_occupied.has(_key("field", team, x, z)):
 				return Vector2i(x, z)
@@ -502,7 +604,8 @@ func reset_ships_after_round() -> void:
 	for s in _ships:
 		if s.slot_type == "field":
 			s.reload_stats()
-			s.global_position = cell_to_world("field", s.team_id, s.grid_x, s.grid_z)
+			var side := ship_world_side(s)
+			s.global_position = cell_to_world("field", side, s.grid_x, s.grid_z)
 			s.restore_team_yaw()
 			s.set_combat_tint(false)
 
@@ -513,6 +616,9 @@ func _on_deploy(payload: Dictionary) -> Dictionary:
 	var x := int(payload.get("x", 0))
 	var z := int(payload.get("z", 0))
 	var star := int(payload.get("star", 1))
+	var sd: Dictionary = DataStore.get_ship(ship_id)
+	if slot_type == "field" and bool(sd.get("requires_cyno_entry", false)):
+		return {"accepted": false, "reason_key": "requires_cyno"}
 	if not _in_bounds(slot_type, x, z):
 		return {"accepted": false, "reason_key": "out_of_bounds"}
 	if slot_type == "field":
@@ -521,7 +627,11 @@ func _on_deploy(payload: Dictionary) -> Dictionary:
 	else:
 		if _hangar_occupied.has(_key("hangar", team, x, z)):
 			return {"accepted": false, "reason_key": "occupied"}
-	spawn_ship(ship_id, star, team, slot_type, x, z)
+	var ship := spawn_ship(ship_id, star, team, slot_type, x, z)
+	if slot_type == "field" and bool(sd.get("deploy_enemy_half_only", false)):
+		var side := ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		ship.field_side_team = side
+		ship.global_position = cell_to_world("field", side, x, z)
 	try_upgrades_all()
 	return {"accepted": true}
 
@@ -531,12 +641,19 @@ func _on_move(payload: Dictionary) -> Dictionary:
 	var ship := instance_from_id(sid) as ShipUnit
 	if ship == null:
 		return {"accepted": false}
+	if ship.requires_cyno_entry and str(payload.get("to_slot_type", ship.slot_type)) == "field":
+		return {"accepted": false, "reason_key": "requires_cyno"}
 	var to_type := str(payload.get("to_slot_type", ship.slot_type))
 	var to_x := int(payload.get("to_x", ship.grid_x))
 	var to_z := int(payload.get("to_z", ship.grid_z))
 	var to_team := ship.team_id
 	if not _in_bounds(to_type, to_x, to_z):
 		return {"accepted": false, "reason_key": "out_of_bounds"}
+	var side_team := to_team
+	if to_type == "field" and ship.deploy_enemy_half_only:
+		side_team = ShipUnit.TEAM_AI if to_team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+	elif to_type == "field" and payload.has("field_side_team"):
+		side_team = int(payload.get("field_side_team", to_team))
 	var occ_from := _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
 	var occ_to := _hangar_occupied if to_type == "hangar" else _field_occupied
 	var to_key := _key(to_type, to_team, to_x, to_z)
@@ -547,13 +664,22 @@ func _on_move(payload: Dictionary) -> Dictionary:
 		other.slot_type = ship.slot_type
 		other.grid_x = ship.grid_x
 		other.grid_z = ship.grid_z
-		other.global_position = cell_to_world(other.slot_type, other.team_id, other.grid_x, other.grid_z)
+		var other_side := ship_world_side(other) if other.slot_type == "field" else other.team_id
+		if other.slot_type == "hangar":
+			other.field_side_team = other.team_id
+			other_side = other.team_id
+		other.global_position = cell_to_world(other.slot_type, other_side, other.grid_x, other.grid_z)
 		var ok := _hangar_occupied if other.slot_type == "hangar" else _field_occupied
 		ok[_key(other.slot_type, other.team_id, other.grid_x, other.grid_z)] = other
 	ship.slot_type = to_type
 	ship.grid_x = to_x
 	ship.grid_z = to_z
-	ship.global_position = cell_to_world(to_type, to_team, to_x, to_z)
+	if to_type == "hangar":
+		ship.field_side_team = to_team
+		side_team = to_team
+	else:
+		ship.field_side_team = side_team
+	ship.global_position = cell_to_world(to_type, side_team, to_x, to_z)
 	occ_to[to_key] = ship
 	try_upgrades_all()
 	board_changed.emit()
@@ -562,14 +688,19 @@ func _on_move(payload: Dictionary) -> Dictionary:
 func _on_sell(payload: Dictionary) -> Dictionary:
 	var sid := int(payload.get("ship_instance_id", 0))
 	var ship := instance_from_id(sid) as ShipUnit
-	if ship == null or ship.team_id != ShipUnit.TEAM_PLAYER:
+	if ship == null or not is_instance_valid(ship):
 		return {"accepted": false}
-	var gold := ship.get_cost()
+	## Player + AI share sell path (AI hangar clear at end of economy turn).
+	if payload.has("team") and int(payload.get("team")) != ship.team_id:
+		return {"accepted": false}
+	var gold := ship.get_sell_price()
 	_remove_ship(ship)
 	return {"accepted": true, "gold": gold}
 
 func begin_drag(ship: ShipUnit) -> void:
 	if not _prepare_mode:
+		return
+	if ship == null:
 		return
 	if ship.team_id != ShipUnit.TEAM_PLAYER and not get_tree().paused:
 		return
@@ -578,7 +709,10 @@ func begin_drag(ship: ShipUnit) -> void:
 func update_drag(world_pos: Vector3) -> void:
 	if _drag_ship:
 		var pos := Vector3(world_pos.x, 1.0, world_pos.z)
-		pos = clamp_to_prepare_play_area(pos, _drag_ship.team_id, 0.0)
+		var clamp_team := _drag_ship.team_id
+		if _drag_ship.deploy_enemy_half_only:
+			clamp_team = ShipUnit.TEAM_AI if _drag_ship.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		pos = clamp_to_prepare_play_area(pos, clamp_team, 0.0)
 		_drag_ship.global_position = pos
 
 func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
@@ -586,19 +720,32 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 		return
 	var ship := _drag_ship
 	_drag_ship = null
+	var snap_side := ship_world_side(ship)
 	if sell_zone:
 		var r := AdminBus.request(&"board.sell", {"ship_instance_id": ship.get_instance_id()})
 		if r.get("accepted", false):
-			var g := int(r.get("gold", ship.get_cost()))
+			var g := int(r.get("gold", ship.get_sell_price()))
 			# gold credited by match via signal — emit board_changed; MatchHud listens? Use group
 			get_tree().call_group("match_root", "on_ship_sold", g)
 		else:
-			ship.global_position = cell_to_world(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z)
+			ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 		return
 	if hover_slot.is_empty():
-		ship.global_position = cell_to_world(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z)
+		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 		return
 	var to_type := str(hover_slot.get("slot_type", "field"))
+	var hover_team := int(hover_slot.get("team", ship.team_id))
+	## Capitals: any drop onto a field cell bounces back to hangar + notice.
+	if ship.requires_cyno_entry and to_type == "field":
+		get_tree().call_group("match_root", "show_notice", "旗舰必须通过诱导跳跃进场")
+		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
+		return
+	if ship.deploy_enemy_half_only and to_type == "field":
+		var enemy := ShipUnit.TEAM_AI if ship.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		if hover_team != enemy:
+			get_tree().call_group("match_root", "show_notice", "只能部署在敌方半场")
+			ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
+			return
 	if to_type == "field":
 		var match_node := get_tree().get_first_node_in_group("match_root") as MatchRoot
 		if match_node:
@@ -607,18 +754,24 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 			var deployed := count_field(ship.team_id)
 			if not from_field and deployed >= lim:
 				get_tree().call_group("match_root", "show_notice", "对战区已满")
-				ship.global_position = cell_to_world(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z)
+				ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 				return
-	AdminBus.request(&"board.move", {
+	var move_r := AdminBus.request(&"board.move", {
 		"ship_instance_id": ship.get_instance_id(),
 		"to_slot_type": hover_slot.get("slot_type"),
 		"to_x": hover_slot.get("x"),
 		"to_z": hover_slot.get("z"),
+		"field_side_team": hover_team if to_type == "field" else ship.team_id,
 	})
+	if not bool(move_r.get("accepted", false)):
+		if str(move_r.get("reason_key", "")) == "requires_cyno":
+			get_tree().call_group("match_root", "show_notice", "旗舰必须通过诱导跳跃进场")
+		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 
 func _cancel_drag() -> void:
 	if _drag_ship:
-		_drag_ship.global_position = cell_to_world(_drag_ship.slot_type, _drag_ship.team_id, _drag_ship.grid_x, _drag_ship.grid_z)
+		var side := ship_world_side(_drag_ship) if _drag_ship.slot_type == "field" else _drag_ship.team_id
+		_drag_ship.global_position = cell_to_world(_drag_ship.slot_type, side, _drag_ship.grid_x, _drag_ship.grid_z)
 	_drag_ship = null
 
 func pick_ship_at(origin: Vector3, dir: Vector3) -> ShipUnit:
@@ -641,20 +794,21 @@ func pick_ship_at(origin: Vector3, dir: Vector3) -> ShipUnit:
 			best = s
 	return best
 
-func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER) -> Dictionary:
+func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
 	var best := {}
 	var best_d := 2.5
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
+	var side := field_side if field_side >= 0 else team
 	for z in range(fh):
-		for x in range(fw):
-			var p := cell_to_world("field", team, x, z)
+		var cols := field_cols_at(z)
+		for x in range(cols):
+			var p := cell_to_world("field", side, x, z)
 			var d := Vector2(world.x - p.x, world.z - p.z).length()
 			if d < best_d:
 				best_d = d
-				best = {"slot_type": "field", "x": x, "z": z, "team": team}
-	var hw := int(b.get("hangar_width", 14))
+				best = {"slot_type": "field", "x": x, "z": z, "team": side}
+	var hw := int(b.get("hangar_width", 15))
 	for x in range(hw):
 		var p2 := cell_to_world("hangar", team, x, 0)
 		var d2 := Vector2(world.x - p2.x, world.z - p2.z).length()
@@ -733,15 +887,16 @@ func recalculate_fetters(team: int) -> Array:
 			s.attack_duration = maxf(0.2, base_cycle / attack_speed_mul)
 		else:
 			s.attack_duration = base_cycle
-		if armor_hp_pct > 0.0:
-			s.max_armor *= 1.0 + armor_hp_pct / 100.0
-			s.armor_hp = minf(s.armor_hp * (1.0 + armor_hp_pct / 100.0), s.max_armor)
-		if shield_hp_pct > 0.0:
-			s.max_shield *= 1.0 + shield_hp_pct / 100.0
-			s.shield_hp = minf(s.shield_hp * (1.0 + shield_hp_pct / 100.0), s.max_shield)
-		if flat_hp > 0.0:
-			s.max_structure += flat_hp
-			s.structure_hp = minf(s.structure_hp + flat_hp, s.max_structure)
+		## HP bonuses always from base max — prevents compounding to astronomical values.
+		var sh_ratio := 1.0 if s.base_max_shield <= 0.0 else clampf(s.shield_hp / maxf(s.max_shield, 0.001), 0.0, 1.0)
+		var ar_ratio := 1.0 if s.base_max_armor <= 0.0 else clampf(s.armor_hp / maxf(s.max_armor, 0.001), 0.0, 1.0)
+		var st_ratio := 1.0 if s.base_max_structure <= 0.0 else clampf(s.structure_hp / maxf(s.max_structure, 0.001), 0.0, 1.0)
+		s.max_shield = s.base_max_shield * (1.0 + shield_hp_pct / 100.0)
+		s.max_armor = s.base_max_armor * (1.0 + armor_hp_pct / 100.0)
+		s.max_structure = s.base_max_structure + flat_hp
+		s.shield_hp = minf(s.max_shield, s.max_shield * sh_ratio)
+		s.armor_hp = minf(s.max_armor, s.max_armor * ar_ratio)
+		s.structure_hp = minf(s.max_structure, s.max_structure * st_ratio)
 	return active
 
 static func _fetter_multiplier(value_type: String, value: float) -> float:

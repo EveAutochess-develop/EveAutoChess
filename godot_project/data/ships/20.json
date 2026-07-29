@@ -4,7 +4,7 @@
   "name_en": "Blackbird",
   "type_id": 632,
   "model_key": "jdl_heiniao",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

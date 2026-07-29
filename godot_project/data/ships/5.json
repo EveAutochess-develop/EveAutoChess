@@ -4,7 +4,7 @@
   "name_en": "Coercer",
   "type_id": 16236,
   "model_key": "am_qiangzhizhe",
-  "cost": 2,
+  "cost": 3,
   "ship_groups": [
     "destroyer"
   ],

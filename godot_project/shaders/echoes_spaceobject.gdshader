@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
+render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D albedo_tex : source_color;
 uniform sampler2D normal_tex : hint_normal;

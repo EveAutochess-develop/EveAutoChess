@@ -21,6 +21,12 @@ func setup(root: MatchRoot, camera: Camera3D, board: BoardController) -> void:
 	_camera = camera
 	_board = board
 
+func is_pointer_dragging() -> bool:
+	return _dragging
+
+func ui_blocks_screen(screen: Vector2) -> bool:
+	return _ui_blocks(screen)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -69,8 +75,10 @@ func _pointer_down(screen: Vector2) -> void:
 		_press_ship = ship2
 		_dragging = true
 		drag_begin.emit(ship2)
+		get_viewport().set_input_as_handled()
 	else:
 		tap_ship.emit(ship2)
+		get_viewport().set_input_as_handled()
 
 func _pointer_drag(screen: Vector2) -> void:
 	var w := _screen_to_ground(screen)
@@ -88,9 +96,14 @@ func _pointer_up(screen: Vector2) -> void:
 	if not sell:
 		var w := _screen_to_ground(screen)
 		var team := ShipUnit.TEAM_PLAYER
+		var field_side := -1
 		if _press_ship:
 			team = _press_ship.team_id
-		slot = _board.pick_slot_at(w, team)
+			if _press_ship.deploy_enemy_half_only:
+				field_side = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+			elif _press_ship.slot_type == "field":
+				field_side = _board.ship_world_side(_press_ship)
+		slot = _board.pick_slot_at(w, team, field_side)
 	drag_end.emit(sell, slot)
 	_press_ship = null
 

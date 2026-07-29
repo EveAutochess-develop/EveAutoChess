@@ -29,6 +29,8 @@ SFW
 
 var _options: Control
 var _about: Control
+var _load_panel: Control
+var _load_list: VBoxContainer
 var _fps_slider: HSlider
 var _fps_lbl: Label
 var _bgm_check: CheckBox
@@ -45,6 +47,7 @@ var _footer: VBoxContainer
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_BgMusic.instance()
+	MatchSave.list_slots()  ## seed 旗舰测试 from last_match if needed
 	_build()
 	_apply_adaptive_layout()
 	resized.connect(_apply_adaptive_layout)
@@ -88,6 +91,12 @@ func _build() -> void:
 
 	_btn_box.add_child(_menu_btn("开始无尽模式", _on_endless))
 	_btn_box.add_child(_menu_btn("开始对战模式", _on_versus))
+	var cont := _menu_btn("继续上次对局", _on_continue)
+	cont.disabled = not MatchSave.exists()
+	_btn_box.add_child(cont)
+	var load_btn := _menu_btn("读取存档", _on_load_open)
+	load_btn.disabled = MatchSave.list_slots().is_empty() and not MatchSave.exists()
+	_btn_box.add_child(load_btn)
 	_btn_box.add_child(_menu_btn("选项", _on_options_open))
 	_btn_box.add_child(_menu_btn("退出游戏", _on_quit))
 	_btn_box.add_child(_menu_btn("关于我们", _on_about_open))
@@ -125,6 +134,8 @@ func _build() -> void:
 	add_child(_options)
 	_about = _build_about()
 	add_child(_about)
+	_load_panel = _build_load_panel()
+	add_child(_load_panel)
 
 func _apply_adaptive_layout() -> void:
 	var pad := 0.035 if UiLayout.is_mobile() else 0.038
@@ -173,6 +184,8 @@ func _apply_adaptive_layout() -> void:
 		UiLayout.set_center_panel_frac(_options, 0.78 if UiLayout.is_mobile() else 0.72, 0.62 if UiLayout.is_mobile() else 0.58)
 	if _about:
 		UiLayout.set_center_panel_frac(_about, 0.7 if UiLayout.is_mobile() else 0.42, 0.82 if UiLayout.is_mobile() else 0.78)
+	if _load_panel:
+		UiLayout.set_center_panel_frac(_load_panel, 0.72 if UiLayout.is_mobile() else 0.48, 0.7 if UiLayout.is_mobile() else 0.62)
 
 func _menu_btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
@@ -244,6 +257,26 @@ func _build_options() -> Control:
 	_bgm_check.toggled.connect(_on_bgm_toggled)
 	bgm_on_row.add_child(_bgm_check)
 	box.add_child(bgm_on_row)
+
+	var nomodel_row := HBoxContainer.new()
+	nomodel_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var nomodel := CheckBox.new()
+	nomodel.text = "无模型性能模式"
+	nomodel.button_pressed = GameSession.no_model_perf_mode
+	UiAssets.apply_button_font(nomodel, UiLayout.font_size(16, self))
+	nomodel.toggled.connect(_on_no_model_toggled)
+	nomodel_row.add_child(nomodel)
+	box.add_child(nomodel_row)
+
+	var breathe_row := HBoxContainer.new()
+	breathe_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var breathe := CheckBox.new()
+	breathe.text = "镜头呼吸浮动"
+	breathe.button_pressed = GameSession.camera_breathe_enabled
+	UiAssets.apply_button_font(breathe, UiLayout.font_size(16, self))
+	breathe.toggled.connect(_on_camera_breathe_toggled)
+	breathe_row.add_child(breathe)
+	box.add_child(breathe_row)
 
 	var bgm_vol_row := HBoxContainer.new()
 	bgm_vol_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
@@ -366,8 +399,114 @@ func _start_announce_cycle() -> void:
 func _on_fps_changed(v: float) -> void:
 	GameSession.target_fps = int(v)
 	Engine.max_fps = GameSession.target_fps
+	GameSession.save_settings()
 	if _fps_lbl:
 		_fps_lbl.text = str(GameSession.target_fps)
+
+func _on_no_model_toggled(on: bool) -> void:
+	GameSession.set_no_model_perf_mode(on)
+
+func _on_camera_breathe_toggled(on: bool) -> void:
+	GameSession.set_camera_breathe_enabled(on)
+
+func _on_versus() -> void:
+	GameSession.resume_save = false
+	GameSession.resume_slot_id = ""
+	GameSession.pending_mode = "versus"
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+func _on_endless() -> void:
+	GameSession.resume_save = false
+	GameSession.resume_slot_id = ""
+	GameSession.pending_mode = "endless"
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+func _on_continue() -> void:
+	if not MatchSave.exists():
+		return
+	GameSession.resume_save = true
+	GameSession.resume_slot_id = ""
+	var d := MatchSave.load_dict()
+	GameSession.pending_mode = str(d.get("mode", "versus"))
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+func _on_load_open() -> void:
+	if _load_panel == null:
+		return
+	_refresh_load_list()
+	_apply_adaptive_layout()
+	_load_panel.visible = true
+
+func _build_load_panel() -> Control:
+	var panel := _modal_panel("LoadSavePanel")
+	var box := panel.get_node("Margin/VBox") as VBoxContainer
+	var cap_row := HBoxContainer.new()
+	var cap := Label.new()
+	cap.text = "读取存档"
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_label_font(cap, true, UiLayout.font_size(24, self))
+	cap_row.add_child(cap)
+	var close_x := Button.new()
+	close_x.text = "X"
+	close_x.custom_minimum_size = Vector2(UiLayout.px(36, self), UiLayout.px(36, self))
+	UiAssets.apply_button_font(close_x, UiLayout.font_size(18, self))
+	close_x.pressed.connect(func(): panel.visible = false)
+	cap_row.add_child(close_x)
+	box.add_child(cap_row)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(0, UiLayout.px(220, self))
+	box.add_child(scroll)
+	_load_list = VBoxContainer.new()
+	_load_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_load_list.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	scroll.add_child(_load_list)
+	return panel
+
+func _refresh_load_list() -> void:
+	if _load_list == null:
+		return
+	for c in _load_list.get_children():
+		c.queue_free()
+	var slots := MatchSave.list_slots()
+	if slots.is_empty() and MatchSave.exists():
+		slots = [{
+			"id": MatchSave.FLAGSHIP_TEST_ID,
+			"name": MatchSave.FLAGSHIP_TEST_NAME,
+			"path": MatchSave.SAVE_PATH,
+			"updated_at": "",
+		}]
+	if slots.is_empty():
+		var empty := Label.new()
+		empty.text = "暂无存档"
+		UiAssets.apply_label_font(empty, false, UiLayout.font_size(16, self))
+		_load_list.add_child(empty)
+		return
+	for s in slots:
+		if typeof(s) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = s
+		var sid := str(entry.get("id", ""))
+		var name := str(entry.get("name", sid))
+		var updated := str(entry.get("updated_at", ""))
+		var row := Button.new()
+		row.text = name if updated == "" else "%s\n%s" % [name, updated]
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.custom_minimum_size = Vector2(0, UiLayout.px(52, self))
+		UiAssets.apply_button_font(row, UiLayout.font_size(16, self))
+		row.pressed.connect(_on_load_slot.bind(sid))
+		_load_list.add_child(row)
+
+func _on_load_slot(slot_id: String) -> void:
+	var d := MatchSave.load_slot_dict(slot_id)
+	if d.is_empty() and slot_id == MatchSave.FLAGSHIP_TEST_ID:
+		d = MatchSave.load_dict()
+	if d.is_empty():
+		return
+	GameSession.resume_save = true
+	GameSession.resume_slot_id = slot_id
+	GameSession.pending_mode = str(d.get("mode", "versus"))
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_bgm_toggled(on: bool) -> void:
 	var bgm := _BgMusic.instance()
@@ -380,14 +519,6 @@ func _on_bgm_volume_changed(v: float) -> void:
 	var bgm := _BgMusic.instance()
 	if bgm:
 		bgm.set_volume_pct(v)
-
-func _on_versus() -> void:
-	GameSession.pending_mode = "versus"
-	get_tree().change_scene_to_file("res://scenes/match.tscn")
-
-func _on_endless() -> void:
-	GameSession.pending_mode = "endless"
-	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_options_open() -> void:
 	if _options:

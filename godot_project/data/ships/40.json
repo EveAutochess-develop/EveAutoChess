@@ -4,7 +4,7 @@
   "name_en": "Celestis",
   "type_id": 633,
   "model_key": "glt_xingkong",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

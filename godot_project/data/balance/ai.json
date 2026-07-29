@@ -3,7 +3,7 @@
   "deploy_try_limit": 28,
   "cruiser_block_battle_stages": 3,
   "cruiser_ship_group_tag": "cruiser",
-  "random_deploy": false,
+  "random_deploy": true,
   "uses_shop_economy": true,
   "ai_gold_income_buff_mul": 2.0,
   "_comment_cap": "AI field hard cap = min(ai_pop, floor(player_pop * field_cap_vs_player_pop)).",

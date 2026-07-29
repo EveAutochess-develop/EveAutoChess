@@ -4,7 +4,7 @@
   "name_en": "Dominix",
   "type_id": 645,
   "model_key": "glt_duominikesi",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],
