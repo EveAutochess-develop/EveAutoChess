@@ -1,11 +1,14 @@
 extends Node3D
 ## Horizontal triple bars: shield / armor / structure. Anchored above ship (world-up).
 ## Tonnage icon sits in the CENTER of the overlay (not a corner badge).
+## Badge size is a fixed world footprint — never follows ship long-axis or raw PNG resolution.
 
 const BAR_W := 1.4
 const BAR_H := 0.1
 const BAR_GAP := 0.04
-const BADGE_SIZE := 1.44
+const BADGE_SIZE := 0.8
+## Target on-screen world size for tonnage icons (independent of PNG resolution / ship long-axis).
+const BADGE_WORLD_SIZE := 0.72
 const BADGE_PIXEL_SIZE := 0.024
 const COLORS := [
 	Color(0.25, 0.55, 1.0, 0.95),
@@ -58,7 +61,7 @@ func _build() -> void:
 		_tonnage_icon = Sprite3D.new()
 		_tonnage_icon.texture = icon_tex
 		_tonnage_icon.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_tonnage_icon.pixel_size = BADGE_PIXEL_SIZE
+		_tonnage_icon.pixel_size = _badge_pixel_size(icon_tex)
 		_tonnage_icon.centered = true
 		_tonnage_icon.no_depth_test = true
 		_tonnage_icon.render_priority = 20
@@ -86,15 +89,48 @@ func _build() -> void:
 func _tonnage_group() -> String:
 	if _ship == null:
 		return ""
-	if bool(_ship.get("is_unmanned")):
-		return "drone_light"
-	return str(DataStore.get_ship(int(_ship.get("ship_id"))).get("ship_group", "frigate"))
+	var su := _ship as ShipUnit
+	if su != null and su.is_unmanned:
+		match su.unmanned_kind:
+			"fighter":
+				return "fighter"
+			"heavy_repair_drone":
+				return "heavy_repair_drone"
+			"combat_drone":
+				var sg := _ship_group_from_data()
+				if sg in ["drone_medium", "drone_heavy", "drone_light"]:
+					return sg
+				if sg.begins_with("drone_"):
+					return sg
+				return "drone_light"
+			_:
+				var g2 := _ship_group_from_data()
+				if g2 != "":
+					return g2
+				return "drone_light"
+	var g := _ship_group_from_data()
+	return g if g != "" else "frigate"
+
+func _ship_group_from_data() -> String:
+	if _ship == null:
+		return ""
+	var su := _ship as ShipUnit
+	var sid := su.ship_id if su != null else int(_ship.get("ship_id"))
+	var sd: Dictionary = DataStore.get_ship(sid) if DataStore else {}
+	return str(sd.get("ship_group", ""))
+
+func _badge_pixel_size(tex: Texture2D) -> float:
+	## Fixed world footprint — never follow ship long-axis or raw PNG pixel count.
+	if tex == null:
+		return BADGE_PIXEL_SIZE
+	var longest := float(maxi(tex.get_width(), tex.get_height()))
+	if longest < 1.0:
+		return BADGE_PIXEL_SIZE
+	return BADGE_WORLD_SIZE / longest
 
 func _tonnage_text() -> String:
 	if _ship == null:
 		return "?"
-	if bool(_ship.get("is_unmanned")):
-		return "无人"
 	var group := _tonnage_group()
 	match group:
 		"frigate":
@@ -107,16 +143,24 @@ func _tonnage_text() -> String:
 			return "战巡"
 		"battleship":
 			return "战"
-		"drone_light", "drone_medium", "drone_heavy":
+		"carrier":
+			return "航"
+		"dreadnought":
+			return "无畏"
+		"force_auxiliary":
+			return "后勤"
+		"fighter":
+			return "舰载"
+		"drone_light", "drone_medium", "drone_heavy", "heavy_repair_drone", "repair_drone":
 			return "无人"
 		_:
+			if bool(_ship.get("is_unmanned")):
+				return "无人"
 			return "?"
 
 func _tonnage_color() -> Color:
 	if _ship == null:
 		return Color(0.95, 0.95, 1.0)
-	if bool(_ship.get("is_unmanned")):
-		return Color(0.85, 0.9, 0.75)
 	var group := _tonnage_group()
 	match group:
 		"frigate":
@@ -129,9 +173,13 @@ func _tonnage_color() -> Color:
 			return Color(1.0, 0.78, 0.4)
 		"battleship":
 			return Color(1.0, 0.55, 0.5)
-		"drone_light", "drone_medium", "drone_heavy":
+		"carrier", "dreadnought", "force_auxiliary":
+			return Color(0.85, 0.7, 1.0)
+		"fighter", "drone_light", "drone_medium", "drone_heavy", "heavy_repair_drone", "repair_drone":
 			return Color(0.85, 0.9, 0.75)
 		_:
+			if bool(_ship.get("is_unmanned")):
+				return Color(0.85, 0.9, 0.75)
 			return Color(0.95, 0.95, 1.0)
 
 func _make_badge_plate() -> MeshInstance3D:
@@ -170,13 +218,18 @@ func refresh() -> void:
 	_set_fill(2, float(_ship.get("structure_hp")), float(_ship.get("max_structure")))
 	visible = not bool(_ship.get("is_destroyed"))
 	if _tonnage_icon:
-		_tonnage_icon.texture = UiAssets.tonnage_icon(_tonnage_group())
+		var tex := UiAssets.tonnage_icon(_tonnage_group())
+		_tonnage_icon.texture = tex
+		_tonnage_icon.pixel_size = _badge_pixel_size(tex)
 	if _tonnage_label:
 		_tonnage_label.text = _tonnage_text()
 		_tonnage_label.modulate = _tonnage_color()
 
 func _set_fill(idx: int, cur: float, mx: float) -> void:
-	var ratio := 0.0 if mx <= 0.0 else clampf(cur / mx, 0.0, 1.0)
+	## Clamp both ends so bars never scale past mesh width (avoids visual overflow).
+	var safe_max := maxf(mx, 0.0)
+	var safe_cur := clampf(cur, 0.0, safe_max if safe_max > 0.0 else 0.0)
+	var ratio := 0.0 if safe_max <= 0.0 else clampf(safe_cur / safe_max, 0.0, 1.0)
 	var fill := _fills[idx]
 	var y := fill.position.y
 	fill.scale = Vector3(maxf(ratio, 0.001), 1, 1)
@@ -189,15 +242,11 @@ func _process(_delta: float) -> void:
 	if cam == null:
 		return
 	var center := _ship.global_position
+	## Fixed offset — do NOT follow model long-axis / visual_radius (that blew up capital badges + bars).
 	var edge_dist := float(DataStore.visual.get("health_bar_y_offset", 1.6))
 	if _ship is ShipUnit:
 		center = (_ship as ShipUnit).visual_center_world()
-		edge_dist = maxf((_ship as ShipUnit).visual_radius_world() * 1.5, edge_dist)
-	var to_cam := cam.global_position - center
-	if to_cam.length_squared() > 0.0001:
-		global_position = center + to_cam.normalized() * edge_dist
-	else:
-		global_position = center
+	global_position = center + Vector3.UP * edge_dist
 	var dist := cam.global_position.distance_to(global_position)
 	var ref_d := float(DataStore.visual.get("health_bar_ref_distance", 28.0))
 	var sc := clampf(dist / maxf(ref_d, 1.0), 0.7, 1.6)

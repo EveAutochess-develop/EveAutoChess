@@ -4,7 +4,7 @@
   "name_en": "Thrasher",
   "type_id": 16242,
   "model_key": "mmte_changweijiao",
-  "cost": 2,
+  "cost": 3,
   "ship_groups": [
     "destroyer"
   ],

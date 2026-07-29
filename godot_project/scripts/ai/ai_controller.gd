@@ -14,6 +14,10 @@ var win_streak: int = 0
 var loss_streak: int = 0
 var shop_slots: Array = []  # {ship_id, purchased}
 var _recent_shop_hits: Dictionary = {}
+var _pity_refresh_count: int = 0
+var _pity_seen_tonnage: Dictionary = {}
+## Cells AI has already deployed onto this match ("x,z"); prefer fresh cells each place/reshuffle.
+var _used_field_cells: Dictionary = {}
 
 func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	_match = match_ctrl
@@ -30,6 +34,7 @@ func init_army() -> void:
 	up_level_demand = int(eco.get("initial_level_exp_demand", 4))
 	win_streak = 0
 	loss_streak = 0
+	_used_field_cells.clear()
 	_refresh_shop()
 	_run_economy_turn()
 
@@ -90,11 +95,43 @@ func _refresh_shop() -> void:
 	ShopController._decay_recent_hits(_recent_shop_hits)
 	shop_slots.clear()
 	var seen_counts: Dictionary = {}
+	var force_tonnages: Array = []
+	var window := maxi(1, int(DataStore.economy.get("shop_tonnage_pity_window", 5)))
+	if _pity_refresh_count >= window:
+		for key in ShopController._unlocked_tonnage_keys(ai_level):
+			if not bool(_pity_seen_tonnage.get(key, false)):
+				force_tonnages.append(key)
+	var force_i := 0
 	for i in range(n):
-		var sid := _roll_ship_id(seen_counts)
+		var sid := 0
+		if force_i < force_tonnages.size():
+			## Reuse player shop helper via temporary ShopController statics.
+			var pool: Array = []
+			var eligible: Array = ShopController._eligible_ship_ids_for_level(ai_level, DataStore.ship_ids())
+			var max_same: int = maxi(1, int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2)))
+			var want := str(force_tonnages[force_i])
+			force_i += 1
+			for cand in eligible:
+				var cid := int(cand)
+				if int(seen_counts.get(cid, 0)) >= max_same:
+					continue
+				if ShopController.ship_tonnage_key(cid) == want:
+					pool.append(cid)
+			if not pool.is_empty():
+				sid = ShopController._pick_pseudo_random(pool, _recent_shop_hits)
+		if sid <= 0:
+			sid = _roll_ship_id(seen_counts)
 		seen_counts[sid] = int(seen_counts.get(sid, 0)) + 1
 		_recent_shop_hits[sid] = int(_recent_shop_hits.get(sid, 0)) + 1
 		shop_slots.append({"ship_id": sid, "purchased": false})
+	if _pity_refresh_count >= window:
+		_pity_refresh_count = 0
+		_pity_seen_tonnage.clear()
+	for slot in shop_slots:
+		var key := ShopController.ship_tonnage_key(int(slot.get("ship_id", 0)))
+		if key != "":
+			_pity_seen_tonnage[key] = true
+	_pity_refresh_count += 1
 
 func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
 	## Reuse shop odds table at min(ai_level, 5).
@@ -110,10 +147,8 @@ func _run_economy_turn() -> void:
 		guard -= 1
 		if not _try_buy_one():
 			break
-	_deploy_hangar_to_field()
-	_ensure_one_logistic()
-	_sell_hangar_remainder()
-	_board.recalculate_fetters(ShipUnit.TEAM_AI)
+	sync_field_for_prepare()
+	## Do NOT sell here — keep hangar visible during Prepare for AI purchase readability.
 
 func _try_buy_one() -> bool:
 	var slot_i := -1
@@ -139,7 +174,6 @@ func _try_buy_one() -> bool:
 	if ai_gold < cost:
 		return false
 	var hangar := _board.find_empty_hangar(ShipUnit.TEAM_AI)
-	var field := _board.find_empty_field(ShipUnit.TEAM_AI)
 	var cap := field_cap()
 	var on_field := _board.count_field(ShipUnit.TEAM_AI)
 	if hangar.x >= 0:
@@ -151,17 +185,108 @@ func _try_buy_one() -> bool:
 		})
 		_board.try_upgrades_all()
 		return true
-	if field.x >= 0 and on_field < cap:
+	var ship_data: Dictionary = DataStore.get_ship(sid)
+	if bool(ship_data.get("requires_cyno_entry", false)):
+		return false
+	if on_field < cap:
 		## Overflow onto field when hangar full.
+		if bool(ship_data.get("deploy_enemy_half_only", false)):
+			var enemy_cell := _pick_ai_field_cell()
+			if enemy_cell.x < 0:
+				return false
+			ai_gold -= cost
+			shop_slots[slot_i]["purchased"] = true
+			AdminBus.request(&"board.deploy", {
+				"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,
+				"slot_type": "field", "x": enemy_cell.x, "z": enemy_cell.y,
+			})
+			## Fix world side after deploy.
+			for s in _board.all_ships():
+				if s.team_id == ShipUnit.TEAM_AI and s.ship_id == sid and s.slot_type == "field" and s.grid_x == enemy_cell.x and s.grid_z == enemy_cell.y:
+					s.field_side_team = ShipUnit.TEAM_PLAYER
+					s.global_position = BoardController.cell_to_world("field", ShipUnit.TEAM_PLAYER, enemy_cell.x, enemy_cell.y)
+					break
+			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
+			_board.try_upgrades_all()
+			return true
+		var field := _pick_ai_field_cell()
+		if field.x < 0:
+			return false
 		ai_gold -= cost
 		shop_slots[slot_i]["purchased"] = true
 		AdminBus.request(&"ai.deploy_ship", {
 			"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,
 			"x": field.x, "z": field.y,
 		})
+		_mark_field_cell_used(field.x, field.y)
 		_board.try_upgrades_all()
 		return true
 	return false
+
+func _cell_key(x: int, z: int) -> String:
+	return "%d,%d" % [x, z]
+
+func _mark_field_cell_used(x: int, z: int) -> void:
+	_used_field_cells[_cell_key(x, z)] = true
+
+func _pick_ai_field_cell() -> Vector2i:
+	## Random empty AI-owned field cell; prefer cells not yet used this match.
+	var fh := int(DataStore.board.get("field_height", 6))
+	var unused: Array[Vector2i] = []
+	var used: Array[Vector2i] = []
+	var total_cells := 0
+	for z in range(fh):
+		var cols: int = BoardController.field_cols_at(z)
+		total_cells += cols
+		for x in range(cols):
+			if not _board.is_field_cell_free_for(ShipUnit.TEAM_AI, x, z):
+				continue
+			var k := _cell_key(x, z)
+			if _used_field_cells.has(k):
+				used.append(Vector2i(x, z))
+			else:
+				unused.append(Vector2i(x, z))
+	if unused.is_empty() and not used.is_empty():
+		## All empties already visited this match — reset preference so fresh bias restarts.
+		if _used_field_cells.size() >= total_cells:
+			_used_field_cells.clear()
+			return used[randi() % used.size()]
+		return used[randi() % used.size()]
+	if unused.is_empty():
+		return Vector2i(-1, -1)
+	return unused[randi() % unused.size()]
+
+func _reshuffle_ai_field() -> void:
+	## Every prepare: move all manned AI field ships to new random cells (prefer unused).
+	var ships: Array = []
+	for s in _board.field_ships(ShipUnit.TEAM_AI):
+		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
+			continue
+		ships.append(s)
+	if ships.is_empty():
+		return
+	ships.shuffle()
+	## Free occupancy first so picks don't collide with old seats.
+	for s_any in ships:
+		var s: ShipUnit = s_any
+		_board.release_field_occupancy(s)
+	for s_any2 in ships:
+		var ship: ShipUnit = s_any2
+		if ship == null or not is_instance_valid(ship):
+			continue
+		var cell := _pick_ai_field_cell()
+		if cell.x < 0:
+			## Restore to any free cell via board fallback; should be rare.
+			cell = _board.find_empty_field(ShipUnit.TEAM_AI)
+		if cell.x < 0:
+			continue
+		var side := ShipUnit.TEAM_AI
+		if ship.deploy_enemy_half_only:
+			side = ShipUnit.TEAM_PLAYER
+		elif ship.field_side_team >= 0:
+			side = ship.field_side_team
+		_board.move_ship_to_field_side(ship, cell.x, cell.y, side)
+		_mark_field_cell_used(cell.x, cell.y)
 
 func _deploy_hangar_to_field() -> void:
 	var hangar_ships: Array = []
@@ -170,9 +295,24 @@ func _deploy_hangar_to_field() -> void:
 			hangar_ships.append(s)
 	hangar_ships.sort_custom(func(a, b): return a.star > b.star)
 	for s in hangar_ships:
+		if s.requires_cyno_entry:
+			continue
 		if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
 			break
-		var cell := _board.find_empty_field(ShipUnit.TEAM_AI)
+		if s.deploy_enemy_half_only:
+			var enemy_cell := _pick_ai_field_cell()
+			if enemy_cell.x < 0:
+				continue
+			AdminBus.request(&"board.move", {
+				"ship_instance_id": s.get_instance_id(),
+				"to_slot_type": "field",
+				"to_x": enemy_cell.x,
+				"to_z": enemy_cell.y,
+				"field_side_team": ShipUnit.TEAM_PLAYER,
+			})
+			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
+			continue
+		var cell := _pick_ai_field_cell()
 		if cell.x < 0:
 			break
 		AdminBus.request(&"board.move", {
@@ -181,6 +321,7 @@ func _deploy_hangar_to_field() -> void:
 			"to_x": cell.x,
 			"to_z": cell.y,
 		})
+		_mark_field_cell_used(cell.x, cell.y)
 
 func _ensure_one_logistic() -> void:
 	var has_logi := false
@@ -197,7 +338,7 @@ func _ensure_one_logistic() -> void:
 			continue
 		if s.slot_type == "field":
 			return
-		var cell := _board.find_empty_field(ShipUnit.TEAM_AI)
+		var cell := _pick_ai_field_cell()
 		if cell.x < 0:
 			return
 		if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
@@ -209,20 +350,67 @@ func _ensure_one_logistic() -> void:
 			"to_x": cell.x,
 			"to_z": cell.y,
 		})
+		_mark_field_cell_used(cell.x, cell.y)
 		return
 
 func _sell_hangar_remainder() -> void:
 	var to_sell: Array = []
+	var capitals: Array[ShipUnit] = []
 	for s in _board.all_ships():
 		if s.team_id == ShipUnit.TEAM_AI and s.slot_type == "hangar" and not s.is_destroyed:
+			if s.requires_cyno_entry:
+				capitals.append(s)
+				continue
 			to_sell.append(s)
+	var hangar_w := int(DataStore.board.get("hangar_width", 15))
+	var hangar_h := int(DataStore.board.get("hangar_height", 1))
+	var keep_cap := maxi(0, int(floor(float(hangar_w * hangar_h) * 0.5)))
+	if capitals.size() > keep_cap:
+		capitals.sort_custom(func(a: ShipUnit, b: ShipUnit) -> bool:
+			if a.star != b.star:
+				return a.star < b.star
+			if a.get_cost() != b.get_cost():
+				return a.get_cost() < b.get_cost()
+			return a.get_instance_id() > b.get_instance_id()
+		)
+		for i in range(keep_cap, capitals.size()):
+			to_sell.append(capitals[i])
+	var sold_n := 0
+	var sold_gold := 0
 	for s in to_sell:
 		var ship := s as ShipUnit
-		if ship == null:
+		if ship == null or not is_instance_valid(ship):
 			continue
-		var price: int = ship.get_cost()
-		ai_gold += price
-		AdminBus.request(&"board.sell", {"ship_instance_id": ship.get_instance_id(), "team": ShipUnit.TEAM_AI})
+		var r: Dictionary = AdminBus.request(&"board.sell", {
+			"ship_instance_id": ship.get_instance_id(),
+			"team": ShipUnit.TEAM_AI,
+		})
+		if r.get("accepted", false):
+			var gold := int(r.get("gold", ship.get_sell_price()))
+			ai_gold += gold
+			sold_n += 1
+			sold_gold += gold
+	if sold_n > 0:
+		var tree := get_tree()
+		if tree:
+			tree.call_group(
+				"match_root",
+				"append_battle_log",
+				"人机卖了备战席上的舰船，然后获得了%d黄" % sold_gold
+			)
+
+func sync_field_for_prepare() -> void:
+	## Fill field from hangar (same rules as economy turn). Safe after load/resume
+	## when board was overwritten and economy already ran on an empty board.
+	_deploy_hangar_to_field()
+	_ensure_one_logistic()
+	_reshuffle_ai_field()
+	_board.recalculate_fetters(ShipUnit.TEAM_AI)
+
+func finalize_prepare() -> void:
+	## Deploy first, then sell leftover hangar — never sell-before-deploy (leaves empty field).
+	sync_field_for_prepare()
+	_sell_hangar_remainder()
 
 func _deploy_legacy_quota() -> void:
 	var per := maxi(0, int(DataStore.ai.get("deploys_per_round", 1)))
@@ -244,16 +432,36 @@ func _try_deploy_one_random() -> bool:
 	if ids.is_empty():
 		return false
 	for _i in range(tries):
-		var cell := _board.find_empty_field(ShipUnit.TEAM_AI)
+		var cell := _pick_ai_field_cell()
 		if cell.x < 0:
 			return false
 		var sid: int = ids[randi() % ids.size()]
+		var sd: Dictionary = DataStore.get_ship(sid)
+		if bool(sd.get("requires_cyno_entry", false)):
+			continue
 		if _match.battle_game_stage_count <= block_until and DataStore.ship_has_group(sid, tag):
 			continue
+		if bool(sd.get("deploy_enemy_half_only", false)):
+			var enemy_cell := _pick_ai_field_cell()
+			if enemy_cell.x < 0:
+				continue
+			AdminBus.request(&"board.deploy", {
+				"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,
+				"slot_type": "field", "x": enemy_cell.x, "z": enemy_cell.y,
+			})
+			for s2 in _board.all_ships():
+				if s2.team_id == ShipUnit.TEAM_AI and s2.ship_id == sid and s2.slot_type == "field" and s2.grid_x == enemy_cell.x and s2.grid_z == enemy_cell.y:
+					s2.field_side_team = ShipUnit.TEAM_PLAYER
+					s2.global_position = BoardController.cell_to_world("field", ShipUnit.TEAM_PLAYER, enemy_cell.x, enemy_cell.y)
+					break
+			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
+			_board.try_upgrades_all()
+			return true
 		AdminBus.request(&"ai.deploy_ship", {
 			"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,
 			"x": cell.x, "z": cell.y,
 		})
+		_mark_field_cell_used(cell.x, cell.y)
 		_board.try_upgrades_all()
 		return true
 	return false
@@ -263,6 +471,8 @@ func _on_deploy(payload: Dictionary) -> Dictionary:
 	var x := int(payload.get("x", 0))
 	var z := int(payload.get("z", 0))
 	var star := int(payload.get("star", 1))
+	if bool(DataStore.get_ship(ship_id).get("requires_cyno_entry", false)):
+		return {"accepted": false, "reason_key": "requires_cyno"}
 	if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
 		return {"accepted": false, "reason_key": "ai_field_cap"}
 	AdminBus.request(&"board.deploy", {

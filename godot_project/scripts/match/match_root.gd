@@ -28,6 +28,23 @@ var _cam_frame_target: Vector3 = Vector3.ZERO
 var _cam_headup_offset_deg: float = 0.0
 var _cam_headup_phase: int = 0
 var _cam_headup_t: float = 0.0
+## Smooth blend toward a default view (shop / stage); false = settled.
+var _cam_view_blend_active: bool = false
+var _cam_view_blend_pos: Vector3 = Vector3.ZERO
+var _cam_view_blend_pitch_deg: float = 0.0
+var _cam_view_blend_yaw_deg: float = 0.0
+var _cam_view_blend_fov: float = 50.0
+## Camera mode: false = default (framing/breathe/headup); true = free view.
+var _camera_free: bool = false
+var _cam_look_dragging: bool = false
+## Pose snapshot taken when expanding shop; restored when collapsing.
+var _cam_pose_before_shop: Dictionary = {}
+var _cam_pose_before_shop_valid: bool = false
+## Mobile free-view orbit drag.
+var _cam_orbit_touch_index: int = -1
+var _cam_orbit_dragging: bool = false
+## Default cam: hide board slot markers only after settling on first default view.
+var _pending_hide_slot_markers: bool = false
 var _collapse_left: bool = false
 var _collapse_right: bool = false
 var _collapse_bottom: bool = false
@@ -38,6 +55,10 @@ var _citadel_hp_bar: Node3D = null
 const _CITADEL_BAR_SCRIPT := preload("res://scripts/ship/citadel_health_bar.gd")
 const _BgMusic := preload("res://scripts/audio/bg_music.gd")
 const _CAM_MOVE_SPEED := 8.0
+var _exp_hold_active: bool = false
+var _exp_hold_t: float = 0.0
+var _exp_hold_spent_all: bool = false
+const _EXP_HOLD_S := 10.0
 const _CAM_PITCH_SPEED := 35.0
 const _CAM_YAW_SPEED := 45.0
 const _SHOP_META := "Shop/ShopCol/ShopContent/MetaRow"
@@ -99,9 +120,24 @@ func _ready() -> void:
 	match_ctrl.match_over.connect(_on_match_over)
 	match_ctrl.stage_changed.connect(_on_stage_changed_ui)
 	shop.shop_changed.connect(_refresh_shop_ui)
+	var diag := SessionDiagnostics.instance()
+	if diag and diag.has_method("bind_match"):
+		diag.bind_match(self)
 	var mode := GameSession.pending_mode
 	_spawn_map_env(mode)
+	var resume_data: Dictionary = {}
+	if GameSession.resume_save:
+		var slot_id := str(GameSession.resume_slot_id)
+		if slot_id != "":
+			resume_data = MatchSave.load_slot_dict(slot_id)
+		if resume_data.is_empty():
+			resume_data = MatchSave.load_dict()
 	match_ctrl.start_match(mode)
+	if not resume_data.is_empty():
+		_apply_match_save_dict(resume_data)
+		GameSession.resume_save = false
+		GameSession.resume_slot_id = ""
+		MatchSave.save_from_match(match_ctrl, board, ai)
 	_refresh_hud()
 	_refresh_shop_ui()
 
@@ -176,20 +212,20 @@ func _ensure_sky() -> void:
 	_ensure_board_lights()
 
 func _ensure_board_lights() -> void:
-	## Off-frustum lights — driven by visual.json ship_look (high-contrast).
+	## Off-frustum lights — driven by visual.json ship_look (unity-standard default).
 	if get_node_or_null("KeyLightOffscreen") == null:
 		var key := DirectionalLight3D.new()
 		key.name = "KeyLightOffscreen"
-		key.light_energy = 1.20
-		key.light_color = Color(1.0, 0.98, 0.94)
+		key.light_energy = 1.0
+		key.light_color = Color(1.0, 1.0, 1.0)
 		key.shadow_enabled = true
-		key.shadow_opacity = 0.45
-		key.rotation_degrees = Vector3(-55.0, -40.0, 0.0)
+		key.shadow_opacity = 0.55
+		key.rotation_degrees = Vector3(-57.3, 107.7, 0.0)
 		add_child(key)
 	if get_node_or_null("RimLightOffscreen") == null:
 		var rim := DirectionalLight3D.new()
 		rim.name = "RimLightOffscreen"
-		rim.light_energy = 0.52
+		rim.light_energy = 0.0
 		rim.light_color = Color(0.65, 0.8, 1.0)
 		rim.shadow_enabled = false
 		rim.rotation_degrees = Vector3(-20.0, 145.0, 0.0)
@@ -197,14 +233,14 @@ func _ensure_board_lights() -> void:
 	if get_node_or_null("FillLight") == null:
 		var fill := OmniLight3D.new()
 		fill.name = "FillLight"
-		fill.light_energy = 0.05
+		fill.light_energy = 0.0
 		fill.omni_range = 85.0
 		fill.position = Vector3(0, 32, 10)
 		add_child(fill)
 	if get_node_or_null("FillLightAI") == null:
 		var fill_ai := OmniLight3D.new()
 		fill_ai.name = "FillLightAI"
-		fill_ai.light_energy = 0.05
+		fill_ai.light_energy = 0.0
 		fill_ai.light_color = Color(0.88, 0.92, 1.0)
 		fill_ai.omni_range = 60.0
 		fill_ai.position = Vector3(-16.0, 24.0, -18.0)
@@ -212,28 +248,28 @@ func _ensure_board_lights() -> void:
 	if get_node_or_null("FillLightPlayer") == null:
 		var fill_p := OmniLight3D.new()
 		fill_p.name = "FillLightPlayer"
-		fill_p.light_energy = 0.05
+		fill_p.light_energy = 0.0
 		fill_p.light_color = Color(1.0, 0.96, 0.9)
 		fill_p.omni_range = 60.0
 		fill_p.position = Vector3(16.0, 24.0, 18.0)
 		add_child(fill_p)
 	var scene_key := get_node_or_null("DirectionalLight3D") as DirectionalLight3D
 	if scene_key:
-		scene_key.light_energy = 0.80
+		scene_key.light_energy = 0.0
 		scene_key.shadow_opacity = 0.4
 	ShipLook.apply_match_lights(self)
 
 func _setup_camera() -> void:
 	## Two default camera views:
-	## - primary: battle / bottom collapsed
-	## - secondary: prepare + bottom expanded
+	## - primary: battle / shop collapsed baseline
+	## - secondary: prepare + shop expanded
 	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	var primary := _camera_primary_view()
-	_cam_base_pos = primary.get("pos", Vector3(-2.0, 21.464, 18.067))
-	_cam_base_pitch_deg = float(primary.get("pitch_deg", -57.0))
-	_cam_default_pitch_deg = _cam_base_pitch_deg
-	_cam_base_yaw_deg = float(primary.get("yaw_deg", 0.0))
-	camera.fov = float(primary.get("fov", 47.0))
+	var start := _camera_secondary_view() if not _collapse_bottom else _camera_primary_view()
+	_cam_base_pos = start.get("pos", Vector3(-2.0, 21.464, 18.067))
+	_cam_base_pitch_deg = float(start.get("pitch_deg", -57.0))
+	_cam_default_pitch_deg = float(_camera_primary_view().get("pitch_deg", _cam_base_pitch_deg))
+	_cam_base_yaw_deg = float(start.get("yaw_deg", 0.0))
+	camera.fov = float(start.get("fov", 47.0))
 	camera.position = _cam_base_pos
 	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
@@ -269,56 +305,271 @@ func _camera_active_view() -> Dictionary:
 	return _camera_primary_view() if _collapse_bottom else _camera_secondary_view()
 
 func _process(delta: float) -> void:
-	_update_camera_free(delta)
-	_update_camera_headup(delta)
-	_update_camera_framing(delta)
+	if _camera_free:
+		_update_camera_free(delta)
+	else:
+		_update_camera_headup(delta)
+		_update_camera_view_blend(delta)
+		_update_camera_framing(delta)
+	_try_hide_slot_markers_when_view1_settled()
+	## Breathe applies in both default and free view (options toggle only).
 	_update_camera_breathe()
+	_tick_exp_hold(delta)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_V and not _gui_wants_text_input() and not UiLayout.is_mobile():
+			_toggle_camera_mode()
+			get_viewport().set_input_as_handled()
+			return
+	if not _camera_free:
+		return
+	if UiLayout.is_mobile():
+		_handle_mobile_orbit_input(event)
+		return
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_MIDDLE:
+			_cam_look_dragging = mb.pressed
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion and _cam_look_dragging:
+		var mm := event as InputEventMouseMotion
+		var sens := float(DataStore.visual.get("camera_free_look_sens", 0.18))
+		_cam_base_yaw_deg -= mm.relative.x * sens
+		_cam_base_pitch_deg = clampf(_cam_base_pitch_deg - mm.relative.y * sens, -89.0, 89.0)
+		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
+		get_viewport().set_input_as_handled()
+
+func _handle_mobile_orbit_input(event: InputEvent) -> void:
+	## Single-finger drag orbits around board center; ignore 2nd finger / ship drags.
+	if pointer != null and pointer.has_method("is_pointer_dragging") and pointer.is_pointer_dragging():
+		_cam_orbit_dragging = false
+		_cam_orbit_touch_index = -1
+		return
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.index > 0:
+			return
+		if st.pressed:
+			if _ui_blocks_camera_touch(st.position):
+				return
+			if _screen_hits_ship(st.position):
+				return
+			_cam_orbit_touch_index = st.index
+			_cam_orbit_dragging = true
+			get_viewport().set_input_as_handled()
+		elif st.index == _cam_orbit_touch_index:
+			_cam_orbit_dragging = false
+			_cam_orbit_touch_index = -1
+			get_viewport().set_input_as_handled()
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		if not _cam_orbit_dragging or sd.index != _cam_orbit_touch_index:
+			return
+		var sens := float(DataStore.visual.get("camera_free_look_sens", 0.18))
+		_orbit_camera_around_board(-sd.relative.x * sens, -sd.relative.y * sens)
+		get_viewport().set_input_as_handled()
+
+func _ui_blocks_camera_touch(screen: Vector2) -> bool:
+	if pointer != null and pointer.has_method("ui_blocks_screen"):
+		return bool(pointer.ui_blocks_screen(screen))
+	var hover := get_viewport().gui_get_hovered_control() if get_viewport() else null
+	return hover != null
+
+func _screen_hits_ship(screen: Vector2) -> bool:
+	if board == null or camera == null:
+		return false
+	var origin := camera.project_ray_origin(screen)
+	var dir := camera.project_ray_normal(screen)
+	return board.pick_ship_at(origin, dir) != null
+
+func _orbit_camera_around_board(yaw_delta_deg: float, pitch_delta_deg: float) -> void:
+	var pivot := Vector3.ZERO
+	var offset := _cam_base_pos - pivot
+	var dist := maxf(offset.length(), 2.0)
+	var yaw := atan2(offset.x, offset.z) + deg_to_rad(yaw_delta_deg)
+	var pitch := asin(clampf(offset.y / dist, -0.999, 0.999)) + deg_to_rad(pitch_delta_deg)
+	pitch = clampf(pitch, deg_to_rad(-85.0), deg_to_rad(85.0))
+	var cp := cos(pitch)
+	_cam_base_pos = pivot + Vector3(sin(yaw) * cp, sin(pitch), cos(yaw) * cp) * dist
+	camera.position = _cam_base_pos
+	camera.look_at(pivot, Vector3.UP)
+	_cam_base_pitch_deg = camera.rotation_degrees.x
+	_cam_base_yaw_deg = camera.rotation_degrees.y
+
+func _gui_wants_text_input() -> bool:
+	var focus := get_viewport().gui_get_focus_owner() if get_viewport() else null
+	return focus is LineEdit or focus is TextEdit
+
+func _on_camera_mode_pressed() -> void:
+	_toggle_camera_mode()
+
+func _toggle_camera_mode() -> void:
+	_set_camera_free(not _camera_free)
+
+func _set_camera_free(enabled: bool) -> void:
+	_camera_free = enabled
+	_cam_look_dragging = false
+	_cam_orbit_dragging = false
+	_cam_orbit_touch_index = -1
+	_cam_view_blend_active = false
+	if _camera_free:
+		## Adopt current rendered pose as free-view base (drop breathe offset).
+		_cam_base_pos = camera.position
+		_cam_base_pitch_deg = camera.rotation_degrees.x
+		_cam_base_yaw_deg = camera.rotation_degrees.y
+		_cam_headup_phase = 0
+		_cam_headup_t = 0.0
+		_cam_headup_offset_deg = 0.0
+		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
+		## Free view: do not delay marker hide for camera settle.
+		if _pending_hide_slot_markers:
+			_hide_slot_markers_now()
+		if UiLayout.is_mobile():
+			show_notice("自由视角 · 拖动屏幕绕棋盘旋转 · 点按钮切回")
+		else:
+			show_notice("自由视角 · WASD移动 QE升降 · 中键环视 · V切回")
+	else:
+		_snap_camera_to_active_default()
+		show_notice("默认视角")
+	_refresh_camera_mode_btn()
+
+func _snap_camera_to_active_default() -> void:
+	var view: Dictionary
+	if match_ctrl and match_ctrl.stage == MatchController.Stage.BATTLE:
+		view = _camera_primary_view()
+	elif _collapse_bottom:
+		view = _camera_primary_view()
+	else:
+		view = _camera_secondary_view()
+	_apply_camera_view_dict(view, true)
+
+func _apply_camera_view_dict(view: Dictionary, smooth: bool = true) -> void:
+	## Free view owns its pose; stage / shop / framing must not rewrite it.
+	if _camera_free:
+		return
+	_cam_default_pitch_deg = float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
+	_cam_headup_phase = 0
+	_cam_headup_t = 0.0
+	_cam_headup_offset_deg = 0.0
+	var pos: Vector3 = view.get("pos", _cam_base_pos)
+	var pitch := float(view.get("pitch_deg", _cam_base_pitch_deg))
+	var yaw := float(view.get("yaw_deg", _cam_base_yaw_deg))
+	var fov := float(view.get("fov", camera.fov))
+	if not smooth:
+		_cam_view_blend_active = false
+		_cam_base_pos = pos
+		_cam_base_pitch_deg = pitch
+		_cam_base_yaw_deg = yaw
+		camera.fov = fov
+		camera.position = _cam_base_pos
+		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
+		return
+	_cam_view_blend_active = true
+	_cam_view_blend_pos = pos
+	_cam_view_blend_pitch_deg = pitch
+	_cam_view_blend_yaw_deg = yaw
+	_cam_view_blend_fov = fov
+
+func _capture_cam_pose() -> Dictionary:
+	return {
+		"pos": _cam_base_pos,
+		"pitch_deg": _cam_base_pitch_deg,
+		"yaw_deg": _cam_base_yaw_deg,
+		"fov": camera.fov,
+		"free": _camera_free,
+	}
+
+func _restore_cam_pose(pose: Dictionary) -> void:
+	_cam_view_blend_active = false
+	_cam_base_pos = pose.get("pos", _cam_base_pos)
+	_cam_base_pitch_deg = float(pose.get("pitch_deg", _cam_base_pitch_deg))
+	_cam_base_yaw_deg = float(pose.get("yaw_deg", _cam_base_yaw_deg))
+	camera.fov = float(pose.get("fov", camera.fov))
+	_cam_headup_phase = 0
+	_cam_headup_t = 0.0
+	_cam_headup_offset_deg = 0.0
+	camera.position = _cam_base_pos
+	camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
+
+func _on_shop_expanded_camera() -> void:
+	if _camera_free:
+		return
+	_cam_pose_before_shop = _capture_cam_pose()
+	_cam_pose_before_shop_valid = true
+	_apply_camera_view_dict(_camera_secondary_view())
+
+func _on_shop_collapsed_camera() -> void:
+	if _camera_free:
+		_cam_pose_before_shop_valid = false
+		_cam_pose_before_shop.clear()
+		return
+	_cam_pose_before_shop_valid = false
+	_cam_pose_before_shop.clear()
+	_apply_camera_view_dict(_camera_primary_view())
+
+func _refresh_camera_mode_btn() -> void:
+	var btn := hud.get_node_or_null("Root/TopRight/CamModeBtn") as Button
+	if btn == null:
+		return
+	btn.text = "默认视角" if _camera_free else "自由视角"
+	if UiLayout.is_mobile():
+		btn.tooltip_text = "当前：%s" % ("自由（触控绕心）" if _camera_free else "默认")
+	else:
+		btn.tooltip_text = "快捷键 V · 当前：%s" % ("自由" if _camera_free else "默认")
 
 func _update_camera_free(delta: float) -> void:
-	# QAWSED: world 6-way · RF: pitch · TG: yaw orbit about board origin
+	if UiLayout.is_mobile():
+		## Mobile free view is touch-orbit only; keep pose stable here.
+		camera.position = _cam_base_pos
+		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
+		return
+	## PC free fly: move relative to look; no framing pull-back.
+	var v: Dictionary = DataStore.visual
+	var speed := float(v.get("camera_free_move_speed", _CAM_MOVE_SPEED))
+	var basis := camera.global_transform.basis
+	var forward := -basis.z
+	var right := basis.x
+	var up := Vector3.UP
 	var move := Vector3.ZERO
 	if Input.is_physical_key_pressed(KEY_W):
-		move.z -= 1.0
+		move += forward
 	if Input.is_physical_key_pressed(KEY_S):
-		move.z += 1.0
+		move -= forward
 	if Input.is_physical_key_pressed(KEY_A):
-		move.x -= 1.0
+		move -= right
 	if Input.is_physical_key_pressed(KEY_D):
-		move.x += 1.0
+		move += right
 	if Input.is_physical_key_pressed(KEY_Q):
-		move.y -= 1.0
+		move -= up
 	if Input.is_physical_key_pressed(KEY_E):
-		move.y += 1.0
+		move += up
 	if move != Vector3.ZERO:
-		_cam_base_pos += move.normalized() * _CAM_MOVE_SPEED * delta
+		_cam_base_pos += move.normalized() * speed * delta
 	var pitch_delta := 0.0
 	if Input.is_physical_key_pressed(KEY_R):
 		pitch_delta += _CAM_PITCH_SPEED * delta
 	if Input.is_physical_key_pressed(KEY_F):
 		pitch_delta -= _CAM_PITCH_SPEED * delta
 	if pitch_delta != 0.0:
-		_cam_base_pitch_deg = clampf(_cam_base_pitch_deg + pitch_delta, -89.0, -5.0)
-		# Treat user-tuned camera pitch as new "default" so round-end recovery snaps to it.
-		_cam_default_pitch_deg = _cam_base_pitch_deg
+		_cam_base_pitch_deg = clampf(_cam_base_pitch_deg + pitch_delta, -89.0, 89.0)
 	var yaw_delta := 0.0
 	if Input.is_physical_key_pressed(KEY_T):
 		yaw_delta -= _CAM_YAW_SPEED * delta
 	if Input.is_physical_key_pressed(KEY_G):
 		yaw_delta += _CAM_YAW_SPEED * delta
 	if yaw_delta != 0.0:
-		var rad := deg_to_rad(yaw_delta)
-		var p := _cam_base_pos
-		var c := cos(rad)
-		var s := sin(rad)
-		_cam_base_pos = Vector3(p.x * c + p.z * s, p.y, -p.x * s + p.z * c)
 		_cam_base_yaw_deg += yaw_delta
-	if move != Vector3.ZERO or pitch_delta != 0.0 or yaw_delta != 0.0:
-		camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
+	camera.position = _cam_base_pos
+	camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
 
 func _camera_pitch_now() -> float:
 	return _cam_base_pitch_deg + _cam_headup_offset_deg
 
 func _update_camera_headup(delta: float) -> void:
+	if _camera_free:
+		_cam_headup_offset_deg = 0.0
+		return
 	if _cam_headup_phase == 0:
 		_cam_headup_offset_deg = 0.0
 		return
@@ -344,6 +595,8 @@ func _update_camera_headup(delta: float) -> void:
 			_cam_headup_offset_deg = 0.0
 
 func _trigger_camera_headup(reason: String) -> void:
+	if _camera_free:
+		return
 	var v: Dictionary = DataStore.visual
 	if not bool(v.get("camera_headup_enabled", false)):
 		return
@@ -356,26 +609,105 @@ func _trigger_camera_headup(reason: String) -> void:
 	_cam_headup_t = 0.0
 	_cam_headup_offset_deg = 0.0
 
-func _update_camera_framing(delta: float) -> void:
+func _update_camera_view_blend(delta: float) -> void:
+	if not _cam_view_blend_active or _camera_free:
+		return
+	## Battle framing owns continuous lock; drop event blend.
+	if match_ctrl != null and match_ctrl.stage == MatchController.Stage.BATTLE:
+		_cam_view_blend_active = false
+		return
 	var framing: Dictionary = DataStore.visual.get("camera_framing", {})
 	var spd := float(framing.get("lerp_speed", 4.0))
-	var view := _camera_active_view()
+	var k := clampf(spd * delta, 0.0, 1.0)
+	_cam_base_pos = _cam_base_pos.lerp(_cam_view_blend_pos, k)
+	_cam_base_pitch_deg = lerpf(_cam_base_pitch_deg, _cam_view_blend_pitch_deg, k)
+	_cam_base_yaw_deg = lerpf(_cam_base_yaw_deg, _cam_view_blend_yaw_deg, k)
+	camera.fov = lerpf(camera.fov, _cam_view_blend_fov, k)
+	var pos_done := _cam_base_pos.distance_to(_cam_view_blend_pos) < 0.03
+	var ang_done := absf(_cam_base_pitch_deg - _cam_view_blend_pitch_deg) < 0.08 \
+		and absf(_cam_base_yaw_deg - _cam_view_blend_yaw_deg) < 0.08
+	var fov_done := absf(camera.fov - _cam_view_blend_fov) < 0.05
+	if pos_done and ang_done and fov_done:
+		_cam_base_pos = _cam_view_blend_pos
+		_cam_base_pitch_deg = _cam_view_blend_pitch_deg
+		_cam_base_yaw_deg = _cam_view_blend_yaw_deg
+		camera.fov = _cam_view_blend_fov
+		_cam_view_blend_active = false
+
+func _update_camera_framing(delta: float) -> void:
+	if _camera_free:
+		return
+	## Prepare: shop open/close events own the pose. Only Battle continuously locks view 1.
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+		return
+	_cam_view_blend_active = false
+	var framing: Dictionary = DataStore.visual.get("camera_framing", {})
+	var spd := float(framing.get("lerp_speed", 4.0))
+	var view := _camera_primary_view()
 	var k := clampf(spd * delta, 0.0, 1.0)
 	_cam_base_pos = _cam_base_pos.lerp(view.get("pos", _cam_base_pos), k)
 	_cam_base_pitch_deg = lerpf(_cam_base_pitch_deg, float(view.get("pitch_deg", _cam_base_pitch_deg)), k)
 	_cam_base_yaw_deg = lerpf(_cam_base_yaw_deg, float(view.get("yaw_deg", _cam_base_yaw_deg)), k)
 	camera.fov = lerpf(camera.fov, float(view.get("fov", camera.fov)), k)
-	_cam_default_pitch_deg = float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
+	_cam_default_pitch_deg = float(view.get("pitch_deg", _cam_default_pitch_deg))
 	_cam_frame_target = Vector3.ZERO
 	_cam_frame_offset = Vector3.ZERO
 	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
+func _camera_near_primary_view() -> bool:
+	var view := _camera_primary_view()
+	var pos: Vector3 = view.get("pos", _cam_base_pos)
+	if _cam_base_pos.distance_to(pos) > 0.08:
+		return false
+	if absf(_cam_base_pitch_deg - float(view.get("pitch_deg", _cam_base_pitch_deg))) > 0.15:
+		return false
+	if absf(_cam_base_yaw_deg - float(view.get("yaw_deg", _cam_base_yaw_deg))) > 0.15:
+		return false
+	if absf(camera.fov - float(view.get("fov", camera.fov))) > 0.1:
+		return false
+	return true
+
+func _hide_slot_markers_now() -> void:
+	_pending_hide_slot_markers = false
+	## Battle: hide Field hexes only; Hangar blue frames stay.
+	if board and board.has_method("set_field_markers_visible"):
+		board.set_field_markers_visible(false)
+	elif board and board.has_method("set_slot_markers_visible"):
+		board.set_slot_markers_visible(false)
+
+func _show_slot_markers_now() -> void:
+	_pending_hide_slot_markers = false
+	if board and board.has_method("set_field_markers_visible"):
+		board.set_field_markers_visible(true)
+		if board.has_method("set_hangar_markers_visible"):
+			board.set_hangar_markers_visible(true)
+	elif board and board.has_method("set_slot_markers_visible"):
+		board.set_slot_markers_visible(true)
+
+func _try_hide_slot_markers_when_view1_settled() -> void:
+	if not _pending_hide_slot_markers:
+		return
+	if _camera_free:
+		_hide_slot_markers_now()
+		return
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+		_pending_hide_slot_markers = false
+		return
+	if _camera_near_primary_view():
+		_hide_slot_markers_now()
+
 func _update_camera_breathe() -> void:
 	var v: Dictionary = DataStore.visual
-	var base := _cam_base_pos + _cam_frame_offset
-	# Kill breathe vertical bob if it reads as combat look-up.
+	## Free view: offset from pilot base only (no framing). Default: base + frame.
+	var base := _cam_base_pos if _camera_free else (_cam_base_pos + _cam_frame_offset)
 	var amp := float(v.get("camera_breathe_amp", 0.35))
-	if not bool(v.get("camera_breathe_enabled", true)):
+	## Player setting overrides content; options menu is the only off switch.
+	var breathe_on := true
+	if GameSession != null:
+		breathe_on = GameSession.camera_breathe_enabled
+	elif not bool(v.get("camera_breathe_enabled", true)):
+		breathe_on = false
+	if not breathe_on:
 		camera.position = base
 		camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 		return
@@ -405,7 +737,11 @@ func _build_hud() -> void:
 	var pause := hud.get_node_or_null("Root/TopRight/PauseBtn") as Button
 	if pause:
 		pause.process_mode = Node.PROCESS_MODE_ALWAYS
+	var cam_btn := hud.get_node_or_null("Root/TopRight/CamModeBtn") as Button
+	if cam_btn:
+		cam_btn.process_mode = Node.PROCESS_MODE_ALWAYS
 	hud.process_mode = Node.PROCESS_MODE_ALWAYS
+	_refresh_camera_mode_btn()
 
 func _on_hud_resized() -> void:
 	_apply_adaptive_hud_layout()
@@ -563,6 +899,7 @@ func _wire_shop_chrome() -> void:
 	var btn_w := UiLayout.px(144 if UiLayout.is_mobile() else 162, root)
 	_style_image_button(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button,
 			UiAssets.shop_exp_path(), "购买经验", int(DataStore.economy.get("buy_exp_gold_cost", 4)), btn_w)
+	_wire_exp_hold(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button)
 	_style_image_button(root.get_node_or_null("%s/LeftBtns/RefreshBtn" % _SHOP_LEFT) as Button,
 			UiAssets.shop_refresh_path(), "刷新商店", int(DataStore.economy.get("refresh_cost", 2)), btn_w)
 	var lock := root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
@@ -726,6 +1063,10 @@ func show_notice(text: String) -> void:
 		lbl.visible = true
 		get_tree().create_timer(2.0).timeout.connect(func(): if lbl: lbl.visible = false)
 
+func append_battle_log(text: String) -> void:
+	## Battle-log only (no floating notice) — used by AI sell / combat breadcrumbs.
+	_append_battle_log(text)
+
 func on_ship_sold(gold: int) -> void:
 	match_ctrl.add_gold(gold)
 	show_notice("出售获得 %d PLEX" % gold)
@@ -736,7 +1077,7 @@ func _refresh_hud() -> void:
 	var root := hud.get_node_or_null("Root")
 	if root == null:
 		return
-	_set_label(root, "%s/Hp" % _ROUND, "HP %d" % match_ctrl.player_hp)
+	_set_label(root, "%s/Hp" % _ROUND, _player_hp_label_text())
 	_refresh_citadel_bar()
 	_set_label(root, "%s/Phase" % _ROUND, "阶段 %d-%d" % [match_ctrl.battle_phase_value, match_ctrl.round_phase_value])
 	_set_label(root, "%s/StatsRow/GoldBox/Gold" % _SHOP_MID, "%d" % match_ctrl.player_gold)
@@ -1105,7 +1446,7 @@ func _on_drag_begin(ship: ShipUnit) -> void:
 	_dragging_sell_ui = true
 	var price := 0
 	if ship:
-		price = int(DataStore.get_ship(ship.ship_id).get("cost", 0))
+		price = ship.get_sell_price()
 	_set_sell_mode(true, price)
 
 func _on_drag_move(world_pos: Vector3) -> void:
@@ -1169,13 +1510,17 @@ func _weapon_module_type_id(ship_data: Dictionary) -> int:
 	var fx: String = str(ship_data.get("weapon_fx", "laser"))
 	var source_weapon := int(ship_data.get("source_module_type_id", 0))
 	if fx == "heal":
-		return int(ship_data.get("source_repair_module_type_id", 0))
-	if source_weapon > 0:
-		return source_weapon
+		## Medium/large remote repair reuse small-tier icons (art parity).
+		return _repair_icon_type_id(int(ship_data.get("source_repair_module_type_id", 0)))
 	var group := str(ship_data.get("ship_group", "frigate"))
 	var tier := str(ship_data.get("weapon_tier", ""))
 	var large := tier == "large" or group == "battleship"
 	var medium := tier == "medium" or (tier == "" and (group == "cruiser" or group == "battlecruiser"))
+	## Prefer Echoes-tier icons: medium missile must not share large missile art.
+	if fx == "missile" and medium and (source_weapon == 501 or source_weapon == 499 or source_weapon == 0):
+		return 120300101
+	if source_weapon > 0:
+		return source_weapon
 	match fx:
 		"laser":
 			if large:
@@ -1196,11 +1541,25 @@ func _weapon_module_type_id(ship_data: Dictionary) -> int:
 				return 491
 			return 485
 		"missile":
-			if large or medium:
+			if large:
 				return 501
+			if medium:
+				return 120300101
 			return 499
 		_:
 			return int(ship_data.get("source_module_type_id", 0))
+
+func _repair_icon_type_id(repair_module_id: int) -> int:
+	## Armor RR / shield RB / hull RR: always show small-tier icon art.
+	match repair_module_id:
+		11355, 11357, 11359:
+			return 11355
+		3586, 3596, 3606:
+			return 3586
+		27932, 27930, 27904:
+			return 11355  ## no dedicated hull icon pack — reuse armor RR small
+		_:
+			return repair_module_id if repair_module_id > 0 else 11355
 
 func _weapon_damage_text(dmg: Dictionary) -> String:
 	var emp := float(dmg.get("emp", 0.0))
@@ -1208,13 +1567,8 @@ func _weapon_damage_text(dmg: Dictionary) -> String:
 	var kinetic := float(dmg.get("kinetic", 0.0))
 	var explosive := float(dmg.get("explosive", 0.0))
 	var total := emp + thermal + kinetic + explosive
-	return "总%d\n电%d 热%d\n动%d 爆%d" % [
-		int(round(total)),
-		int(round(emp)),
-		int(round(thermal)),
-		int(round(kinetic)),
-		int(round(explosive))
-	]
+	## Hide per-channel breakdown (capital/cyno UI lock).
+	return "总伤 %d" % int(round(total))
 
 func _weapon_or_repair_text(ship_data: Dictionary, star_data: Dictionary, dmg: Dictionary) -> String:
 	if str(ship_data.get("weapon_fx", "")) != "heal":
@@ -1236,20 +1590,38 @@ func _weapon_or_repair_text(ship_data: Dictionary, star_data: Dictionary, dmg: D
 
 const _RACE_DRONE_LIGHT := {"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004}
 const _RACE_DRONE_MEDIUM := {"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008}
+const _RACE_DRONE_HEAVY := {"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014}
+const _DRONE_COUNT_EXCEPTIONS := {42: 5, 44: 4, 55: 4, 56: 5}
 
 func _drone_tier_for_carrier(ship_data: Dictionary) -> String:
 	var group := str(ship_data.get("ship_group", "frigate"))
-	if group in ["cruiser", "battlecruiser", "battleship"]:
+	if group == "battlecruiser":
+		return "medium"
+	if group == "battleship":
+		return "heavy"
+	if group == "cruiser":
 		return "medium"
 	return "light"
 
 func _race_drone_id(ship_data: Dictionary) -> int:
 	var race := str(ship_data.get("race", "amarr")).to_lower()
-	if _drone_tier_for_carrier(ship_data) == "medium":
-		return int(_RACE_DRONE_MEDIUM.get(race, 1005))
-	return int(_RACE_DRONE_LIGHT.get(race, 1001))
+	match _drone_tier_for_carrier(ship_data):
+		"heavy":
+			return int(_RACE_DRONE_HEAVY.get(race, 1011))
+		"medium":
+			return int(_RACE_DRONE_MEDIUM.get(race, 1005))
+		_:
+			return int(_RACE_DRONE_LIGHT.get(race, 1001))
 
 func _ship_drone_bay_slots(ship_data: Dictionary) -> int:
+	var sid := int(ship_data.get("id", 0))
+	if _DRONE_COUNT_EXCEPTIONS.has(sid):
+		return int(_DRONE_COUNT_EXCEPTIONS[sid])
+	var group := str(ship_data.get("ship_group", ""))
+	if group == "battleship":
+		return 2
+	if group == "battlecruiser":
+		return 1
 	var slots := int(ship_data.get("drone_bay_slots", ship_data.get("drone_count_cap", 0)))
 	if slots <= 0:
 		var bw := float(ship_data.get("drone_bandwidth", 0.0))
@@ -1260,13 +1632,15 @@ func _ship_drone_bay_slots(ship_data: Dictionary) -> int:
 func _attack_cycle_s(ship_data: Dictionary, runtime_cycle: float = -1.0) -> float:
 	## Same source as ShipUnit.setup: JSON cycle (or combat fallback), then attack_cycle_cap_s.
 	var cap_s := float(DataStore.combat.get("attack_cycle_cap_s", 6.0))
+	var role := str(ship_data.get("capital_role", ""))
+	var skip_cap := role != "" or bool(ship_data.get("requires_cyno_entry", false))
 	if runtime_cycle > 0.0:
-		return minf(runtime_cycle, cap_s)
+		return runtime_cycle if skip_cap else minf(runtime_cycle, cap_s)
 	var cycle := float(ship_data.get("attack_cycle_s", 0.0))
 	if cycle <= 0.0:
 		var logistic := str(ship_data.get("weapon_fx", "")) == "heal" or bool(ship_data.get("is_logistic", false))
 		cycle = float(DataStore.combat.get("logistic_attack_duration_s" if logistic else "attack_duration_s", 1.0))
-	return minf(cycle, cap_s)
+	return cycle if skip_cap else minf(cycle, cap_s)
 
 func _weapon_stats_text(ship_data: Dictionary, star_data: Dictionary, atk_range, runtime_cycle: float = -1.0) -> String:
 	var shown_range := float(atk_range)
@@ -1275,9 +1649,19 @@ func _weapon_stats_text(ship_data: Dictionary, star_data: Dictionary, atk_range,
 	return "射程 %s\n跟踪 %.2f\nCD %.2fs" % [str(int(round(shown_range))), tracking, cycle]
 
 func _drone_stats_text(drone_data: Dictionary, drone_star: Dictionary) -> String:
-	var dmg: Dictionary = drone_star.get("damage", {})
 	var cycle := _attack_cycle_s(drone_data)
 	var speed := float(drone_data.get("speed", 0.0))
+	if bool(drone_data.get("is_logistic", false)) or str(drone_data.get("weapon_fx", "")) == "heal":
+		var repair: Dictionary = drone_star.get("repair", {})
+		var parts: Array[String] = []
+		for k in ["shield", "armor", "structure"]:
+			var v := float(repair.get(k, 0.0))
+			if v > 0.0:
+				var label := "盾" if k == "shield" else ("甲" if k == "armor" else "结")
+				parts.append("%s%d" % [label, int(round(v))])
+		var heal_txt := " ".join(parts) if not parts.is_empty() else "修 0"
+		return "%s\nCD %.2fs\n速度 %s" % [heal_txt, cycle, str(int(round(speed)))]
+	var dmg: Dictionary = drone_star.get("damage", {})
 	return "%s\nCD %.2fs\n速度 %s" % [_weapon_damage_text(dmg), cycle, str(int(round(speed)))]
 
 func _ensure_info_stat_square(parent: Control, square_name: String, min_size: Vector2) -> Dictionary:
@@ -1363,8 +1747,9 @@ func _resist_text(resist: Dictionary) -> String:
 		_resist_pct(resist.get("explosive", 0.0))
 	]
 
-func _hp_line(layer_name: String, hp_text: String, resist: Dictionary) -> String:
-	return "%s  %s  抗性 %s" % [layer_name, hp_text, _resist_text(resist)]
+func _hp_line(layer_name: String, hp_text: String, _resist: Dictionary) -> String:
+	## Resists hidden in ship detail panel (capital update lock).
+	return "%s  %s" % [layer_name, hp_text]
 
 func _base_stats_text(ship_data: Dictionary) -> String:
 	var long_axis := float(ship_data.get("model_long_axis", 0.0))
@@ -1413,35 +1798,106 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 	if not weapon_square.is_empty():
 		var weapon_icon := weapon_square.get("icon") as TextureRect
 		var weapon_label := weapon_square.get("label") as Label
-		if weapon_icon:
-			weapon_icon.texture = UiAssets.item_icon(_weapon_module_type_id(ship_data))
-		if weapon_label:
-			weapon_label.text = "%s\n%s" % [
-				_weapon_or_repair_text(ship_data, star_data, dmg),
-				_weapon_stats_text(ship_data, star_data, atk_range, runtime_cycle)
-			]
-			_style_info_stat_label(weapon_label)
+		var weapon_panel := weapon_square.get("square") as PanelContainer
+		var fs: Dictionary = ship_data.get("function_slots", {}) if typeof(ship_data.get("function_slots", {})) == TYPE_DICTIONARY else {}
+		var fslots: Array = fs.get("slots", []) if typeof(fs) == TYPE_DICTIONARY else []
+		var cyno_mod: Dictionary = {}
+		for m in fslots:
+			if typeof(m) == TYPE_DICTIONARY and str((m as Dictionary).get("kind", "")) == "cyno":
+				cyno_mod = m
+				break
+		var dmg_total := float(dmg.get("emp", 0)) + float(dmg.get("thermal", 0)) + float(dmg.get("kinetic", 0)) + float(dmg.get("explosive", 0))
+		var show_cyno := not cyno_mod.is_empty() or str(ship_data.get("capital_role", "")) == "covert_cyno"
+		if (not show_cyno) and dmg_total <= 0.001:
+			# No primary weapon damage: hide weapon slot (carriers/FAX etc. keep drone/fighter slot only).
+			if weapon_panel:
+				weapon_panel.visible = false
+			if weapon_icon:
+				weapon_icon.texture = null
+			if weapon_label:
+				weapon_label.text = ""
+		elif show_cyno and dmg_total <= 0.001:
+			## Empty weapon → equip (cyno) fills weapon square (上移盖空武器框).
+			if weapon_panel:
+				weapon_panel.visible = true
+			if weapon_icon:
+				var cyno_icon_id := int(cyno_mod.get("icon_item_id", ship_data.get("source_module_type_id", 11114010000)))
+				weapon_icon.texture = UiAssets.item_icon(cyno_icon_id)
+			if weapon_label:
+				var dur := float(cyno_mod.get("duration_s", 90.0))
+				weapon_label.text = "%s\n读条 %.0fs" % [str(cyno_mod.get("name", "诱导")), dur]
+				_style_info_stat_label(weapon_label)
+		else:
+			if weapon_panel:
+				weapon_panel.visible = true
+			if weapon_icon:
+				weapon_icon.texture = UiAssets.item_icon(_weapon_module_type_id(ship_data))
+			if weapon_label:
+				weapon_label.text = "%s\n%s" % [
+					_weapon_or_repair_text(ship_data, star_data, dmg),
+					_weapon_stats_text(ship_data, star_data, atk_range, runtime_cycle)
+				]
+				_style_info_stat_label(weapon_label)
 	if not drone_square.is_empty():
 		var drone_panel := drone_square.get("square") as PanelContainer
 		var drone_icon := drone_square.get("icon") as TextureRect
 		var drone_label := drone_square.get("label") as Label
+		var fighter_id := int(ship_data.get("fighter_unit_id", 0))
+		var repair_id := int(ship_data.get("heavy_repair_drone_id", 0))
 		var bay_slots := _ship_drone_bay_slots(ship_data)
-		if drone_panel:
-			drone_panel.visible = bay_slots > 0
-		if bay_slots > 0:
-			var drone_id := _race_drone_id(ship_data)
-			var drone_data: Dictionary = DataStore.get_ship(drone_id)
-			var drone_star: Dictionary = DataStore.get_star(drone_id, 1)
+		if fighter_id > 0:
+			var squads := int(ship_data.get("fighter_squadrons", 3))
+			var tubes := int(ship_data.get("fighter_tubes_per_squadron", 3))
+			var n_fighters := squads * tubes
+			var fighter_data: Dictionary = DataStore.get_ship(fighter_id)
+			var fighter_star: Dictionary = DataStore.get_star(fighter_id, 1)
+			if drone_panel:
+				drone_panel.visible = true
 			if drone_icon:
-				drone_icon.texture = UiAssets.drone_portrait(drone_id)
+				drone_icon.texture = UiAssets.champion_icon(str(fighter_data.get("name", "")), fighter_id)
 			if drone_label:
-				var drone_name := str(drone_data.get("name", "无人机"))
 				drone_label.text = "%s ×%d\n%s" % [
-					drone_name,
-					bay_slots,
-					_drone_stats_text(drone_data, drone_star)
+					str(fighter_data.get("name", "舰载机")),
+					n_fighters,
+					_drone_stats_text(fighter_data, fighter_star)
 				]
 				_style_info_stat_label(drone_label)
+		elif repair_id > 0:
+			var n_rep := int(ship_data.get("heavy_repair_drone_count", 4))
+			var rep_data: Dictionary = DataStore.get_ship(repair_id)
+			var rep_star: Dictionary = DataStore.get_star(repair_id, 1)
+			if drone_panel:
+				drone_panel.visible = true
+			if drone_icon:
+				drone_icon.texture = UiAssets.drone_portrait(repair_id)
+				if drone_icon.texture == null:
+					var rep_path := str(rep_data.get("portrait", ""))
+					if rep_path != "":
+						drone_icon.texture = UiAssets.tex(rep_path)
+			if drone_label:
+				drone_label.text = "%s ×%d\n%s" % [
+					str(rep_data.get("name", "维修无人机")),
+					n_rep,
+					_drone_stats_text(rep_data, rep_star)
+				]
+				_style_info_stat_label(drone_label)
+		else:
+			if drone_panel:
+				drone_panel.visible = bay_slots > 0
+			if bay_slots > 0:
+				var drone_id := _race_drone_id(ship_data)
+				var drone_data: Dictionary = DataStore.get_ship(drone_id)
+				var drone_star: Dictionary = DataStore.get_star(drone_id, 1)
+				if drone_icon:
+					drone_icon.texture = UiAssets.drone_portrait(drone_id)
+				if drone_label:
+					var drone_name := str(drone_data.get("name", "无人机"))
+					drone_label.text = "%s ×%d\n%s" % [
+						drone_name,
+						bay_slots,
+						_drone_stats_text(drone_data, drone_star)
+					]
+					_style_info_stat_label(drone_label)
 	if fetter_box:
 		for c in fetter_box.get_children():
 			c.queue_free()
@@ -1560,8 +2016,121 @@ func _on_lock_toggled(pressed: bool) -> void:
 	show_notice("商店锁定" if pressed else "商店解锁")
 
 func _on_exp_pressed() -> void:
-	match_ctrl.buy_exp()
+	## Scene may still fire pressed; prefer button_down/up hold path.
+	pass
+
+func _wire_exp_hold(btn: Button) -> void:
+	if btn == null:
+		return
+	if btn.pressed.is_connected(_on_exp_pressed):
+		btn.pressed.disconnect(_on_exp_pressed)
+	if not btn.button_down.is_connected(_on_exp_button_down):
+		btn.button_down.connect(_on_exp_button_down)
+	if not btn.button_up.is_connected(_on_exp_button_up):
+		btn.button_up.connect(_on_exp_button_up)
+
+func _on_exp_button_down() -> void:
+	_exp_hold_active = true
+	_exp_hold_t = 0.0
+	_exp_hold_spent_all = false
+
+func _on_exp_button_up() -> void:
+	if _exp_hold_active and not _exp_hold_spent_all and _exp_hold_t < _EXP_HOLD_S:
+		match_ctrl.buy_exp()
+		_refresh_hud()
+	_exp_hold_active = false
+	_exp_hold_t = 0.0
+
+func _tick_exp_hold(delta: float) -> void:
+	if not _exp_hold_active or _exp_hold_spent_all:
+		return
+	_exp_hold_t += delta
+	if _exp_hold_t < _EXP_HOLD_S:
+		return
+	_exp_hold_spent_all = true
+	var cost := int(DataStore.economy.get("buy_exp_gold_cost", 4))
+	var n := 0
+	while match_ctrl.player_gold >= cost and n < 200:
+		var before := match_ctrl.player_gold
+		match_ctrl.buy_exp()
+		if match_ctrl.player_gold >= before:
+			break
+		n += 1
 	_refresh_hud()
+	show_notice("已花光黄币升级" if n > 0 else "黄币不足")
+
+func _player_hp_label_text() -> String:
+	var t := "我 %d  ·  敌 %d" % [match_ctrl.player_hp, match_ctrl.ai_hp]
+	if bool(DataStore.match_flow.get("citadel_test_mode", false)):
+		t += "  测试期间输一局只扣一点血"
+	return t
+
+func _apply_match_save() -> void:
+	_apply_match_save_dict(MatchSave.load_dict())
+
+func _apply_match_save_dict(d: Dictionary) -> void:
+	if d.is_empty():
+		return
+	var p: Dictionary = d.get("player", {})
+	match_ctrl.player_gold = int(p.get("gold", match_ctrl.player_gold))
+	match_ctrl.player_hp = int(p.get("hp", match_ctrl.player_hp))
+	match_ctrl.player_max_hp = int(p.get("max_hp", match_ctrl.player_max_hp))
+	match_ctrl.player_level = int(p.get("level", match_ctrl.player_level))
+	match_ctrl.player_exp = int(p.get("exp", match_ctrl.player_exp))
+	match_ctrl.up_level_demand = int(p.get("up_level_demand", match_ctrl.up_level_demand))
+	match_ctrl.win_streak = int(p.get("win_streak", 0))
+	match_ctrl.loss_streak = int(p.get("loss_streak", 0))
+	match_ctrl.shop_locked = bool(p.get("shop_locked", false))
+	match_ctrl.battle_game_stage_count = int(d.get("battle_game_stage_count", 0))
+	match_ctrl.round_phase_value = int(d.get("round_phase_value", 1))
+	match_ctrl.battle_phase_value = int(d.get("battle_phase_value", 0))
+	if shop and p.has("shop_slots"):
+		shop.slots = (p.get("shop_slots", []) as Array).duplicate(true)
+		shop.shop_changed.emit()
+	var a: Dictionary = d.get("ai", {})
+	match_ctrl.ai_hp = int(a.get("hp", match_ctrl.ai_hp))
+	match_ctrl.ai_max_hp = int(a.get("max_hp", match_ctrl.ai_max_hp))
+	if ai:
+		ai.ai_gold = int(a.get("gold", ai.ai_gold))
+		ai.ai_level = int(a.get("level", ai.ai_level))
+		ai.ai_exp = int(a.get("exp", ai.ai_exp))
+		ai.up_level_demand = int(a.get("up_level_demand", ai.up_level_demand))
+		ai.win_streak = int(a.get("win_streak", 0))
+		ai.loss_streak = int(a.get("loss_streak", 0))
+		ai.shop_slots = a.get("shop_slots", ai.shop_slots)
+	board.reset_match()
+	_redeploy_saved_ships(d.get("ships", []))
+	## start_match already ran AI economy on an empty board; after redeploy, fill field again.
+	if ai and ai.has_method("sync_field_for_prepare"):
+		ai.sync_field_for_prepare()
+	show_notice("已继续上次对局")
+
+func _redeploy_saved_ships(ships: Array) -> void:
+	for entry in ships:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var sid := int(entry.get("ship_id", 0))
+		if sid <= 0:
+			continue
+		if DataStore.get_ship(sid).is_empty():
+			continue
+		AdminBus.request(&"board.deploy", {
+			"ship_id": sid,
+			"star": int(entry.get("star", 1)),
+			"team": int(entry.get("team", ShipUnit.TEAM_PLAYER)),
+			"slot_type": str(entry.get("slot_type", "hangar")),
+			"x": int(entry.get("x", 0)),
+			"z": int(entry.get("z", 0)),
+		})
+		if int(entry.get("field_side_team", -1)) >= 0:
+			for s2 in board.all_ships():
+				if s2.ship_id == sid and s2.grid_x == int(entry.get("x", 0)) and s2.grid_z == int(entry.get("z", 0)) and s2.slot_type == str(entry.get("slot_type", "hangar")):
+					s2.field_side_team = int(entry.get("field_side_team"))
+					break
+	board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	board.recalculate_fetters(ShipUnit.TEAM_AI)
+	_refresh_hud()
+	_refresh_shop_ui()
 
 func _on_skip_pressed() -> void:
 	match_ctrl.skip_prepare()
@@ -1591,22 +2160,60 @@ func _on_collapse_right() -> void:
 	_apply_adaptive_hud_layout()
 
 func _on_collapse_bottom() -> void:
+	var was_collapsed := _collapse_bottom
 	_collapse_bottom = not _collapse_bottom
 	_apply_adaptive_hud_layout()
+	## Free view: HUD only — never move the camera for shop or stage chrome.
+	if _camera_free:
+		return
+	## Shop expand → view 2. Shop collapse → first default (default mode).
+	## Battle: bottom toggle does not move the camera.
+	if match_ctrl != null and match_ctrl.stage == MatchController.Stage.BATTLE:
+		return
+	if was_collapsed and not _collapse_bottom:
+		_on_shop_expanded_camera()
+	elif not was_collapsed and _collapse_bottom:
+		_on_shop_collapsed_camera()
 
 func _on_stage_changed_ui(stage: int) -> void:
 	var stage_label := "准备" if stage == MatchController.Stage.PREPARE else ("战斗" if stage == MatchController.Stage.BATTLE else "结束")
 	_append_battle_log("进入%s阶段" % stage_label)
-	# 回合结束：战斗 -> 准备；强制回到默认视角（默认视角应跟随你手动调过的 pitch）。
+	## Battle start: auto-collapse side + bottom chrome; toggles remain available.
+	if stage == MatchController.Stage.BATTLE:
+		_collapse_left = true
+		_collapse_bottom = true
+		_cam_pose_before_shop_valid = false
+		_cam_pose_before_shop.clear()
+		_apply_adaptive_hud_layout()
+		## Free view keeps current pose across combat enter.
+		if not _camera_free:
+			_apply_camera_view_dict(_camera_primary_view())
+			## Keep slot grid until camera settles on first default view.
+			_show_slot_markers_now()
+			_pending_hide_slot_markers = true
+		else:
+			_hide_slot_markers_now()
+	# 回合结束：战斗 -> 准备；展开左栏+底栏一次；default 切视角 2；free 不动镜头。
 	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
-		_cam_headup_phase = 0
-		_cam_headup_t = 0.0
-		_cam_headup_offset_deg = 0.0
-		_cam_base_pitch_deg = _cam_default_pitch_deg
-	else:
+		_collapse_left = false
+		_collapse_bottom = false
+		_apply_adaptive_hud_layout()
+		_show_slot_markers_now()
+		if not _camera_free:
+			_cam_headup_phase = 0
+			_cam_headup_t = 0.0
+			_cam_headup_offset_deg = 0.0
+			_cam_default_pitch_deg = float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
+			_cam_pose_before_shop = _capture_cam_pose()
+			_cam_pose_before_shop_valid = true
+			_apply_camera_view_dict(_camera_secondary_view())
+	elif not _camera_free:
 		_trigger_camera_headup("stage_change")
 	_last_match_stage = stage
 	_refresh_hud()
+	var diag := SessionDiagnostics.instance()
+	if diag and diag.has_method("log_event"):
+		diag.log_event("stage", stage_label)
 
 func _append_battle_log(text: String) -> void:
 	var line := str(text).strip_edges()

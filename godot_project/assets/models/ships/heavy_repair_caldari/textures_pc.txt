@@ -1,0 +1,14 @@
+gr2=res:/dx9/model/drone/caldari/heavy/cdh1/cdh1_t2.gr2
+sources:
+  a=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_a.dds
+  n=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_n.dds
+  r=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_r.dds
+  g=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_g.dds
+  m=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_m.dds
+  d=dx9_model_drone_caldari_heavy_cdh1_cdh1_t2_d.dds
+written:
+  albedo=res://assets/models/ships/heavy_repair_caldari/albedo.png
+  normal=res://assets/models/ships/heavy_repair_caldari/normal.png
+  rg=res://assets/models/ships/heavy_repair_caldari/rg.png
+  pmwo=res://assets/models/ships/heavy_repair_caldari/pmwo.png
+  reduction=res://assets/models/ships/heavy_repair_caldari/reduction.png

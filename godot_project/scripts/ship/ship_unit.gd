@@ -18,6 +18,21 @@ var drone_bandwidth: float = 0.0
 var drone_bay_slots: int = 0  # 发射管 / active drone quota
 var _plugin_modules: Array = []
 var mother_ship_id: int = 0  # instance id of carrier when combat_drone
+## Fighter squadron id under a carrier (−1 = none).
+var fighter_squadron_id: int = -1
+## Carrier: remaining squadrons that can still be launched this battle (−1 = uninit).
+var fighter_squadron_pool_left: int = -1
+var fighter_next_squadron_id: int = 0
+## Capital / cyno runtime flags (from ship JSON).
+var requires_cyno_entry: bool = false
+var deploy_enemy_half_only: bool = false
+var allow_enemy_cell_overlap: bool = false
+var immobile_in_combat: bool = false
+var unlimited_weapon_range: bool = false
+var field_side_team: int = -1  ## which half's world coords; -1 = team_id
+var cyno_channel_ends_at: float = -1.0
+var cyno_completed: bool = false
+var capital_role: String = ""
 
 var shield_hp: float = 0.0
 var armor_hp: float = 0.0
@@ -25,6 +40,10 @@ var structure_hp: float = 0.0
 var max_shield: float = 0.0
 var max_armor: float = 0.0
 var max_structure: float = 0.0
+## Baseline max HP from star JSON — fetter %/flat bonuses reapply from these (never stack).
+var base_max_shield: float = 0.0
+var base_max_armor: float = 0.0
+var base_max_structure: float = 0.0
 var attack_range: float = 1.0
 var damage_emp: float = 0.0
 var damage_thermal: float = 0.0
@@ -89,6 +108,7 @@ var combat_target = null
 
 const _HEALTH_BAR_SCRIPT := preload("res://scripts/ship/ship_health_bar.gd")
 const _ECHOES_SURFACE_SHADER := preload("res://shaders/echoes_spaceobject.gdshader")
+const _UNITY_SHIP_SHADER := preload("res://shaders/unity_standard_ship.gdshader")
 
 func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 	ship_id = p_ship_id
@@ -105,6 +125,15 @@ func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 				_plugin_modules.append((m as Dictionary).duplicate(true))
 	## Stats first so is_unmanned / drone flags are known before mesh/bar.
 	reload_stats()
+	var sd := DataStore.get_ship(ship_id)
+	requires_cyno_entry = bool(sd.get("requires_cyno_entry", false))
+	deploy_enemy_half_only = bool(sd.get("deploy_enemy_half_only", false))
+	allow_enemy_cell_overlap = bool(sd.get("allow_enemy_cell_overlap", false))
+	immobile_in_combat = bool(sd.get("immobile_in_combat", false))
+	unlimited_weapon_range = bool(sd.get("unlimited_weapon_range", false))
+	capital_role = str(sd.get("capital_role", ""))
+	if field_side_team < 0:
+		field_side_team = team_id
 	_ensure_mesh()
 	_ensure_health_bar()
 	var yaw := float(DataStore.visual.get("player_yaw_deg" if team_id == TEAM_PLAYER else "ai_yaw_deg", 0.0))
@@ -125,7 +154,13 @@ func restore_team_yaw() -> void:
 func _ensure_mesh() -> void:
 	if _model_root or _mesh:
 		return
-	var path := DataStore.ship_mesh_path_resolved(ship_id)
+	## Performance mode: skip GLB load; keep empty node for transforms / health bar.
+	if GameSession and bool(GameSession.get("no_model_perf_mode")):
+		_model_root = Node3D.new()
+		_model_root.name = "NoModelPlaceholder"
+		add_child(_model_root)
+		return
+	var path := _mesh_path_safe()
 	if path != "" and ResourceLoader.exists(path):
 		var packed := load(path)
 		if packed is PackedScene:
@@ -133,11 +168,26 @@ func _ensure_mesh() -> void:
 			add_child(_model_root)
 			_apply_model_orientation(_model_root)
 			_normalize_model_scale(_model_root)
-			_tint_model(_model_root)
+			## Mesh mutation (decimate/compress) before tint — never rebuild after materials applied.
 			MobileModelLoad.apply_tree(_model_root, _model_display_size)
+			_tint_model(_model_root)
 			return
 	## Missing model: leave empty (no placeholder box). Drop-in §0 bundle restores mesh.
 	_muzzle_local = Vector3(0.0, 0.3, -0.9)
+
+func _mesh_path_safe() -> String:
+	if DataStore != null and DataStore.has_method("ship_mesh_path_resolved"):
+		return str(DataStore.ship_mesh_path_resolved(ship_id))
+	if DataStore != null and DataStore.has_method("ship_mesh_path"):
+		var path := str(DataStore.ship_mesh_path(ship_id))
+		if path != "" and ResourceLoader.exists(path):
+			return path
+	var key := str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
+	if key != "":
+		var bundle_mesh := "res://assets/models/ships/%s/model.glb" % key
+		if ResourceLoader.exists(bundle_mesh):
+			return bundle_mesh
+	return ""
 
 func _ensure_health_bar() -> void:
 	if _health_bar != null:
@@ -157,6 +207,13 @@ func clear_health_bar() -> void:
 	var hb := get_node_or_null("HealthBar")
 	if hb:
 		hb.queue_free()
+
+func rebuild_health_bar() -> void:
+	## Recreate badge/bars after external FX accidentally mutated overlay materials.
+	clear_health_bar()
+	_ensure_health_bar()
+	if _health_bar and _health_bar.has_method("refresh"):
+		_health_bar.call("refresh")
 
 func _apply_model_orientation(root: Node3D) -> void:
 	## Lay hull flat: longest axis → length (local Z), up stays Y when possible.
@@ -254,7 +311,19 @@ func _normalize_model_scale(root: Node3D) -> void:
 	var sc := display / mesh_longest
 	sc *= float(DataStore.visual.get("ship_visual_scale", 1.0))
 	if is_unmanned:
-		sc *= float(DataStore.visual.get("unmanned_visual_scale_mul", 0.125))
+		## Fighters = frigate size. Drones are fractions of frigate (heavy 1/2, medium 1/3, light 1/4).
+		if unmanned_kind == "fighter":
+			sc *= float(DataStore.visual.get("fighter_visual_scale_mul", 1.0))
+		else:
+			var sg := str(DataStore.get_ship(ship_id).get("ship_group", ""))
+			if sg == "drone_heavy" or unmanned_kind == "heavy_repair_drone":
+				sc *= float(DataStore.visual.get("drone_heavy_visual_scale_mul", 0.5))
+			elif sg == "drone_medium":
+				sc *= float(DataStore.visual.get("drone_medium_visual_scale_mul", 1.0 / 3.0))
+			elif sg == "drone_light" or unmanned_kind.find("repair") >= 0:
+				sc *= float(DataStore.visual.get("drone_light_visual_scale_mul", 0.25))
+			else:
+				sc *= float(DataStore.visual.get("unmanned_visual_scale_mul", 0.25))
 	root.scale = Vector3.ONE * sc
 	aabb = _aabb_in_ship_space(root)
 	var center := aabb.get_center()
@@ -339,9 +408,21 @@ func _find_meshes(node: Node) -> Array[MeshInstance3D]:
 func _tint_model(root: Node) -> void:
 	## Prefer Echoes §0 bundle with auxiliary control maps (pmwo/rg/reduction),
 	## else fall back to simpler albedo+normal tint.
-	var diffuse_path := DataStore.ship_diffuse_path(ship_id)
+	var diffuse_path := DataStore.ship_diffuse_path(ship_id) if DataStore and DataStore.has_method("ship_diffuse_path") else ""
 	var key := str(DataStore.get_ship(ship_id).get("model_key", ""))
-	var bundle := DataStore.resolve_model_bundle(key)
+	var bundle: Dictionary = {}
+	if DataStore != null and DataStore.has_method("resolve_model_bundle"):
+		bundle = DataStore.resolve_model_bundle(key)
+	else:
+		var root_dir := "res://assets/models/ships/%s" % key
+		bundle = {
+			"mesh": root_dir.path_join("model.glb"),
+			"albedo": root_dir.path_join("albedo.png"),
+			"normal": root_dir.path_join("normal.png"),
+			"pmwo": root_dir.path_join("pmwo.png"),
+			"rg": root_dir.path_join("rg.png"),
+			"reduction": root_dir.path_join("reduction.png"),
+		}
 	if not _texture_file_ok(diffuse_path):
 		diffuse_path = str(bundle.get("albedo", ""))
 	var diffuse := UiAssets.tex_ship_bake(diffuse_path) if diffuse_path != "" else null
@@ -370,9 +451,20 @@ func _tint_model(root: Node) -> void:
 	if diffuse == null and diffuse_path != "":
 		push_warning("ShipUnit missing diffuse ship_id=%s path=%s" % [ship_id, diffuse_path])
 	var neutral := Color(0.82, 0.84, 0.88, 1.0)
+	var use_unity := ShipLook.is_unity_standard()
 	for mi in _find_meshes(root):
 		var mat: Material
-		if diffuse and normal and pmwo and rg_tex and reduction:
+		if use_unity and diffuse and normal and (pmwo != null) and (rg_tex != null):
+			## Unity StandardShipShader port — needs albedo/normal/pmwo/rg (reduction optional).
+			var smat := ShaderMaterial.new()
+			smat.shader = _UNITY_SHIP_SHADER
+			smat.set_shader_parameter("albedo_tex", diffuse)
+			smat.set_shader_parameter("normal_tex", normal)
+			smat.set_shader_parameter("pmwo_tex", pmwo)
+			smat.set_shader_parameter("rg_tex", rg_tex)
+			ShipLook.apply_to_unity_shader_material(smat)
+			mat = smat
+		elif diffuse and normal and pmwo and rg_tex and reduction and not use_unity:
 			var smat := ShaderMaterial.new()
 			smat.shader = _ECHOES_SURFACE_SHADER
 			smat.set_shader_parameter("albedo_tex", diffuse)
@@ -388,15 +480,17 @@ func _tint_model(root: Node) -> void:
 			std.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 			std.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 			std.texture_repeat = true
+			# Solid hull: alpha/cull from GLB materials looks like “镂空”.
+			std.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 			std.cull_mode = BaseMaterial3D.CULL_DISABLED
 			if diffuse:
 				std.albedo_texture = diffuse
-				std.albedo_color = Color.WHITE
+				std.albedo_color = Color(1.0, 1.0, 1.0, 1.0)
 				std.ao_enabled = false
 			else:
 				## No albedo — fall back to a neutral hull tone, not race/team tint.
 				std.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				std.albedo_color = neutral
+				std.albedo_color = Color(neutral.r, neutral.g, neutral.b, 1.0)
 				std.emission_enabled = false
 			if normal:
 				std.normal_enabled = true
@@ -407,16 +501,25 @@ func _tint_model(root: Node) -> void:
 			std.roughness = 0.70
 			if diffuse:
 				ShipLook.apply_to_standard_material(std, ship_id, diffuse, diffuse_path)
+				std.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+				std.albedo_color.a = 1.0
 			mat = std
 		mi.material_override = mat
 		mi.material_overlay = null
+		# Drop GLB surface mats that may still carry alpha cutout under override edge cases.
 		if mi.mesh:
 			for si in range(mi.mesh.get_surface_count()):
 				mi.set_surface_override_material(si, mat)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 
 func _texture_file_ok(path: String) -> bool:
 	if path == "":
 		return false
+	# PCK / Android: globalize_path often misses packed res:// — use ResourceLoader first.
+	if ResourceLoader.exists(path):
+		return true
+	if FileAccess.file_exists(path):
+		return true
 	var abs_path := ProjectSettings.globalize_path(path)
 	return abs_path != "" and FileAccess.file_exists(abs_path)
 
@@ -442,9 +545,12 @@ func set_combat_tint(in_combat: bool) -> void:
 		for mi in _find_meshes(_model_root):
 			if mi.material_override is ShaderMaterial:
 				var smat := mi.material_override as ShaderMaterial
-				smat.set_shader_parameter("team_tint", Color.WHITE)
-				smat.set_shader_parameter("team_mix", 0.0)
-				smat.set_shader_parameter("combat_emission_strength", 0.08 if in_combat else 0.0)
+				if smat.shader == _UNITY_SHIP_SHADER:
+					smat.set_shader_parameter("combat_emission_strength", 0.06 if in_combat else 0.0)
+				else:
+					smat.set_shader_parameter("team_tint", Color.WHITE)
+					smat.set_shader_parameter("team_mix", 0.0)
+					smat.set_shader_parameter("combat_emission_strength", 0.08 if in_combat else 0.0)
 			elif mi.material_override is StandardMaterial3D:
 				var mat := mi.material_override as StandardMaterial3D
 				if mat.albedo_texture:
@@ -465,11 +571,17 @@ func reload_stats() -> void:
 	race = str(ship.get("race", "amarr")).to_lower()
 	attack_range = float(st.get("attack_range", 1))
 	var dmg: Dictionary = st.get("damage", {})
+	## DPH follows star row (×1/×2/×3). Repair always uses 1★ — stars do not raise logistic heal.
 	damage_emp = float(dmg.get("emp", 0))
 	damage_thermal = float(dmg.get("thermal", 0))
 	damage_kinetic = float(dmg.get("kinetic", 0))
 	damage_explosive = float(dmg.get("explosive", 0))
-	var rep: Dictionary = st.get("repair", {})
+	var rep_src: Dictionary = st
+	if is_logistic or str(ship.get("unmanned_kind", "")).find("repair") >= 0:
+		var st1: Dictionary = DataStore.get_star(ship_id, 1)
+		if not st1.is_empty():
+			rep_src = st1
+	var rep: Dictionary = rep_src.get("repair", {})
 	repair_shield = float(rep.get("shield", 0))
 	repair_armor = float(rep.get("armor", 0))
 	repair_structure = float(rep.get("structure", 0))
@@ -479,6 +591,9 @@ func reload_stats() -> void:
 		max_structure = float(st.get("structure_hp", 0))
 	else:
 		max_structure = maxf(50.0, roundf(max_armor * 0.5))
+	base_max_shield = max_shield
+	base_max_armor = max_armor
+	base_max_structure = max_structure
 	shield_hp = max_shield
 	armor_hp = max_armor
 	structure_hp = max_structure
@@ -515,7 +630,12 @@ func reload_stats() -> void:
 	if cycle <= 0.0:
 		cycle = float(cd.get("logistic_attack_duration_s" if is_logistic else "attack_duration_s", 1.0))
 	var cap_s := float(cd.get("attack_cycle_cap_s", 6.0))
-	attack_duration = minf(cycle, cap_s)
+	## Capitals / cyno / explicit long cycles keep JSON cycle (siege & 90s channel).
+	var role := str(ship.get("capital_role", ""))
+	if role != "" or bool(ship.get("requires_cyno_entry", false)):
+		attack_duration = cycle
+	else:
+		attack_duration = minf(cycle, cap_s)
 	base_attack_duration = attack_duration
 	is_destroyed = false
 	is_unmanned = bool(ship.get("is_unmanned", false))
@@ -540,6 +660,11 @@ func reset_combat_runtime() -> void:
 	combat_target = null
 	last_attack_time = -999.0
 	_stat_modifiers.clear()
+	## Carrier pool re-inits on next ensure; do not wipe living fighters' squadron id.
+	fighter_squadron_pool_left = -1
+	fighter_next_squadron_id = 0
+	if not is_unmanned:
+		fighter_squadron_id = -1
 
 func get_stat(stat_name: String, base_value: float) -> float:
 	var add := 0.0
@@ -584,7 +709,7 @@ func tick_stat_modifiers(sim_dt: float) -> void:
 func combat_move_speed() -> float:
 	var wu := CombatFormulas.world_units_per_cell()
 	var move_scale := float(DataStore.combat.get("move_speed_scale", 1.65))
-	var m_per_cell := float(DataStore.combat.get("meters_per_cell", 500.0))
+	var m_per_cell := float(DataStore.combat.get("speed_meters_per_cell", DataStore.combat.get("meters_per_cell", 500.0)))
 	var spd := get_stat("speed", base_speed)
 	var mapped := spd / m_per_cell * wu * move_scale * fetter_speed_mul
 	var speed := maxf(mapped, 0.5)
@@ -598,8 +723,13 @@ func cap_fraction() -> float:
 	return cap_current / cap_capacity
 
 func attacks_enabled() -> bool:
+	if has_cyno_module():
+		return false
 	var frac_need := float(DataStore.combat.get("cap_disable_attack_function_pct", 0.10))
 	return cap_fraction() >= frac_need
+
+func has_offensive_damage() -> bool:
+	return (damage_emp + damage_thermal + damage_kinetic + damage_explosive) > 0.001
 
 func functions_enabled() -> bool:
 	return attacks_enabled()
@@ -707,7 +837,10 @@ func sum_damage_amount(dmg: Dictionary) -> float:
 	return float(dmg.get("emp", 0.0)) + float(dmg.get("thermal", 0.0)) + float(dmg.get("kinetic", 0.0)) + float(dmg.get("explosive", 0.0))
 
 func heal_dict_scaled() -> Dictionary:
-	var mul := float(DataStore.combat.get("logistic_heal_multiplier", 2.0)) * fetter_repair_mul
+	# FAX heavy repair drones use fixed per-cycle values from content (no global x2 logistic multiplier).
+	var mul := fetter_repair_mul
+	if str(unmanned_kind) != "heavy_repair_drone":
+		mul *= float(DataStore.combat.get("logistic_heal_multiplier", 2.0))
 	return {
 		"shield": repair_shield * mul,
 		"armor": repair_armor * mul,
@@ -746,8 +879,28 @@ func update_retreat(sim_time: float) -> void:
 func in_retreat(sim_time: float) -> bool:
 	return retreat_until_time > sim_time
 
+func world_range() -> float:
+	if unlimited_weapon_range:
+		return 9999.0
+	return attack_range * float(DataStore.combat.get("weapon_range_scale", 3.0))
+
 func world_range_cells() -> float:
+	if unlimited_weapon_range:
+		return 9999.0
 	return attack_range
+
+func has_cyno_module() -> bool:
+	for m in _plugin_modules:
+		if str((m as Dictionary).get("kind", "")) == "cyno":
+			return true
+	return capital_role == "covert_cyno"
+
+func cyno_duration_s() -> float:
+	for m in _plugin_modules:
+		var md: Dictionary = m
+		if str(md.get("kind", "")) == "cyno":
+			return float(md.get("duration_s", 90.0))
+	return 90.0
 
 func world_range_wu() -> float:
 	return world_range()
@@ -767,8 +920,12 @@ func upgrade_level() -> void:
 func get_cost() -> int:
 	return int(DataStore.get_ship(ship_id).get("cost", 0))
 
-func world_range() -> float:
-	return attack_range * float(DataStore.combat.get("weapon_range_scale", 3.0))
+func get_sell_price() -> int:
+	## Sell = purchase cost − discount, floor min (economy.json).
+	var eco: Dictionary = DataStore.economy if DataStore else {}
+	var discount := int(eco.get("sell_price_discount", 3))
+	var floor_p := int(eco.get("sell_price_min", 1))
+	return maxi(floor_p, get_cost() - discount)
 
 ## World-space muzzle ≈ turret: cached ShipUnit-local bow (3DS meshes have no hardpoints).
 func get_muzzle_global() -> Vector3:

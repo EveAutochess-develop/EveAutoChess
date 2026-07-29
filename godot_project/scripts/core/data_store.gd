@@ -46,7 +46,11 @@ func ship_diffuse_path(ship_id: int) -> String:
 
 func ship_portrait_path(ship_id: int) -> String:
 	var m: Dictionary = ship_portraits.get("ships", {})
-	return str(m.get(str(ship_id), ""))
+	var mapped := str(m.get(str(ship_id), ""))
+	if mapped != "":
+		return mapped
+	var s := get_ship(ship_id)
+	return str(s.get("portrait", ""))
 
 func _res_file_ok(path: String) -> bool:
 	if path == "":

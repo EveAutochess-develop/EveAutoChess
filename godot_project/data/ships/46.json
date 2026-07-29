@@ -4,7 +4,7 @@
   "name_en": "Abaddon",
   "type_id": 24692,
   "model_key": "am_diyutianshi",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],

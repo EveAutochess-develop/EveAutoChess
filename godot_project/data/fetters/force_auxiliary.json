@@ -1,0 +1,13 @@
+{
+  "id": "force_auxiliary",
+  "name": "后勤航",
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "RemoteRepair",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 10.0
+    }
+  ]
+}

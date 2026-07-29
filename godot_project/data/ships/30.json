@@ -4,7 +4,7 @@
   "name_en": "Bellicose",
   "type_id": 630,
   "model_key": "mmte_tiaozhan",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

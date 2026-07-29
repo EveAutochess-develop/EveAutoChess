@@ -4,7 +4,7 @@
   "name_en": "Stabber",
   "type_id": 622,
   "model_key": "mmte_cike",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

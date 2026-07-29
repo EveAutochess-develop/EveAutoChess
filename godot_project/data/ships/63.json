@@ -4,7 +4,7 @@
   "name_en": "Hel",
   "type_id": 22852,
   "model_key": "mmte_siwangxuanwo",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],
@@ -23,10 +23,10 @@
   "weapon_fx": "missile",
   "weapon_tier": "large",
   "race": "minmatar",
-  "signature_radius": 400.0,
+  "signature_radius": 300.0,
   "sensor_strength": 16.0,
   "scan_resolution": 200.0,
-  "speed": 150.0,
+  "speed": 230.0,
   "mass": 10000000.0,
   "agility": 0.5,
   "capacitor_capacity": 3000.0,

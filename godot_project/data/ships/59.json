@@ -4,7 +4,7 @@
   "name_en": "Tempest",
   "type_id": 639,
   "model_key": "mmte_baofeng",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],
@@ -42,7 +42,7 @@
   "hi_slots": 7,
   "med_slots": 4,
   "low_slots": 6,
-  "source_module_type_id": 498,
+  "source_module_type_id": 120100101,
   "source_repair_module_type_id": 0,
   "stars": [
     {

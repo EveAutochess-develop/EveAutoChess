@@ -22,7 +22,14 @@ func build(mode: String = "endless") -> Node3D:
 	if mode != "endless":
 		var left_cell := _leftmost_hangar_cell()
 		_spawn_citadel_under_board("空堡", size, ShipUnit.TEAM_AI, left_cell, false)
+	_spawn_asteroid_belt()
 	return player_citadel
+
+func _spawn_asteroid_belt() -> void:
+	var belt := AsteroidBelt.new()
+	add_child(belt)
+	belt.build()
+	print("[MapEnv] asteroid belt anchors=%d" % belt.mining_anchors.size())
 
 func _rightmost_hangar_cell() -> Vector3:
 	## Player hangar x=0 is the +X tip (hangar_offset_x < 0).
@@ -39,7 +46,6 @@ func _leftmost_field_cell() -> Vector3:
 
 func _extreme_field_cell(want_max_x: bool) -> Vector3:
 	var b := DataStore.board
-	var fw := int(b.get("field_width", 11))
 	var fh := int(b.get("field_height", 6))
 	var best := Vector3.ZERO
 	var best_x := -INF if want_max_x else INF
@@ -47,7 +53,8 @@ func _extreme_field_cell(want_max_x: bool) -> Vector3:
 	var found := false
 	for team in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
 		for z in range(fh):
-			for x in range(fw):
+			var cols := BoardController.field_cols_at(z)
+			for x in range(cols):
 				var p := _cell_to_world("field", team, x, z)
 				var better := false
 				if want_max_x:
@@ -115,6 +122,7 @@ func _spawn_citadel_under_board(
 		tex_path = mapped
 	_apply_ship_like_hull(n, tex_path, team_id)
 	MobileModelLoad.apply_tree(n, target_size)
+	_attach_citadel_light(n, player_side)
 	n.position.y -= 0.02
 	var scaled_size := Vector3(aabb.size.x * n.scale.x, aabb.size.y * n.scale.y, aabb.size.z * n.scale.z)
 	print("[MapEnv] citadel under board team=%d pos=%s anchor=%s scaled_size=%s corner=%s" % [
@@ -278,6 +286,25 @@ func _normalize_size(root: Node3D, target: float) -> void:
 	if longest < 0.0001:
 		return
 	root.scale = Vector3.ONE * (target / longest)
+
+func _attach_citadel_light(root: Node3D, player_side: bool) -> void:
+	## Dedicated citadel key light — independent of board ship fill lights.
+	var energy := float(DataStore.visual.get("citadel_light_energy", 3.2))
+	if energy <= 0.001:
+		return
+	var light := OmniLight3D.new()
+	light.name = "CitadelLight"
+	light.light_energy = energy
+	light.omni_range = float(DataStore.visual.get("citadel_light_range", 28.0))
+	light.light_color = Color(
+		float(DataStore.visual.get("citadel_light_color_r", 1.0)),
+		float(DataStore.visual.get("citadel_light_color_g", 0.92)),
+		float(DataStore.visual.get("citadel_light_color_b", 0.78))
+	)
+	light.shadow_enabled = false
+	## Local offset above/outward so the hull catches the key without bleaching ships.
+	light.position = Vector3(4.0 if player_side else -4.0, 10.0, 3.0 if player_side else -3.0)
+	root.add_child(light)
 
 func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
 	var tex := UiAssets.tex_ship_bake(tex_path) if tex_path != "" else null

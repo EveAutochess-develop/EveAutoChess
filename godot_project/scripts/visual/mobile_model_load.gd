@@ -4,20 +4,17 @@ class_name MobileModelLoad
 ## Mobile additionally recompresses with ARRAY_FLAG_COMPRESS_ATTRIBUTES (half-float attrs).
 
 static func precision_enabled() -> bool:
+	## Default OFF: keep=0.5 decimation looks like hull 镂空 (BUG_REGRESSION §3.4).
 	if DataStore and DataStore.visual is Dictionary:
-		return bool(DataStore.visual.get("model_load_precision_enabled", true))
-	return true
+		return bool(DataStore.visual.get("model_load_precision_enabled", false))
+	return false
 
 
 static func mobile_compress_enabled() -> bool:
+	## Attribute recompress mutates ArrayMesh and has caused hull 镂空; off unless explicitly opted in.
 	if DataStore and DataStore.visual is Dictionary:
-		if bool(DataStore.visual.get("model_half_precision_all_platforms", false)):
-			return true
-	if not UiLayout.is_mobile():
-		return false
-	if DataStore and DataStore.visual is Dictionary:
-		return bool(DataStore.visual.get("mobile_half_precision_models", true))
-	return true
+		return bool(DataStore.visual.get("model_half_precision_compress_enabled", false))
+	return false
 
 
 ## display_size < 0 → baseline only (no scale extra). Returns vertex/texture keep ratio ∈ (0, 1].
@@ -206,11 +203,11 @@ static func _compress_mesh_instance(mi: MeshInstance3D) -> void:
 			st.create_from(src, s)
 			st.generate_tangents()
 			var tmp_mesh: ArrayMesh = st.commit()
-			if tmp_mesh == null or tmp_mesh.get_surface_count() < 1:
-				continue
-			arrays = tmp_mesh.surface_get_arrays(0)
-			if arrays.is_empty() or arrays[Mesh.ARRAY_VERTEX] == null:
-				continue
+			if tmp_mesh != null and tmp_mesh.get_surface_count() >= 1:
+				var t_arrays: Array = tmp_mesh.surface_get_arrays(0)
+				if not t_arrays.is_empty() and t_arrays[Mesh.ARRAY_VERTEX] != null:
+					arrays = t_arrays
+			# If tangent gen fails, keep original arrays — never drop the surface (镂空).
 		var flags := Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES
 		out.add_surface_from_arrays(prim, arrays, [], {}, flags)
 		var mat := src.surface_get_material(s)

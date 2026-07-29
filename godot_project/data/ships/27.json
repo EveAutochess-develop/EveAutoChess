@@ -4,7 +4,7 @@
   "name_en": "Rupture",
   "type_id": 629,
   "model_key": "mmte_duanya",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

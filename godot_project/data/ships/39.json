@@ -4,7 +4,7 @@
   "name_en": "Thorax",
   "type_id": 627,
   "model_key": "glt_tuolekesi",
-  "cost": 4,
+  "cost": 5,
   "ship_groups": [
     "cruiser"
   ],

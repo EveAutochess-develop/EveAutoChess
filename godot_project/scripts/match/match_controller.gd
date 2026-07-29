@@ -19,11 +19,14 @@ var mode: String = "versus"  # versus | endless
 var player_gold: int = 0
 var player_hp: int = 1000
 var player_max_hp: int = 1000
+var ai_hp: int = 1000
+var ai_max_hp: int = 1000
 var player_level: int = 1
 var player_exp: int = 0
 var up_level_demand: int = 4
 var shop_locked: bool = false
 var speed_multiplier: float = 1.0
+var _preferred_battle_speed: float = 1.0
 
 var win_streak: int = 0
 var loss_streak: int = 0
@@ -34,15 +37,22 @@ var _board: BoardController
 var _shop: ShopController
 var _combat: CombatResolver
 var _ai: AiController
+var _cyno: CynoController
 var _running: bool = false
 var _speed_step_index: int = 0
 var _sim_accum: float = 0.0
+## True when battle opens with either side already empty (symmetric instant wipe; no min_battle wait).
+var _battle_opened_empty: bool = false
+
+const SETTINGS_PATH := "user://player_settings.cfg"
 
 func bind(board: BoardController, shop: ShopController, combat: CombatResolver, ai: AiController) -> void:
 	_board = board
 	_shop = shop
 	_combat = combat
 	_ai = ai
+	_cyno = CynoController.new()
+	_cyno.bind(board, self, combat)
 	AdminBus.after_handoff.connect(_on_admin_after)
 
 func start_match(p_mode: String) -> void:
@@ -52,6 +62,8 @@ func start_match(p_mode: String) -> void:
 	player_gold = int(eco.get("base_gold", 5))
 	player_max_hp = int(mf.get("player_max_hp", 1000))
 	player_hp = player_max_hp
+	ai_max_hp = int(mf.get("ai_max_hp", mf.get("player_max_hp", 1000)))
+	ai_hp = ai_max_hp
 	player_level = 1
 	player_exp = 0
 	up_level_demand = int(eco.get("initial_level_exp_demand", 4))
@@ -86,20 +98,31 @@ func _process(delta: float) -> void:
 		_sim_accum += sim_delta
 		while _sim_accum >= fixed:
 			_combat.tick(fixed)
+			if _cyno:
+				_cyno.tick(_combat.sim_time())
 			_sim_accum -= fixed
 		var bdur := float(mf.get("battle_duration_s", 1800))
-		var min_b := float(mf.get("min_battle_duration_s", 1.25))
+		## Opened empty (either side): skip wait — same rule for player and AI. Mid-fight wipe still uses min_battle.
+		var min_b := 0.0 if _battle_opened_empty else float(mf.get("min_battle_duration_s", 1.25))
 		if timer >= bdur:
+			if _cyno != null and _cyno.has_active_channels():
+				_cyno.force_complete_all(_combat.sim_time())
 			notice.emit("战斗未能在时限内结束")
 			_on_combat_complete("timeout")
 		elif timer >= min_b and _board.is_one_side_cleared():
-			_on_combat_complete("wipe")
+			## Keep battle alive while covert cyno is still channeling (otherwise wipe ends before 90s warp).
+			if _cyno != null and _cyno.has_active_channels():
+				pass
+			else:
+				_on_combat_complete("wipe")
 	hud_refresh.emit()
 
 func _init_speed_multiplier() -> void:
+	_load_preferred_battle_speed()
 	var mf: Dictionary = DataStore.match_flow
 	var steps: Array = mf.get("speed_steps", [0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0])
-	speed_multiplier = float(mf.get("speed_multiplier", 1.0))
+	## Preferred is for Battle; Prepare forces 1× in _enter_prepare.
+	speed_multiplier = _preferred_battle_speed
 	_speed_step_index = 0
 	for i in range(steps.size()):
 		if absf(float(steps[i]) - speed_multiplier) < 0.001:
@@ -109,10 +132,27 @@ func _init_speed_multiplier() -> void:
 		if float(steps[i]) >= speed_multiplier:
 			_speed_step_index = i
 			speed_multiplier = float(steps[i])
+			_preferred_battle_speed = speed_multiplier
 			return
 	if steps.size() > 0:
 		_speed_step_index = steps.size() - 1
 		speed_multiplier = float(steps[_speed_step_index])
+		_preferred_battle_speed = speed_multiplier
+
+func _load_preferred_battle_speed() -> void:
+	var mf: Dictionary = DataStore.match_flow
+	var fallback := float(mf.get("speed_multiplier", 1.0))
+	_preferred_battle_speed = fallback
+	var cf := ConfigFile.new()
+	if cf.load(SETTINGS_PATH) != OK:
+		return
+	_preferred_battle_speed = float(cf.get_value("match", "battle_speed", fallback))
+
+func _save_preferred_battle_speed() -> void:
+	var cf := ConfigFile.new()
+	cf.load(SETTINGS_PATH)
+	cf.set_value("match", "battle_speed", _preferred_battle_speed)
+	cf.save(SETTINGS_PATH)
 
 func cycle_speed() -> void:
 	if stage == Stage.PREPARE:
@@ -122,6 +162,8 @@ func cycle_speed() -> void:
 		return
 	_speed_step_index = (_speed_step_index + 1) % steps.size()
 	speed_multiplier = float(steps[_speed_step_index])
+	_preferred_battle_speed = speed_multiplier
+	_save_preferred_battle_speed()
 	hud_refresh.emit()
 
 func speed_label() -> String:
@@ -135,7 +177,7 @@ func battle_remaining() -> float:
 func _enter_prepare() -> void:
 	stage = Stage.PREPARE
 	timer = 0.0
-	## Force 1× during prepare so leftover battle speed cannot shorten the clock.
+	## Force 1× during prepare; keep preferred battle speed for next Battle.
 	speed_multiplier = 1.0
 	var steps: Array = DataStore.match_flow.get("speed_steps", [1.0])
 	_speed_step_index = 0
@@ -149,10 +191,15 @@ func _enter_prepare() -> void:
 	_combat.stop_combat()
 	kills_this_round_player = 0
 	kills_this_round_ai = 0
+	if _cyno:
+		_cyno.on_prepare_start()
 	stage_changed.emit(stage)
 	hud_refresh.emit()
+	_autosave_match()
 
 func _on_prepare_complete() -> void:
+	if _ai and _ai.has_method("finalize_prepare"):
+		_ai.finalize_prepare()
 	var payload := {"stage": "battle", "battle_phase": battle_phase_value, "round_phase": round_phase_value}
 	var res := AdminBus.request(&"match.stage_change", payload)
 	if not res.get("accepted", true):
@@ -160,20 +207,43 @@ func _on_prepare_complete() -> void:
 	stage = Stage.BATTLE
 	timer = 0.0
 	_sim_accum = 0.0
+	## Restore preferred battle speed (clears prepare-only skip turbo).
+	var steps: Array = DataStore.match_flow.get("speed_steps", [1.0])
+	speed_multiplier = _preferred_battle_speed
+	_speed_step_index = 0
+	for i in range(steps.size()):
+		if absf(float(steps[i]) - speed_multiplier) < 0.001:
+			_speed_step_index = i
+			break
 	_board.set_prepare_mode(false)
 	_combat.start_combat()
-	if _board.is_one_side_cleared():
+	if _cyno:
+		_cyno.on_battle_start(0.0)
+	_battle_opened_empty = _board.is_one_side_cleared()
+	if _battle_opened_empty:
 		var p := _board.count_alive_field(ShipUnit.TEAM_PLAYER)
 		var a := _board.count_alive_field(ShipUnit.TEAM_AI)
-		if p == 0:
-			notice.emit("场上无己方舰船，本回合将快速结算")
-		elif a == 0:
-			notice.emit("敌方场上无舰，本回合将快速结算")
-		print("[match] battle open with empty side player=%d ai=%d — wipe after min_battle" % [p, a])
+		## Symmetric notice — either side empty skips the fight wait.
+		if p == 0 and a == 0:
+			notice.emit("双方场上无舰，本回合跳过")
+		elif p == 0:
+			notice.emit("场上无己方舰船，本回合跳过")
+		else:
+			notice.emit("敌方场上无舰，本回合跳过")
+		print("[match] battle open with empty side player=%d ai=%d — skip wipe" % [p, a])
 	stage_changed.emit(stage)
+
+func skip_prepare() -> void:
+	## Prepare-only turbo: accelerate the prepare timer (does not jump stages).
+	if stage != Stage.PREPARE or not _running:
+		return
+	speed_multiplier = float(DataStore.match_flow.get("prepare_skip_speed", 100.0))
+	hud_refresh.emit()
+	notice.emit("备战加速 ×%d" % int(speed_multiplier))
 
 func _on_combat_complete(reason: String = "wipe") -> void:
 	_combat.stop_combat()
+	_battle_opened_empty = false
 	print("[match] combat complete reason=%s player_field=%d ai_field=%d round=%d-%d" % [
 		reason,
 		_board.count_alive_field(ShipUnit.TEAM_PLAYER),
@@ -196,7 +266,7 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 		_shop.refresh_shop(true)
 	_grant_exp(int(DataStore.economy.get("base_exp_income", 4)))
 	_ai.after_round()
-	if player_hp <= 0:
+	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
 		_end_match()
 		return
 	_enter_prepare()
@@ -245,7 +315,11 @@ func _resolve_citadel_and_income() -> void:
 			var p2: Dictionary = r.get("payload", cit)
 			_take_player_damage(int(p2.get("damage", a_dmg)))
 	if mode != "endless" and p_dmg > 0 and p_alive > 0:
-		AdminBus.request(&"citadel.damage", {"source_team": ShipUnit.TEAM_PLAYER, "target_team": ShipUnit.TEAM_AI, "damage": p_dmg, "alive_ships": p_alive})
+		var cit_ai := {"source_team": ShipUnit.TEAM_PLAYER, "target_team": ShipUnit.TEAM_AI, "damage": p_dmg, "alive_ships": p_alive}
+		var r_ai := AdminBus.request(&"citadel.damage", cit_ai)
+		if r_ai.get("accepted", true):
+			var a2: Dictionary = r_ai.get("payload", cit_ai)
+			_take_ai_damage(int(a2.get("damage", p_dmg)))
 	_update_streaks(player_won)
 	if _ai and _ai.has_method("update_streaks"):
 		_ai.update_streaks(ai_won)
@@ -328,8 +402,20 @@ func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionar
 		kills_this_round_ai += 1
 
 func _take_player_damage(amount: int) -> void:
-	player_hp = maxi(0, player_hp - amount)
-	notice.emit("主堡受到 %d 伤害" % amount)
+	var dmg := amount
+	var mf: Dictionary = DataStore.match_flow
+	if bool(mf.get("citadel_test_mode", false)):
+		dmg = int(mf.get("citadel_test_loss_damage", 1))
+	player_hp = maxi(0, player_hp - dmg)
+	notice.emit("主堡受到 %d 伤害" % dmg)
+
+func _take_ai_damage(amount: int) -> void:
+	var dmg := amount
+	var mf: Dictionary = DataStore.match_flow
+	if bool(mf.get("citadel_test_mode", false)):
+		dmg = int(mf.get("citadel_test_loss_damage", 1))
+	ai_hp = maxi(0, ai_hp - dmg)
+	notice.emit("对手主堡受到 %d 伤害" % dmg)
 
 func _grant_exp(amount: int) -> void:
 	player_exp += amount
@@ -377,14 +463,24 @@ func prepare_remaining() -> float:
 func battle_elapsed() -> float:
 	return timer
 
-func skip_prepare() -> void:
-	if stage != Stage.PREPARE or not _running:
-		return
-	_on_prepare_complete()
-
 func _end_match() -> void:
 	stage = Stage.GAME_END
 	_running = false
-	var summary := "最终等级为 %d" % player_level
+	MatchSave.clear()
+	var summary: String
+	if player_hp <= 0 and (mode == "endless" or ai_hp > 0):
+		summary = "主堡失守 · 最终等级 %d" % player_level
+	elif mode != "endless" and ai_hp <= 0:
+		summary = "击破对手主堡 · 最终等级 %d" % player_level
+	else:
+		summary = "最终等级为 %d" % player_level
 	match_over.emit(summary)
 	stage_changed.emit(stage)
+
+func _autosave_match() -> void:
+	if stage != Stage.PREPARE:
+		return
+	if GameSession and bool(GameSession.get("resume_save")):
+		## Resume path loads into memory then applies; skip overwriting the slot mid-start.
+		return
+	MatchSave.save_from_match(self, _board, _ai)

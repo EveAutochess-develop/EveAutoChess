@@ -4,7 +4,7 @@
   "name_en": "Talwar",
   "type_id": 32878,
   "model_key": "mmte_wandao",
-  "cost": 2,
+  "cost": 3,
   "ship_groups": [
     "destroyer"
   ],

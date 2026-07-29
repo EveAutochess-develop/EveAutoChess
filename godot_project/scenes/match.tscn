@@ -89,6 +89,11 @@ theme_override_font_sizes/font_size = 14
 text = "ver"
 horizontal_alignment = 2
 
+[node name="CamModeBtn" type="Button" parent="HUD/Root/TopRight"]
+custom_minimum_size = Vector2(96, 36)
+layout_mode = 2
+text = "自由视角"
+
 [node name="PauseBtn" type="Button" parent="HUD/Root/TopRight"]
 custom_minimum_size = Vector2(72, 36)
 layout_mode = 2
@@ -373,6 +378,7 @@ theme_override_font_sizes/font_size = 22
 horizontal_alignment = 1
 text = "notice"
 
+[connection signal="pressed" from="HUD/Root/TopRight/CamModeBtn" to="." method="_on_camera_mode_pressed"]
 [connection signal="pressed" from="HUD/Root/TopRight/PauseBtn" to="." method="_on_pause_pressed"]
 [connection signal="pressed" from="HUD/Root/TopRight/ExitBtn" to="." method="_on_menu_pressed"]
 [connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/RefreshBtn" to="." method="_on_refresh_pressed"]

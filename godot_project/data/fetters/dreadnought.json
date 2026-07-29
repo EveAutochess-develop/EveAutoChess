@@ -1,0 +1,13 @@
+{
+  "id": "dreadnought",
+  "name": "无畏舰",
+  "effects": [
+    {
+      "champion_count": 2,
+      "effect_type": "Damage",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 12.0
+    }
+  ]
+}

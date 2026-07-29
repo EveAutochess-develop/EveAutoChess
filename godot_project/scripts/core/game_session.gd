@@ -4,9 +4,42 @@ extends Node
 var pending_mode: String = "versus"
 var shell_version: String = "1.0.0-shell"
 var target_fps: int = 60
+var no_model_perf_mode: bool = false
+## Player override for camera breathe (options menu). true = on.
+var camera_breathe_enabled: bool = true
+var resume_save: bool = false
+## Empty → last_match.json; otherwise named slot path / id via MatchSave.
+var resume_slot_id: String = ""
+
+const SETTINGS_PATH := "user://player_settings.cfg"
 
 func _ready() -> void:
+	_load_settings()
 	_apply_platform_render_profile()
+
+func _load_settings() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(SETTINGS_PATH) != OK:
+		return
+	target_fps = int(cf.get_value("graphics", "target_fps", target_fps))
+	no_model_perf_mode = bool(cf.get_value("graphics", "no_model_perf_mode", false))
+	camera_breathe_enabled = bool(cf.get_value("graphics", "camera_breathe_enabled", true))
+
+func save_settings() -> void:
+	var cf := ConfigFile.new()
+	cf.load(SETTINGS_PATH)
+	cf.set_value("graphics", "target_fps", target_fps)
+	cf.set_value("graphics", "no_model_perf_mode", no_model_perf_mode)
+	cf.set_value("graphics", "camera_breathe_enabled", camera_breathe_enabled)
+	cf.save(SETTINGS_PATH)
+
+func set_no_model_perf_mode(on: bool) -> void:
+	no_model_perf_mode = on
+	save_settings()
+
+func set_camera_breathe_enabled(on: bool) -> void:
+	camera_breathe_enabled = on
+	save_settings()
 
 func _apply_platform_render_profile() -> void:
 	## PC: high 3D resolve + MSAA8. Mobile: 1.0 / MSAA off (4× greyscreens phones).

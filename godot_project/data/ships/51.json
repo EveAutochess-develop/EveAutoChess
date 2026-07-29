@@ -4,7 +4,7 @@
   "name_en": "Raven",
   "type_id": 638,
   "model_key": "jdl_wuya",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],

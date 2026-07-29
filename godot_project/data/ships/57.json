@@ -4,7 +4,7 @@
   "name_en": "Megathron",
   "type_id": 641,
   "model_key": "glt_wanwangbaozuo",
-  "cost": 5,
+  "cost": 13,
   "ship_groups": [
     "battleship"
   ],

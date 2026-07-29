@@ -1,0 +1,139 @@
+{
+  "asteroids": [
+    {
+      "stem": "as1_s_01",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/small/as1_s_01/as1_s_01.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "as1_s_02",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/small/as1_s_02/as1_s_02.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "as1_s_03",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/small/as1_s_03/as1_s_03.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "as1_m_01",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/medium/as1_m_01/as1_m_01.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "as1_m_02",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/medium/as1_m_02/as1_m_02.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "as1_m_03",
+      "res": "res:/dx9/model/celestial/environment/rock/asteroidset_01/medium/as1_m_03/as1_m_03.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "rock_01_m_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_01/medium/rock_01_m_v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_01_m_v1.glb",
+      "mesh": "�\u0012�\u0012�\u0012�)�ETD\u001e E-�\nR\u000b\u0015,�&�8_4�:�8I\u0014i.�5>;�Bc'�)�%o\u001f�%�)\u00047�\u001e�2R;�\u0006�3�\u0006\u00196�8�'\u001c4�\u0003�'�Bg8}#",
+      "verts": 18635,
+      "tris": 33324,
+      "bytes": 1600832
+    },
+    {
+      "stem": "rock_01_m_v2",
+      "res": "res:/dx9/model/celestial/asteroid/rock_01/medium/rock_01_m_v2.gr2",
+      "glb": "assets/models/env/asteroids/rock_01_m_v2.glb",
+      "mesh": "fuse8Shape",
+      "verts": 15236,
+      "tris": 28313,
+      "bytes": 1360308
+    },
+    {
+      "stem": "rock_02_m_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_02/medium/rock_02_m_v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_02_m_v1.glb",
+      "mesh": "",
+      "verts": 17813,
+      "tris": 31640,
+      "bytes": 1520000
+    },
+    {
+      "stem": "rock_03_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_03/rock_03v1.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "rock_03_v2",
+      "res": "res:/dx9/model/celestial/asteroid/rock_03/rock_03v2.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "rock_05_v01",
+      "res": "res:/dx9/model/celestial/asteroid/rock_05/rock_05v01.gr2",
+      "error": "no meshes (count=0)"
+    },
+    {
+      "stem": "rock_01_m_v3",
+      "res": "res:/dx9/model/celestial/asteroid/rock_01/medium/rock_01_m_v3.gr2",
+      "glb": "assets/models/env/asteroids/rock_01_m_v3.glb",
+      "mesh": "fuse8Shape",
+      "verts": 16963,
+      "tris": 31108,
+      "bytes": 1494464
+    },
+    {
+      "stem": "rock_02_m_v2",
+      "res": "res:/dx9/model/celestial/asteroid/rock_02/medium/rock_02_m_v2.gr2",
+      "glb": "assets/models/env/asteroids/rock_02_m_v2.glb",
+      "mesh": "rock_02_m_v2Shape",
+      "verts": 13900,
+      "tris": 25271,
+      "bytes": 1214288
+    },
+    {
+      "stem": "rock_02_m_v3",
+      "res": "res:/dx9/model/celestial/asteroid/rock_02/medium/rock_02_m_v3.gr2",
+      "glb": "assets/models/env/asteroids/rock_02_m_v3.glb",
+      "mesh": "fuse8Shape",
+      "verts": 17163,
+      "tris": 31082,
+      "bytes": 1493216
+    },
+    {
+      "stem": "rock_02_s_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_02/small/rock_02_s_v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_02_s_v1.glb",
+      "mesh": "�\u0010�\r�\u0010�\u000e�\n\u000b\u0010VE�E}Ec\t=\u0010X\t\u0013\r~\u0010�\u000f�EuEtE\n\u000bN\u0010\u0016\u000b�\u000f�\u000f\u000fn\u000e�\u0010�\u000fJ\u0010\u0015\u0010�\t1\u000f~\u0010�\u000f�\u000f�\u0010�\fV\rP\r�\u000e�\f�\f5\u0010(\na\u0010h\u000e�\u000e\u0014\u000b\u0017\u000b[E\u0017E�\u0010�\u000f�\u0010S\u000b%\u0010E\r~\u000f�\nj\u000e�\ng\rV\r~\u000fM\u0010�\u0010�\u000fqE�E�E�\f�\u0010�\f�\u0010P\u0010�\u0010�\u000f�\r}\u000f�\u0010~\u000e�\u000f�\u000fy\f\u0004\u0010\u0005\r{\u0010�\u000f-\u000b0\u000b\u001c\u0010^\t\u0012\u000fh\t�\u000b�\u0010/\u000bqEz\u000eO\u0010�\u000fQ\u0010W\u0010Y\r�\u000eX\rS\u000eb\u0010\r\u000b�\nL\u0010�\nB\n%\u000f7\n�\u000b@\u000f\u001f\u0010�\f�\u0010�\u000f�\u0010�\f�\f�\n>\u0010�\n�\u000e&\n�\u000eU\nj\u0010[\nS\u000e�\f~\f�\u000b\u0004\f�\u000b\u0004\f�\u000b�\u000eF\tX\t�\u000bX\tF\tB\t�\u000b\u000b\u000fo\t0\u000b1\u000b\u001c\u0010\u0015\u0010J\u0010�\t�\u000b�\u000e<\u000fd\u0010�\u000e�\u000eX\u0010�\n�\u000e'\r/\r�\u000eL\r�\u000eM\r�\u0010�\tm\u0010x\n�\n�\nG\rH\rI\rY\f�\u000eh\f�\u000f'\u00100\u000fX\te\tc\t�\u0010�\r�\u000f�\u0010R\u000fb\u000e\u000e�\u000f|\u000e�\f�\f�\f%\u000fB\n:\n�\u000eb\u0010}\f�\u000e}\f�\fd\u0010�\u000e�\t�\f�\fn\u000e�\u000bE\t\u000b\u000fE\t�\u000b�\u000b1\u000f�\u000e~\u0010O\u000eP\u000er\u000e\u000e\u0010p\t\f\u000fm\f2\fd\f\\\u0010`\u000b_\u000bd\u000eV\u000e�\u000e�\f�\f�\fZ\u000e\t\u000fY\u0010�\u000e,\u0010�\u000e \u000b\u0011\u000b8\u0010�\u000b\b\u000f5E�\n�\n�\n�\u000f\u000e\n�\tk\u000f�\n�\n�\u000eI\rH\r�\u0010�\t�\u0010�\r�\u0010�\r�\u000em\fd\f3\u0010*\u000f'\u0010EEYEVEL\u000f\r\n�\u000e�\f�\f�\f\u001e\u000eC\u000eI\u000e�\u000b�\u0010�\u000f�\u000e�\u000ba\u000b\u000f\u000fS\u000f\u000e\u000f�\f�\u000f�\u000fY\f�\u000e�\u000e�\u000b\b\u000f�\u000b\b\u000f�\u000b�\u000b�\u000eP\r�\r,E\u001c\u000f-Ee\u000ef\u000e\u001c\u000f�\n�\u000e�\n�\u000e�\n�\n�\u000f�\fk\u000f",
+      "verts": 20946,
+      "tris": 34795,
+      "bytes": 1671444
+    },
+    {
+      "stem": "rock_01_l_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_01/large/rock_01_l_v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_01_l_v1.glb",
+      "mesh": "",
+      "verts": 19277,
+      "tris": 34982,
+      "bytes": 1680420
+    },
+    {
+      "stem": "rock_02_l_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_02/large/rock_02_l_v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_02_l_v1.glb",
+      "mesh": "v1Shape",
+      "verts": 18907,
+      "tris": 34983,
+      "bytes": 1680468
+    },
+    {
+      "stem": "rock_06_v1",
+      "res": "res:/dx9/model/celestial/asteroid/rock_06/rock_06v1.gr2",
+      "glb": "assets/models/env/asteroids/rock_06_v1.glb",
+      "mesh": "Rock_06v1Shape",
+      "verts": 1620,
+      "tris": 2505,
+      "bytes": 121508
+    }
+  ]
+}
