@@ -1,0 +1,78 @@
+{
+  "id": 202,
+  "name": "利维坦级",
+  "name_en": "Leviathan",
+  "type_id": 3764,
+  "echoes_item_id": 0,
+  "race": "caldari",
+  "ship_group": "titan",
+  "model_auto_orient": true,
+  "model_key": "tq_titan_c",
+  "cost": 0,
+  "ship_groups": [
+    "titan"
+  ],
+  "fetter_ids": [
+    "caldari",
+    "titan"
+  ],
+  "tags": [
+    "caldari",
+    "titan",
+    "nullsec_symbol",
+    "shop_ineligible"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "missile",
+  "shop_eligible": false,
+  "signature_radius": 10000.0,
+  "sensor_strength": 100.0,
+  "scan_resolution": 50.0,
+  "speed": 60.0,
+  "mass": 2000000000.0,
+  "agility": 0.1,
+  "capacitor_capacity": 100000.0,
+  "capacitor_recharge_s": 1000.0,
+  "mid_battle_leave_allowed": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "med_slots": 0,
+  "low_slots": 0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "attack_cycle_s": 0.0,
+  "capital_role": "titan",
+  "requires_cyno_entry": false,
+  "stars": [
+    {
+      "attack_range": 0,
+      "shield_hp": 100000.0,
+      "armor_hp": 100000.0,
+      "structure_hp": 100000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
+      },
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.5,
+        "kinetic": 0.5,
+        "explosive": 0.5
+      },
+      "structure_resist": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
+      },
+      "is_logistic": false
+    }
+  ],
+  "_stub_note": "nullsec titan symbol; HP authoritative via MULTIPLAYER_PVP titan_hp not ship stars",
+  "sof_hull": "ct1_t1"
+}

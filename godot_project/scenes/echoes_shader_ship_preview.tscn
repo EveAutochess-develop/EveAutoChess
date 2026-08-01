@@ -1,8 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://gtkow2mv70hq"]
 
 [ext_resource type="Script" path="res://scripts/dev/echoes_shader_ship_preview.gd" id="1"]
 
-[node name="EchoesShaderShipPreview" type="Node3D"]
+[node name="EchoesShaderShipPreview" type="Node3D" unique_id=130095737]
 script = ExtResource("1")
 ship_id = 10
-

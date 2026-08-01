@@ -66,6 +66,7 @@ static func apply_to_unity_shader_material(smat: ShaderMaterial) -> void:
 	smat.set_shader_parameter("metallic_threshold", float(look.get("metallic_threshold", 0.75)))
 	smat.set_shader_parameter("normal_scale", float(look.get("normal_scale", 1.0)))
 	smat.set_shader_parameter("glow_mul", float(look.get("glow_mul", 1.0)))
+	smat.set_shader_parameter("intensity_floor", float(look.get("intensity_floor", 0.14)))
 	smat.set_shader_parameter("combat_emission_strength", 0.0)
 
 

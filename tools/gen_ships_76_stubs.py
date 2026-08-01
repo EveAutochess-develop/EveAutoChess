@@ -7,7 +7,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from gen_content_data import turret_attack_range_cells, weapon_kit_size_key
+from gen_content_data import (
+    load_modules_json,
+    per_slot_weapon,
+    turret_attack_range_cells,
+)
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "godot_project", "data", "ships")
 
@@ -19,15 +23,14 @@ ROSTER = [
     (44, "末日沙场级", "Armageddon", "amarr", "battleship", 13, "am_morishachang", "laser", 643, 462, "large", False),
     (45, "灾难级", "Apocalypse", "amarr", "battleship", 13, "am_zainan", "laser", 642, 462, "large", False),
     (46, "地狱天使级", "Abaddon", "amarr", "battleship", 13, "am_diyutienshi", "laser", 24692, 462, "large", False),
-    (47, "茶隼级", "Ferox", "caldari", "battlecruiser", 7, "jdl_chaxun", "rail", 16227, 570, "medium", False),
-    (48, "猛鲑级", "Drake", "caldari", "battlecruiser", 7, "jdl_menggui", "missile", 24698, 501, "medium", False),
-    (49, "幼龙级", "Nighthawk", "caldari", "battlecruiser", 7, "jdl_youliong", "missile", 22470, 501, "medium", False),
+    (47, "猛鲑级", "Ferox", "caldari", "battlecruiser", 7, "jdl_menggui", "rail", 16227, 570, "medium", False),
+    (48, "幼龙级", "Drake", "caldari", "battlecruiser", 7, "jdl_youlong", "missile", 24698, 501, "medium", False),
     (50, "毒蝎级", "Scorpion", "caldari", "battleship", 13, "jdl_duxie", "missile", 640, 501, "large", False),
     (51, "乌鸦级", "Raven", "caldari", "battleship", 13, "jdl_wuya", "missile", 638, 501, "large", False),
     (52, "鹏鲲级", "Rokh", "caldari", "battleship", 13, "jdl_pengkun", "rail", 24688, 574, "large", False),
     (53, "特里斯坦级", "Tristan", "gallente", "frigate", 2, "glt_telisitan", "rail", 593, 561, "small", False),
     (54, "布鲁提克斯级", "Brutix", "gallente", "battlecruiser", 7, "glt_bulutikesi", "rail", 16229, 570, "medium", False),
-    (55, "弥尔米顿级", "Myrmidon", "gallente", "battlecruiser", 7, "glt_miermidun", "rail", 24700, 570, "medium", False),
+    (55, "弥洱米顿级", "Myrmidon", "gallente", "battlecruiser", 7, "glt_miermidun", "rail", 24700, 570, "medium", False),
     (56, "多米尼克斯级", "Dominix", "gallente", "battleship", 13, "glt_duominikesi", "rail", 645, 574, "large", False),
     (57, "万王宝座级", "Megathron", "gallente", "battleship", 13, "glt_wanwangbaozuo", "rail", 641, 574, "large", False),
     (58, "亥伯龙神级", "Hyperion", "gallente", "battleship", 13, "glt_haibolongshen", "rail", 24690, 574, "large", False),
@@ -66,19 +69,14 @@ DEF_BY_GROUP = {
 }
 
 
-def star_block(group: str, mul: float, wfx: str, weapon_tier: str) -> dict:
+def star_block(group: str, mul: float, wfx: str, weapon_tier: str, wpn: dict) -> dict:
     sh, ar, st, _rng, bw = DEF_BY_GROUP[group]
     rng = turret_attack_range_cells(wfx, group, weapon_tier)
     if rng is None:
         rng = 3 if group == "frigate" else (6 if group == "battlecruiser" else 10)
+    ## Attack fields omitted — runtime ShipWeaponDerive from slots × kit.
     return {
         "attack_range": rng,
-        "damage": {"emp": 40 * mul, "thermal": 20 * mul, "kinetic": 20 * mul, "explosive": 20 * mul},
-        "repair": {"shield": 0, "armor": 0, "structure": 0},
-        "tracking": 0.08,
-        "optimal": rng * 0.7,
-        "falloff": rng * 0.4,
-        "optimal_sig_radius": 150.0 if group != "frigate" else 40.0,
         "shield_hp": sh * mul,
         "armor_hp": ar * mul,
         "structure_hp": st * mul,
@@ -89,11 +87,13 @@ def star_block(group: str, mul: float, wfx: str, weapon_tier: str) -> dict:
 
 
 def main() -> None:
+    mods = load_modules_json()
     for row in ROSTER:
         sid, name, en, race, group, cost, key, wfx, tid, mod_id, weapon_tier, attack_bc = row
         race_f, weap_f, _def_f = RACE_FETTER[race]
         fetters = [race_f, group if group != "battlecruiser" else "battlecruiser", weap_f]
-        stars = [star_block(group, 1.0, wfx, weapon_tier), star_block(group, 2.0, wfx, weapon_tier), star_block(group, 3.0, wfx, weapon_tier)]
+        wpn = per_slot_weapon(mods, wfx, group, weapon_tier)
+        stars = [star_block(group, mul, wfx, weapon_tier, wpn) for mul in (1.0, 2.0, 3.0)]
         cycle_s = MODULE_CYCLE_S.get(mod_id, 3.5 if group == "battleship" else 2.8)
         d = {
             "id": sid,

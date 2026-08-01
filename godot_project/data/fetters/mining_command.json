@@ -1,0 +1,13 @@
+{
+  "id": "mining_command",
+  "name": "挖矿指挥",
+  "effects": [
+    {
+      "champion_count": 1,
+      "effect_type": "MiningGoldBonus",
+      "effect_value_type": "Percentage",
+      "effect_target": "OtherMiningSources",
+      "value": 20.0
+    }
+  ]
+}

@@ -45,7 +45,7 @@ foreach ($def in $packDefs) {
   }
 }
 
-$ver = "202607.30.01"
+$ver = "202608.2.1"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{
@@ -55,7 +55,7 @@ $versionObj = [ordered]@{
   baseUrl               = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
   entry                 = "res://scenes/main_menu.tscn"
   shellCompatibilityId  = "eveac-shell-v1"
-  notes                 = "AI deploy-before-sell + empty-side skip; flagship slot write-once; missile chase; cyno despawn; board odd-row"
+  notes                 = "Battleship HP from TQ SDE; ship-data editor DPS/HP charts; sleepers+freighters in charts; mining gold x star; content/combat sync 202608.2.1"
 }
 $manifestObj = [ordered]@{
   version = $ver

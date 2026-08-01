@@ -6,6 +6,8 @@ signal board_changed()
 var _ships: Array[ShipUnit] = []
 var _field_occupied: Dictionary = {}  # "team_x_z" -> ShipUnit
 var _hangar_occupied: Dictionary = {}
+## team -> titan race key; drives the always-on titan fetter (MULTIPLAYER_PVP §2.3).
+var _titan_fetter_race: Dictionary = {}
 var _prepare_mode: bool = true
 var _drag_ship: ShipUnit = null
 var _world_root: Node3D
@@ -122,9 +124,11 @@ func _make_indicator(packed: PackedScene, is_hexa: bool) -> Node3D:
 	mat.emission_enabled = true
 	mat.emission = Color(0.2, 0.7, 0.65) if is_hexa else Color(0.25, 0.45, 0.85)
 	mat.emission_energy_multiplier = 1.0
-	# Thin frames: avoid depth flicker against the ground plane.
-	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
-	mat.render_priority = 1
+	## Depth-test against opaque ships so hulls occlude hex/hangar frames.
+	## Do NOT DEPTH_DRAW_ALWAYS / raise render_priority — that draws frames through ships.
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	mat.render_priority = 0
+	## Slight lift (below) avoids ground z-fight; keep low so ships sit above frames.
 	if packed:
 		var n := packed.instantiate() as Node3D
 		if n:
@@ -426,6 +430,8 @@ func spawn_ship(ship_id: int, star: int, team: int, slot_type: String, x: int, z
 	if not ship.is_unmanned:
 		var occ := _hangar_occupied if slot_type == "hangar" else _field_occupied
 		occ[_key(slot_type, team, x, z)] = ship
+	if _visual_follow_armed:
+		ship.arm_visual_follow()
 	board_changed.emit()
 	return ship
 
@@ -444,6 +450,8 @@ func spawn_unmanned(ship_id: int, team: int, world_pos: Vector3, mother: ShipUni
 	ship.clear_health_bar()
 	ship.global_position = world_pos
 	_ships.append(ship)
+	if _visual_follow_armed:
+		ship.arm_visual_follow()
 	board_changed.emit()
 	return ship
 
@@ -464,12 +472,55 @@ func remove_ship_node(ship: ShipUnit) -> void:
 	if is_instance_valid(ship):
 		ship.visible = false
 		ship.queue_free()
+	refresh_cross_team_cell_offsets()
 	board_changed.emit()
 
 func is_field_cell_free_for(team: int, x: int, z: int) -> bool:
 	if not _in_bounds("field", x, z):
 		return false
 	return not _field_occupied.has(_key("field", team, x, z))
+
+
+## Dev tool: swap player↔AI ownership; grid indices stay put (board halves are already 180°-mirrored).
+func swap_sides_center_symmetric() -> Dictionary:
+	if not _prepare_mode:
+		return {"ok": false, "reason": "prepare_only"}
+	if _drag_ship:
+		_cancel_drag()
+	var targets: Array = []
+	for s in _ships:
+		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
+			continue
+		targets.append(s)
+	## Drop occupancy first so remaps cannot collide mid-pass.
+	for s2 in targets:
+		var ship2 := s2 as ShipUnit
+		var occ := _hangar_occupied if ship2.slot_type == "hangar" else _field_occupied
+		occ.erase(_key(ship2.slot_type, ship2.team_id, ship2.grid_x, ship2.grid_z))
+	for s3 in targets:
+		var ship3 := s3 as ShipUnit
+		var old_team := ship3.team_id
+		var new_team := ShipUnit.TEAM_AI if old_team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		ship3.team_id = new_team
+		if ship3.slot_type == "field":
+			var old_side := ship3.field_side_team if ship3.field_side_team >= 0 else old_team
+			ship3.field_side_team = (
+				ShipUnit.TEAM_AI if old_side == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+			)
+		else:
+			ship3.field_side_team = new_team
+		ship3.restore_team_yaw()
+		var place_side := ship3.field_side_team if ship3.slot_type == "field" else new_team
+		ship3.global_position = cell_to_world(
+			ship3.slot_type, place_side, ship3.grid_x, ship3.grid_z
+		)
+		var occ2 := _hangar_occupied if ship3.slot_type == "hangar" else _field_occupied
+		occ2[_key(ship3.slot_type, new_team, ship3.grid_x, ship3.grid_z)] = ship3
+	refresh_cross_team_cell_offsets(true)
+	recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	recalculate_fetters(ShipUnit.TEAM_AI)
+	board_changed.emit()
+	return {"ok": true, "count": targets.size()}
 
 
 func move_ship_to_field_side(ship: ShipUnit, x: int, z: int, side_team: int) -> void:
@@ -484,6 +535,7 @@ func move_ship_to_field_side(ship: ShipUnit, x: int, z: int, side_team: int) -> 
 	ship.field_side_team = side_team
 	ship.global_position = cell_to_world("field", side_team, x, z)
 	_field_occupied[_key("field", ship.team_id, x, z)] = ship
+	refresh_cross_team_cell_offsets()
 	board_changed.emit()
 
 
@@ -503,9 +555,70 @@ func ship_world_side(ship: ShipUnit) -> int:
 	return ship.team_id
 
 
+## Cross-team same world cell (e.g. cyno on enemy half): shift player −X / AI +X to avoid clip.
+## `force_all`: snap every ship in the cell (combat open / prepare). Else only pinned/cyno.
+func refresh_cross_team_cell_offsets(force_all: bool = false) -> void:
+	var lateral := float(DataStore.combat.get("cell_overlap_lateral_wu", 0.55)) if DataStore else 0.55
+	lateral = maxf(0.0, lateral)
+	## key "side_x_z" -> Array[ShipUnit]
+	var groups: Dictionary = {}
+	for s in _ships:
+		if s == null or not is_instance_valid(s) or s.is_destroyed:
+			continue
+		if s.slot_type != "field" or s.is_unmanned:
+			continue
+		var side := ship_world_side(s)
+		var k := "%d_%d_%d" % [side, s.grid_x, s.grid_z]
+		if not groups.has(k):
+			groups[k] = []
+		(groups[k] as Array).append(s)
+	for k2 in groups.keys():
+		var members: Array = groups[k2]
+		var teams: Dictionary = {}
+		for m in members:
+			var sh: ShipUnit = m as ShipUnit
+			if sh == null:
+				continue
+			teams[sh.team_id] = true
+		var overlap := teams.size() >= 2 and members.size() >= 2
+		for m2 in members:
+			var ship: ShipUnit = m2 as ShipUnit
+			if ship == null:
+				continue
+			var pinned := (
+				ship.immobile_in_combat
+				or ship.has_cyno_module()
+				or bool(ship.allow_enemy_cell_overlap)
+			)
+			var snap := force_all or _prepare_mode or pinned
+			if not snap:
+				continue
+			var side2 := ship_world_side(ship)
+			var base := cell_to_world("field", side2, ship.grid_x, ship.grid_z)
+			if overlap and lateral > 0.0:
+				var sign_x := -1.0 if ship.team_id == ShipUnit.TEAM_PLAYER else 1.0
+				base.x += sign_x * lateral
+			ship.global_position = base
+			ship.global_position.y = 0.2
+
+
 func find_empty_hangar(team: int) -> Vector2i:
+	## Center-out on X (middle first, then left/right), same pattern as find_empty_field.
 	var hw := int(DataStore.board.get("hangar_width", 15))
-	for x in range(hw):
+	var cx := hw >> 1
+	var x_order: Array[int] = []
+	for d in range(hw):
+		var left := cx - d
+		var right := cx + d
+		if d == 0:
+			if left >= 0 and left < hw:
+				x_order.append(left)
+		else:
+			if left >= 0 and left < hw:
+				x_order.append(left)
+			if right >= 0 and right < hw and right != left:
+				x_order.append(right)
+	for x in x_order:
 		if not _hangar_occupied.has(_key("hangar", team, x, 0)):
 			return Vector2i(x, 0)
 	return Vector2i(-1, -1)
@@ -550,6 +663,10 @@ func find_empty_field(team: int) -> Vector2i:
 func count_field(team: int) -> int:
 	var n := 0
 	for s in _ships:
+		## The salvage freighter is not a combatant: counting it would keep the half it
+		## sits on from ever reading as cleared (FREIGHTER_AND_TITAN §1.2.1).
+		if s.is_protect_target:
+			continue
 		if s.team_id == team and s.slot_type == "field" and not s.is_destroyed and not s.is_unmanned:
 			n += 1
 	return n
@@ -567,10 +684,37 @@ func field_ships(team: int) -> Array[ShipUnit]:
 func all_ships() -> Array[ShipUnit]:
 	return _ships
 
+
+## False for hulls that only exist as scenery — berth titans, wrecks, CG props.
+## They are pickable (detail panel / observe cam) but own no slot to move between.
+func is_board_piece(ship: ShipUnit) -> bool:
+	return ship != null and is_instance_valid(ship) and _ships.has(ship)
+
+
+## Soft-follow the mesh toward logic pose (COMBAT §3.2). Combat still reads the root.
+var _visual_follow_armed: bool = false
+
+func arm_visual_follow() -> void:
+	_visual_follow_armed = true
+	for s in _ships:
+		if is_instance_valid(s):
+			s.arm_visual_follow()
+
+
+func disarm_visual_follow() -> void:
+	_visual_follow_armed = false
+	for s in _ships:
+		if is_instance_valid(s):
+			s.disarm_visual_follow()
+
 func is_one_side_cleared() -> bool:
 	return count_alive_field(ShipUnit.TEAM_PLAYER) == 0 or count_alive_field(ShipUnit.TEAM_AI) == 0
 
 func try_upgrades_all() -> void:
+	## 3-of-a-kind star merges only in Prepare (ECONOMY_AND_SHOP §5) — never mid-battle.
+	if not _prepare_mode:
+		return
+	_purge_freed_ships()
 	var changed := true
 	while changed:
 		changed = false
@@ -594,11 +738,30 @@ func try_upgrades_all() -> void:
 					break
 
 func _remove_ship(s: ShipUnit) -> void:
-	var occ := _hangar_occupied if s.slot_type == "hangar" else _field_occupied
-	occ.erase(_key(s.slot_type, s.team_id, s.grid_x, s.grid_z))
-	_ships.erase(s)
-	s.queue_free()
-	board_changed.emit()
+	## Same teardown as an explicit removal: exact key + scrub of any occupancy entry
+	## still pointing at this hull, so a star merge cannot leave a freed reference behind.
+	remove_ship_node(s)
+
+
+## A freed hull (star merge, sell, kill) can still sit in the roster or the occupancy
+## maps. Reading one back into a typed `ShipUnit` slot raises "Trying to assign invalid
+## previously freed instance", so scrub before any pass that does such an assignment.
+func _purge_freed_ships() -> void:
+	var i := _ships.size() - 1
+	while i >= 0:
+		if not is_instance_valid(_ships[i]):
+			_ships.remove_at(i)
+		i -= 1
+	for occ_any in [_field_occupied, _hangar_occupied]:
+		var occ: Dictionary = occ_any
+		var stale: Array = []
+		for k in occ.keys():
+			if not is_instance_valid(occ[k]):
+				stale.append(k)
+		for k2 in stale:
+			occ.erase(k2)
+	if _drag_ship != null and not is_instance_valid(_drag_ship):
+		_drag_ship = null
 
 func reset_ships_after_round() -> void:
 	for s in _ships:
@@ -608,6 +771,41 @@ func reset_ships_after_round() -> void:
 			s.global_position = cell_to_world("field", side, s.grid_x, s.grid_z)
 			s.restore_team_yaw()
 			s.set_combat_tint(false)
+	refresh_cross_team_cell_offsets()
+
+
+## After battle / before prepare autosave: send cyno-gated hulls back to hangar
+## so the next round needs induction again and resume never starts with them on field.
+func recall_cyno_entry_ships_to_hangar() -> int:
+	var moved := 0
+	var snapshot: Array = _ships.duplicate()
+	for s_any in snapshot:
+		var s: ShipUnit = s_any as ShipUnit
+		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
+			continue
+		if not s.requires_cyno_entry:
+			continue
+		if s.slot_type != "field":
+			continue
+		var hang := find_empty_hangar(s.team_id)
+		if hang.x < 0:
+			push_warning("BoardController: hangar full; cannot recall cyno ship_id=%d team=%d" % [s.ship_id, s.team_id])
+			continue
+		var occ_from := _field_occupied
+		occ_from.erase(_key("field", s.team_id, s.grid_x, s.grid_z))
+		s.slot_type = "hangar"
+		s.grid_x = hang.x
+		s.grid_z = hang.y
+		s.field_side_team = s.team_id
+		s.global_position = cell_to_world("hangar", s.team_id, hang.x, hang.y)
+		s.restore_team_yaw()
+		_hangar_occupied[_key("hangar", s.team_id, hang.x, hang.y)] = s
+		moved += 1
+	if moved > 0:
+		refresh_cross_team_cell_offsets()
+		board_changed.emit()
+	return moved
+
 
 func _on_deploy(payload: Dictionary) -> Dictionary:
 	var ship_id := int(payload.get("ship_id", 0))
@@ -632,14 +830,18 @@ func _on_deploy(payload: Dictionary) -> Dictionary:
 		var side := ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
 		ship.field_side_team = side
 		ship.global_position = cell_to_world("field", side, x, z)
-	try_upgrades_all()
+	## Bulk redeploy / save restore must not merge stars mid-stream (MATCH_FLOW §5.0b).
+	if not bool(payload.get("skip_upgrade", false)):
+		try_upgrades_all()
+	refresh_cross_team_cell_offsets()
 	return {"accepted": true}
 
 func _on_move(payload: Dictionary) -> Dictionary:
 	# payload: from_* to_* ship ref via instance_id
+	_purge_freed_ships()
 	var sid := int(payload.get("ship_instance_id", 0))
 	var ship := instance_from_id(sid) as ShipUnit
-	if ship == null:
+	if ship == null or not is_instance_valid(ship):
 		return {"accepted": false}
 	if ship.requires_cyno_entry and str(payload.get("to_slot_type", ship.slot_type)) == "field":
 		return {"accepted": false, "reason_key": "requires_cyno"}
@@ -654,21 +856,41 @@ func _on_move(payload: Dictionary) -> Dictionary:
 		side_team = ShipUnit.TEAM_AI if to_team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
 	elif to_type == "field" and payload.has("field_side_team"):
 		side_team = int(payload.get("field_side_team", to_team))
-	var occ_from := _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
+	var from_type := ship.slot_type
+	var from_x := ship.grid_x
+	var from_z := ship.grid_z
+	var from_side := ship.field_side_team if ship.field_side_team >= 0 else ship.team_id
+	var occ_from := _hangar_occupied if from_type == "hangar" else _field_occupied
 	var occ_to := _hangar_occupied if to_type == "hangar" else _field_occupied
 	var to_key := _key(to_type, to_team, to_x, to_z)
-	var other: ShipUnit = occ_to.get(to_key)
-	occ_from.erase(_key(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z))
+	var other_any = occ_to.get(to_key)
+	if other_any != null and not is_instance_valid(other_any):
+		occ_to.erase(to_key)
+		other_any = null
+	var other: ShipUnit = other_any as ShipUnit
+	if other and other != ship:
+		## Only own-team board pieces swap; enemy / freighter / scenery refuse as occupied.
+		if other.team_id != ship.team_id or other.is_protect_target or not is_board_piece(other):
+			return {"accepted": false, "reason_key": "occupied"}
+		## Swap must not sneak a cyno-gated hull onto Field.
+		if other.requires_cyno_entry and from_type == "field":
+			return {"accepted": false, "reason_key": "requires_cyno"}
+		if other.deploy_enemy_half_only and from_type == "field":
+			var enemy := ShipUnit.TEAM_AI if other.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+			if from_side != enemy:
+				return {"accepted": false, "reason_key": "enemy_half_only"}
+	occ_from.erase(_key(from_type, ship.team_id, from_x, from_z))
 	if other and other != ship:
 		occ_to.erase(to_key)
-		other.slot_type = ship.slot_type
-		other.grid_x = ship.grid_x
-		other.grid_z = ship.grid_z
-		var other_side := ship_world_side(other) if other.slot_type == "field" else other.team_id
-		if other.slot_type == "hangar":
+		other.slot_type = from_type
+		other.grid_x = from_x
+		other.grid_z = from_z
+		if from_type == "hangar":
 			other.field_side_team = other.team_id
-			other_side = other.team_id
-		other.global_position = cell_to_world(other.slot_type, other_side, other.grid_x, other.grid_z)
+			other.global_position = cell_to_world("hangar", other.team_id, from_x, from_z)
+		else:
+			other.field_side_team = from_side
+			other.global_position = cell_to_world("field", from_side, from_x, from_z)
 		var ok := _hangar_occupied if other.slot_type == "hangar" else _field_occupied
 		ok[_key(other.slot_type, other.team_id, other.grid_x, other.grid_z)] = other
 	ship.slot_type = to_type
@@ -682,8 +904,14 @@ func _on_move(payload: Dictionary) -> Dictionary:
 	ship.global_position = cell_to_world(to_type, side_team, to_x, to_z)
 	occ_to[to_key] = ship
 	try_upgrades_all()
+	refresh_cross_team_cell_offsets()
 	board_changed.emit()
 	return {"accepted": true}
+
+
+func _occupant_at(slot_type: String, team: int, x: int, z: int) -> ShipUnit:
+	var occ := _hangar_occupied if slot_type == "hangar" else _field_occupied
+	return occ.get(_key(slot_type, team, x, z)) as ShipUnit
 
 func _on_sell(payload: Dictionary) -> Dictionary:
 	var sid := int(payload.get("ship_instance_id", 0))
@@ -693,6 +921,8 @@ func _on_sell(payload: Dictionary) -> Dictionary:
 	## Player + AI share sell path (AI hangar clear at end of economy turn).
 	if payload.has("team") and int(payload.get("team")) != ship.team_id:
 		return {"accepted": false}
+	if ship.is_protect_target:
+		return {"accepted": false, "reason": "protect_target"}
 	var gold := ship.get_sell_price()
 	_remove_ship(ship)
 	return {"accepted": true, "gold": gold}
@@ -702,8 +932,15 @@ func begin_drag(ship: ShipUnit) -> void:
 		return
 	if ship == null:
 		return
-	if ship.team_id != ShipUnit.TEAM_PLAYER and not get_tree().paused:
+	## Salvage freighter rides on the player team but is scenario furniture: never draggable.
+	if ship.is_protect_target:
 		return
+	## Berth titans are set dressing on the player team too (FREIGHTER_AND_TITAN §2.1).
+	if not is_board_piece(ship):
+		return
+	if ship.team_id != ShipUnit.TEAM_PLAYER:
+		if not get_tree().paused or not GameSession.enemy_layout_adjust_active():
+			return
 	_drag_ship = ship
 
 func update_drag(world_pos: Vector3) -> void:
@@ -716,6 +953,7 @@ func update_drag(world_pos: Vector3) -> void:
 		_drag_ship.global_position = pos
 
 func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
+	_purge_freed_ships()
 	if _drag_ship == null:
 		return
 	var ship := _drag_ship
@@ -752,7 +990,15 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 			var lim := match_node.match_ctrl.population_limit()
 			var from_field := ship.slot_type == "field"
 			var deployed := count_field(ship.team_id)
-			if not from_field and deployed >= lim:
+			## Hangar→field onto an ally is a swap: field count stays flat, so skip the cap.
+			var swap_ally := _occupant_at("field", ship.team_id, int(hover_slot.get("x", -1)), int(hover_slot.get("z", -1)))
+			var is_swap := (
+				swap_ally != null
+				and swap_ally != ship
+				and swap_ally.team_id == ship.team_id
+				and not swap_ally.is_protect_target
+			)
+			if not from_field and not is_swap and deployed >= lim:
 				get_tree().call_group("match_root", "show_notice", "对战区已满")
 				ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 				return
@@ -766,6 +1012,8 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 	if not bool(move_r.get("accepted", false)):
 		if str(move_r.get("reason_key", "")) == "requires_cyno":
 			get_tree().call_group("match_root", "show_notice", "旗舰必须通过诱导跳跃进场")
+		elif str(move_r.get("reason_key", "")) == "enemy_half_only":
+			get_tree().call_group("match_root", "show_notice", "只能部署在敌方半场")
 		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 
 func _cancel_drag() -> void:
@@ -774,12 +1022,15 @@ func _cancel_drag() -> void:
 		_drag_ship.global_position = cell_to_world(_drag_ship.slot_type, side, _drag_ship.grid_x, _drag_ship.grid_z)
 	_drag_ship = null
 
-func pick_ship_at(origin: Vector3, dir: Vector3) -> ShipUnit:
+func pick_ship_at(origin: Vector3, dir: Vector3, exclude: ShipUnit = null) -> ShipUnit:
 	## Any team (player + AI) for hover/info; drag still gated in PointerInput / begin_drag.
+	_purge_freed_ships()
 	var best: ShipUnit = null
 	var best_d := 9999.0
 	for s in _ships:
 		if s.is_destroyed:
+			continue
+		if exclude != null and s == exclude:
 			continue
 		var to_s := s.global_position - origin
 		var t := to_s.dot(dir)
@@ -788,7 +1039,10 @@ func pick_ship_at(origin: Vector3, dir: Vector3) -> ShipUnit:
 		var closest := origin + dir * t
 		var d := closest.distance_to(s.global_position)
 		# Slightly larger pick for distant AI field ships.
+		# Swap-drop (exclude set) also widens: big hulls extend past the cell centre.
 		var hit_r := 1.6 if s.team_id == ShipUnit.TEAM_AI else 1.35
+		if exclude != null:
+			hit_r = maxf(hit_r, 2.4)
 		if d < hit_r and d < best_d:
 			best_d = d
 			best = s
@@ -820,6 +1074,9 @@ func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: 
 func recalculate_fetters(team: int) -> Array:
 	var counts: Dictionary = {}
 	for s in field_ships(team):
+		## Salvage freighter rides on the player team but is not a roster piece.
+		if s.is_protect_target:
+			continue
 		var ship := DataStore.get_ship(s.ship_id)
 		for fid in ship.get("fetter_ids", []):
 			counts[fid] = int(counts.get(fid, 0)) + 1
@@ -839,48 +1096,79 @@ func recalculate_fetters(team: int) -> Array:
 			var r := AdminBus.request(&"fetter.activate", payload)
 			if r.get("accepted", true):
 				active.append({"fetter_id": fid, "count": counts[fid], "effect": best})
+	_append_titan_fetter(team, active)
 	var shield_mul := 1.0
 	var armor_mul := 1.0
-	var repair_mul := 1.0
+	var repair_mul_all := 1.0
 	var speed_mul := 1.0
 	var attack_speed_mul := 1.0
-	var armor_hp_pct := 0.0
-	var shield_hp_pct := 0.0
-	var flat_hp := 0.0
+	var armor_hp_pct_all := 0.0
+	var shield_hp_pct_all := 0.0
+	var flat_hp_all := 0.0
+	## SelfFetter repair extras keyed by fetter_id → multiplier product.
+	var repair_mul_by_fetter: Dictionary = {}
 	for a in active:
 		var eff: Dictionary = a["effect"]
 		var et := str(eff.get("effect_type", ""))
 		var vt := str(eff.get("effect_value_type", ""))
 		var val := float(eff.get("value", 0.0))
-		var target := str(eff.get("effect_target", ""))
+		var target := str(eff.get("effect_target", "SelfAll"))
 		var mul := _fetter_multiplier(vt, val)
-		if target == "SelfAll":
-			match et:
-				"ShieldResist":
+		var self_fetter := target == "SelfFetter" and not bool(a.get("meta", false))
+		match et:
+			"ShieldResist":
+				if not self_fetter:
 					shield_mul *= mul
-				"ArmorResist":
+			"ArmorResist":
+				if not self_fetter:
 					armor_mul *= mul
-				"RemoteRepair", "Repair":
-					repair_mul *= mul
-				"Speed":
+			"RemoteRepair", "Repair", "ArmorHeal", "ShieldHeal":
+				## ArmorHeal/ShieldHeal are logistic-heal aliases (FETTERS · logistic.json).
+				if self_fetter:
+					var fid := str(a["fetter_id"])
+					repair_mul_by_fetter[fid] = float(repair_mul_by_fetter.get(fid, 1.0)) * mul
+				else:
+					repair_mul_all *= mul
+			"Speed":
+				if not self_fetter:
 					speed_mul *= mul
-				"AttackSpeed":
+			"AttackSpeed":
+				if not self_fetter:
 					attack_speed_mul *= mul
-				"ArmorHP":
-					armor_hp_pct += val if vt == "Percentage" else 0.0
-				"ShieldHP":
-					shield_hp_pct += val if vt == "Percentage" else 0.0
-				"FlatHP":
-					flat_hp += val
+			"ArmorHP":
+				if not self_fetter and vt == "Percentage":
+					armor_hp_pct_all += val
+			"ShieldHP":
+				if not self_fetter and vt == "Percentage":
+					shield_hp_pct_all += val
+			"FlatHP":
+				if not self_fetter:
+					flat_hp_all += val
 	for s in field_ships(team):
+		if s == null or not is_instance_valid(s):
+			continue
 		s.damage_pct_bonus = 0.0
 		var ship := DataStore.get_ship(s.ship_id)
+		var fids: Array = ship.get("fetter_ids", []) as Array
+		var ship_repair := repair_mul_all
 		for a in active:
-			if a["fetter_id"] in ship.get("fetter_ids", []):
-				var eff: Dictionary = a["effect"]
-				if str(eff.get("effect_type", "")) == "Damage" and str(eff.get("effect_value_type", "")) == "Percentage":
+			## Titan meta fetter buffs every own hull; race fetters only their own members.
+			var is_meta := bool(a.get("meta", false))
+			var on_ship: bool = is_meta or (a["fetter_id"] in fids)
+			if not on_ship:
+				continue
+			var eff: Dictionary = a["effect"]
+			var et := str(eff.get("effect_type", ""))
+			var vt := str(eff.get("effect_value_type", ""))
+			var target := str(eff.get("effect_target", "SelfAll"))
+			if et == "Damage" and vt == "Percentage":
+				## SelfFetter Damage only hits members; SelfAll / meta hits everyone already gated by on_ship.
+				if target == "SelfFetter" or target == "SelfAll" or is_meta:
 					s.damage_pct_bonus += float(eff.get("value", 0.0))
-		s.apply_fetter_mods(shield_mul, armor_mul, repair_mul, speed_mul)
+		for fid2 in repair_mul_by_fetter.keys():
+			if fid2 in fids:
+				ship_repair *= float(repair_mul_by_fetter[fid2])
+		s.apply_fetter_mods(shield_mul, armor_mul, ship_repair, speed_mul)
 		# Recompute cycle from baseline — never stack-divide attack_duration across recalcs.
 		var base_cycle := s.base_attack_duration if s.base_attack_duration > 0.0 else s.attack_duration
 		if attack_speed_mul != 1.0 and base_cycle > 0.0:
@@ -891,13 +1179,44 @@ func recalculate_fetters(team: int) -> Array:
 		var sh_ratio := 1.0 if s.base_max_shield <= 0.0 else clampf(s.shield_hp / maxf(s.max_shield, 0.001), 0.0, 1.0)
 		var ar_ratio := 1.0 if s.base_max_armor <= 0.0 else clampf(s.armor_hp / maxf(s.max_armor, 0.001), 0.0, 1.0)
 		var st_ratio := 1.0 if s.base_max_structure <= 0.0 else clampf(s.structure_hp / maxf(s.max_structure, 0.001), 0.0, 1.0)
-		s.max_shield = s.base_max_shield * (1.0 + shield_hp_pct / 100.0)
-		s.max_armor = s.base_max_armor * (1.0 + armor_hp_pct / 100.0)
-		s.max_structure = s.base_max_structure + flat_hp
+		s.max_shield = s.base_max_shield * (1.0 + shield_hp_pct_all / 100.0)
+		s.max_armor = s.base_max_armor * (1.0 + armor_hp_pct_all / 100.0)
+		s.max_structure = s.base_max_structure + flat_hp_all
 		s.shield_hp = minf(s.max_shield, s.max_shield * sh_ratio)
 		s.armor_hp = minf(s.max_armor, s.max_armor * ar_ratio)
 		s.structure_hp = minf(s.max_structure, s.max_structure * st_ratio)
 	return active
+
+
+## Titan buff is delivered as a fetter (MULTIPLAYER_PVP §2.3 / FETTERS §4.2): always-on,
+## independent of Field counts, and it buffs every hull on that side.
+func set_titan_fetter_race(team: int, race: String) -> void:
+	var r := race.to_lower()
+	if r == "" or not DataStore.fetters.has("titan_%s" % r):
+		_titan_fetter_race.erase(team)
+	else:
+		_titan_fetter_race[team] = r
+	recalculate_fetters(team)
+
+
+func titan_fetter_race(team: int) -> String:
+	return str(_titan_fetter_race.get(team, ""))
+
+
+func _append_titan_fetter(team: int, active: Array) -> void:
+	var race := str(_titan_fetter_race.get(team, ""))
+	if race == "":
+		return
+	var fid := "titan_%s" % race
+	var fetter: Dictionary = DataStore.fetters.get(fid, {})
+	var effects: Array = fetter.get("effects", [])
+	if effects.is_empty():
+		return
+	var payload := {"fetter_id": fid, "champion_count": 0, "effect": effects[0]}
+	var r := AdminBus.request(&"fetter.activate", payload)
+	if r.get("accepted", true):
+		active.append({"fetter_id": fid, "count": 0, "effect": effects[0], "meta": true})
+
 
 static func _fetter_multiplier(value_type: String, value: float) -> float:
 	if value_type == "Multiplier":

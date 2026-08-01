@@ -1,169 +1,125 @@
 {
-  "id": 52,
-  "name": "鹏鲲级",
-  "name_en": "Rokh",
-  "type_id": 24688,
-  "model_key": "jdl_pengkun",
-  "cost": 13,
-  "ship_groups": [
-    "battleship"
-  ],
-  "ship_group": "battleship",
+  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
+  "agility": 0.5,
+  "attack_cycle_s": 8.129,
+  "capacitor_capacity": 3000.0,
+  "capacitor_recharge_s": 500.0,
+  "cost": 13.0,
+  "drone_bandwidth": 75.0,
+  "echoes_item_id": 10500000004.0,
   "fetter_ids": [
     "caldari",
     "battleship",
     "missile"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7,
+  "id": 52.0,
+  "is_logistic": false,
+  "is_unmanned": false,
+  "low_slots": 6.0,
+  "mass": 10000000.0,
+  "med_slots": 4.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "jdl_pengkun",
+  "name": "鹏鲲级",
+  "name_en": "Rokh",
+  "race": "caldari",
+  "scan_resolution": 200.0,
+  "sensor_strength": 16.0,
+  "ship_group": "battleship",
+  "ship_groups": [
+    "battleship"
+  ],
+  "signature_radius": 400.0,
+  "sof_hull": "cb3_t1",
+  "source_module_type_id": 574.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 150.0,
+  "stars": [
+    {
+      "armor_hp": 7700.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 10.0,
+      "shield_hp": 9350.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 8250.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 15400.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 10.0,
+      "shield_hp": 18700.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 16500.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 23100.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 10.0,
+      "shield_hp": 28050.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 24750.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    }
   ],
   "tags": [
     "caldari",
     "battleship",
     "missile"
   ],
-  "is_logistic": false,
-  "weapon_fx": "rail",
-  "weapon_tier": "large",
-  "race": "caldari",
-  "signature_radius": 400.0,
-  "sensor_strength": 16.0,
-  "scan_resolution": 200.0,
-  "speed": 150.0,
-  "mass": 10000000.0,
-  "agility": 0.5,
-  "capacitor_capacity": 3000.0,
-  "capacitor_recharge_s": 500.0,
-  "mid_battle_leave_allowed": false,
-  "is_unmanned": false,
+  "type_id": 24688.0,
   "unmanned_kind": "",
-  "attack_cycle_s": 8.129,
-  "drone_bandwidth": 75.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 7,
-  "med_slots": 4,
-  "low_slots": 6,
-  "source_module_type_id": 574,
-  "source_repair_module_type_id": 0,
-  "stars": [
-    {
-      "attack_range": 10,
-      "damage": {
-        "emp": 40.0,
-        "thermal": 20.0,
-        "kinetic": 20.0,
-        "explosive": 20.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 7.0,
-      "falloff": 4.0,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 2000.0,
-      "armor_hp": 2800.0,
-      "structure_hp": 1400.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 10,
-      "damage": {
-        "emp": 80.0,
-        "thermal": 40.0,
-        "kinetic": 40.0,
-        "explosive": 40.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 7.0,
-      "falloff": 4.0,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 4000.0,
-      "armor_hp": 5600.0,
-      "structure_hp": 2800.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 10,
-      "damage": {
-        "emp": 120.0,
-        "thermal": 60.0,
-        "kinetic": 60.0,
-        "explosive": 60.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 7.0,
-      "falloff": 4.0,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 6000.0,
-      "armor_hp": 8400.0,
-      "structure_hp": 4200.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    }
-  ],
   "visual": {},
-  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10500000004
+  "weapon_fx": "rail",
+  "weapon_tier": "large"
 }

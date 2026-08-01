@@ -1,0 +1,275 @@
+{
+  "save_version": 1,
+  "mode": "endless",
+  "battle_game_stage_count": 1,
+  "round_phase_value": 0,
+  "battle_phase_value": 0,
+  "player": {
+    "gold": 200,
+    "hp": 1000,
+    "max_hp": 1000,
+    "level": 15,
+    "exp": 0,
+    "up_level_demand": 4,
+    "win_streak": 0,
+    "loss_streak": 0,
+    "shop_locked": false,
+    "shop_slots": []
+  },
+  "ai": {
+    "gold": 50,
+    "hp": 1000,
+    "max_hp": 1000,
+    "level": 8,
+    "exp": 0,
+    "up_level_demand": 4,
+    "win_streak": 0,
+    "loss_streak": 0,
+    "shop_slots": []
+  },
+  "ships": [
+    {
+      "ship_id": 133,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 0,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 112,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 1,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 121,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 2,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 8,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 3,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 8,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 4,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 18,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 5,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 18,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 6,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 28,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 7,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 28,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 8,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 38,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 9,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 38,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 10,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 101,
+      "star": 1,
+      "team": 0,
+      "slot_type": "hangar",
+      "x": 11,
+      "z": 0,
+      "field_side_team": 0
+    },
+    {
+      "ship_id": 31,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 0,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 21,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 1,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 6,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 2,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 48,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 3,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 64,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 4,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 15,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 5,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 28,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 6,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 18,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 7,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 33,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 8,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 7,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 9,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 38,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 10,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 6,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 11,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 10,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 12,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 60,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 13,
+      "z": 0,
+      "field_side_team": 1
+    },
+    {
+      "ship_id": 21,
+      "star": 1,
+      "team": 1,
+      "slot_type": "hangar",
+      "x": 14,
+      "z": 0,
+      "field_side_team": 1
+    }
+  ]
+}

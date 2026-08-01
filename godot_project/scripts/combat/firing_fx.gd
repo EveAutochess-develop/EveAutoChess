@@ -1,18 +1,43 @@
 extends Node
 ## Attack VFX: Unity FiringEffectController laser stretch + EVEmu kind taxonomy
 ## (effects.Laser / hybrid / projectileFired / missileLaunching).
-## Spawns from ShipUnit.get_muzzle_global() (AABB bow tip — GLB has no turret sockets).
+## Spawns from ShipUnit.get_muzzle_global() (turret hardpoints; cycles multi-gun).
 ## Beam/projectile endpoints re-sample firer muzzle + target each tick so FX stay tethered.
 
 var _world: Node3D
 var _active: Array = []  # Dictionary entries
+var _sfx: WeaponFireSfx
 
 func setup(world_root: Node3D) -> void:
 	_world = world_root
+	if _sfx == null:
+		_sfx = WeaponFireSfx.new()
+		_sfx.name = "WeaponFireSfx"
+		add_child(_sfx)
+		_sfx.setup()
 
 func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, projectile_travel_s: float = -1.0, projectile_speed_cells: float = -1.0) -> void:
 	if firer == null or target == null or _world == null:
 		return
+	_play_kind(firer, target, null, kind, duration, projectile_travel_s, projectile_speed_cells)
+
+
+## Visual-only mining beam toward a MiningAnchor (no damage).
+func play_to_anchor(firer: ShipUnit, anchor: Node3D, kind: String = "mining", duration: float = 0.85) -> void:
+	if firer == null or anchor == null or not is_instance_valid(anchor) or _world == null:
+		return
+	_play_kind(firer, null, anchor, kind, duration, -1.0, -1.0)
+
+
+func _play_kind(
+	firer: ShipUnit,
+	target: ShipUnit,
+	anchor: Node3D,
+	kind: String,
+	duration: float,
+	projectile_travel_s: float,
+	projectile_speed_cells: float
+) -> void:
 	var cfg: Dictionary = DataStore.weapon_fx
 	var kinds: Dictionary = cfg.get("kinds", {})
 	var kdef: Dictionary = kinds.get(kind, kinds.get("laser", {}))
@@ -26,7 +51,7 @@ func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, proj
 	var rand_r := float(cfg.get("rand_pos_range", 0.25))
 	var jitter_a := Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
 	var jitter_b := Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
-	if style == "projectile":
+	if style == "projectile" and target != null:
 		var spd_cells := projectile_speed_cells
 		if spd_cells <= 0.0 and kind == "missile":
 			spd_cells = CombatFormulas.missile_speed_cells_per_s(firer)
@@ -45,7 +70,9 @@ func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, proj
 			spd_cells
 		)
 	else:
-		_spawn_beam(firer, target, color, width, dur, jitter_a, jitter_b)
+		_spawn_beam(firer, target, color, width, dur, jitter_a, jitter_b, anchor)
+	if _sfx:
+		_sfx.play_for(firer, kind)
 
 func _process(delta: float) -> void:
 	var mul := 1.0
@@ -69,7 +96,7 @@ func _process(delta: float) -> void:
 			_free_entry(e)
 			_active.remove_at(i)
 
-func _spawn_beam(firer: ShipUnit, target: ShipUnit, color: Color, width: float, duration: float, ja: Vector3, jb: Vector3) -> void:
+func _spawn_beam(firer: ShipUnit, target: ShipUnit, color: Color, width: float, duration: float, ja: Vector3, jb: Vector3, anchor: Node3D = null) -> void:
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3.ONE
@@ -81,18 +108,28 @@ func _spawn_beam(firer: ShipUnit, target: ShipUnit, color: Color, width: float, 
 	mat.emission = Color(color.r, color.g, color.b) * 1.4
 	mat.emission_energy_multiplier = 2.2
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	## Small hulls (frigate/destroyer): keep beams readable at board camera distance.
+	var w := maxf(width, 0.06)
+	if firer != null and is_instance_valid(firer):
+		var sg := str(DataStore.get_ship(firer.ship_id).get("ship_group", "")).to_lower()
+		if sg in ["frigate", "destroyer", "drone_light", "drone_medium"]:
+			w = maxf(w, 0.11)
 	mi.material_override = mat
 	_world.add_child(mi)
-	_active.append({
+	var entry := {
 		"style": "beam",
 		"node": mi,
 		"firer": firer,
 		"target": target,
+		"anchor": anchor,
 		"t_left": duration,
 		"ja": ja,
 		"jb": jb,
-		"width": width,
-	})
+		"width": w,
+	}
+	_active.append(entry)
+	## Layout immediately — otherwise first frame sits at world origin (looks like FX missing).
+	_tick_beam(entry, 0.0)
 
 const MUZZLE_FALLBACK_DIST := 6.0
 
@@ -100,14 +137,16 @@ func _muzzle_point(firer: ShipUnit) -> Vector3:
 	if firer == null or not is_instance_valid(firer):
 		return Vector3(0.0, 0.4, 0.0)
 	var from: Vector3 = firer.get_muzzle_global()
-	var ship_pos: Vector3 = firer.global_position
+	var ship_pos: Vector3 = firer.visual_origin_world() if firer.has_method("visual_origin_world") else firer.global_position
 	if from.distance_to(ship_pos) > MUZZLE_FALLBACK_DIST:
 		return ship_pos + Vector3(0.0, 0.4, 0.0)
 	return from
 
 func _target_point(target: ShipUnit, jb: Vector3, fallback: Vector3) -> Vector3:
 	if target != null and is_instance_valid(target) and not target.is_destroyed:
-		return target.global_position + Vector3(0, 0.4, 0) + jb
+		## Aim at the drawn hull so beams/missiles meet the soft-followed mesh.
+		var center: Vector3 = target.visual_center_world() if target.has_method("visual_center_world") else target.global_position
+		return center + Vector3(0, 0.4, 0) + jb
 	return fallback
 
 func _spawn_projectile(
@@ -187,7 +226,12 @@ func _tick_beam(e: Dictionary, delta: float) -> bool:
 	var ja: Vector3 = e.get("ja", Vector3.ZERO)
 	var jb: Vector3 = e.get("jb", Vector3.ZERO)
 	var from: Vector3 = _muzzle_point(firer) + ja
-	var to: Vector3 = _target_point(target, jb, from + Vector3(0, 0, 1))
+	var to: Vector3
+	var anchor = e.get("anchor")
+	if anchor != null and is_instance_valid(anchor) and anchor is Node3D:
+		to = (anchor as Node3D).global_position + jb
+	else:
+		to = _target_point(target, jb, from + Vector3(0, 0, 1))
 	var diff: Vector3 = to - from
 	var length := diff.length()
 	if length < 0.05:

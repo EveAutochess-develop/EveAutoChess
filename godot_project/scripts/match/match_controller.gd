@@ -17,6 +17,7 @@ var battle_phase_value: int = 0
 var mode: String = "versus"  # versus | endless
 
 var player_gold: int = 0
+var player_gold_earned: int = 0
 var player_hp: int = 1000
 var player_max_hp: int = 1000
 var ai_hp: int = 1000
@@ -33,6 +34,14 @@ var loss_streak: int = 0
 var kills_this_round_player: int = 0
 var kills_this_round_ai: int = 0
 
+## Round outcome frozen the moment combat ends. `reset_ships_after_round()` revives every
+## field hull before `stage_changed(PREPARE)` fires, so listeners must never re-count the
+## board to decide who won (that read every PVP round as a draw → winner ate a doomsday).
+var last_round_result: String = "draw"  ## win | lose | draw, from the player's side
+var last_round_player_field: int = 0
+var last_round_ai_field: int = 0
+var last_round_freighter_alive: bool = false
+
 var _board: BoardController
 var _shop: ShopController
 var _combat: CombatResolver
@@ -43,8 +52,6 @@ var _speed_step_index: int = 0
 var _sim_accum: float = 0.0
 ## True when battle opens with either side already empty (symmetric instant wipe; no min_battle wait).
 var _battle_opened_empty: bool = false
-
-const SETTINGS_PATH := "user://player_settings.cfg"
 
 func bind(board: BoardController, shop: ShopController, combat: CombatResolver, ai: AiController) -> void:
 	_board = board
@@ -60,6 +67,7 @@ func start_match(p_mode: String) -> void:
 	var mf: Dictionary = DataStore.match_flow
 	var eco: Dictionary = DataStore.economy
 	player_gold = int(eco.get("base_gold", 5))
+	player_gold_earned = 0
 	player_max_hp = int(mf.get("player_max_hp", 1000))
 	player_hp = player_max_hp
 	ai_max_hp = int(mf.get("ai_max_hp", mf.get("player_max_hp", 1000)))
@@ -80,41 +88,47 @@ func start_match(p_mode: String) -> void:
 	_init_speed_multiplier()
 	_board.reset_match()
 	_shop.refresh_shop(true)
-	_ai.init_army()
+	if mode != "nullsec":
+		_ai.init_army()
 	_enter_prepare()
 
 func _process(delta: float) -> void:
 	if not _running or stage == Stage.GAME_END:
 		return
+	## 倍速只放大仿真步长；禁止用 Engine.time_scale / 抬 max_fps 冒充加速。
 	var sim_delta: float = delta * speed_multiplier
 	timer += sim_delta
 	var mf: Dictionary = DataStore.match_flow
 	if stage == Stage.PREPARE:
-		var dur := float(mf.get("prepare_duration_s", 16))
+		var dur := _prepare_duration_s()
 		if timer >= dur:
 			_on_prepare_complete()
 	elif stage == Stage.BATTLE:
 		var fixed := maxf(0.001, float(mf.get("sim_fixed_step_s", 0.05)))
+		var max_steps := maxi(1, int(mf.get("sim_max_steps_per_frame", 8)))
 		_sim_accum += sim_delta
-		while _sim_accum >= fixed:
+		var steps := 0
+		while _sim_accum >= fixed and steps < max_steps:
 			_combat.tick(fixed)
 			if _cyno:
 				_cyno.tick(_combat.sim_time())
 			_sim_accum -= fixed
+			steps += 1
+		## Leftover accum waits for next render frame — do not burn FPS catching up.
 		var bdur := float(mf.get("battle_duration_s", 1800))
 		## Opened empty (either side): skip wait — same rule for player and AI. Mid-fight wipe still uses min_battle.
 		var min_b := 0.0 if _battle_opened_empty else float(mf.get("min_battle_duration_s", 1.25))
 		if timer >= bdur:
-			if _cyno != null and _cyno.has_active_channels():
-				_cyno.force_complete_all(_combat.sim_time())
 			notice.emit("战斗未能在时限内结束")
 			_on_combat_complete("timeout")
 		elif timer >= min_b and _board.is_one_side_cleared():
-			## Keep battle alive while covert cyno is still channeling (otherwise wipe ends before 90s warp).
-			if _cyno != null and _cyno.has_active_channels():
-				pass
-			else:
-				_on_combat_complete("wipe")
+			## Cleared field ends the round at once (CAPITAL_AND_CYNO §2): channels never hold it open.
+			_on_combat_complete("wipe")
+		## Glow countdown uses scaled battle time (same clock as HUD), not render FPS / substep catch-up.
+		if _board:
+			for s in _board.all_ships():
+				if s != null and is_instance_valid(s) and not s.is_destroyed:
+					s.tick_combat_glow(sim_delta)
 	hud_refresh.emit()
 
 func _init_speed_multiplier() -> void:
@@ -144,15 +158,15 @@ func _load_preferred_battle_speed() -> void:
 	var fallback := float(mf.get("speed_multiplier", 1.0))
 	_preferred_battle_speed = fallback
 	var cf := ConfigFile.new()
-	if cf.load(SETTINGS_PATH) != OK:
+	if cf.load(GameSession.SETTINGS_PATH) != OK:
 		return
 	_preferred_battle_speed = float(cf.get_value("match", "battle_speed", fallback))
 
 func _save_preferred_battle_speed() -> void:
 	var cf := ConfigFile.new()
-	cf.load(SETTINGS_PATH)
+	cf.load(GameSession.SETTINGS_PATH)
 	cf.set_value("match", "battle_speed", _preferred_battle_speed)
-	cf.save(SETTINGS_PATH)
+	cf.save(GameSession.SETTINGS_PATH)
 
 func cycle_speed() -> void:
 	if stage == Stage.PREPARE:
@@ -163,8 +177,26 @@ func cycle_speed() -> void:
 	_speed_step_index = (_speed_step_index + 1) % steps.size()
 	speed_multiplier = float(steps[_speed_step_index])
 	_preferred_battle_speed = speed_multiplier
+	## Never couple 倍速 to render FPS or Engine.time_scale.
+	Engine.time_scale = 1.0
 	_save_preferred_battle_speed()
 	hud_refresh.emit()
+
+func set_battle_speed(speed: float) -> void:
+	if stage == Stage.PREPARE:
+		return
+	speed_multiplier = maxf(0.05, speed)
+	_preferred_battle_speed = speed_multiplier
+	Engine.time_scale = 1.0
+	_save_preferred_battle_speed()
+	hud_refresh.emit()
+
+func force_draw_battle() -> void:
+	## Wall-clock timeout draw for remaining nullsec battles.
+	if stage != Stage.BATTLE or not _running:
+		return
+	notice.emit("平局（墙钟时限）")
+	_on_combat_complete("draw_timeout")
 
 func speed_label() -> String:
 	if speed_multiplier >= 1.0 and fmod(speed_multiplier, 1.0) < 0.001:
@@ -188,17 +220,26 @@ func _enter_prepare() -> void:
 	var payload := {"stage": "prepare", "battle_phase": battle_phase_value, "round_phase": round_phase_value}
 	AdminBus.request(&"match.stage_change", payload)
 	_board.set_prepare_mode(true)
+	## First prepare pass: any pending 3-of-a-kind from last round / hangar merges now.
+	_board.try_upgrades_all()
 	_combat.stop_combat()
 	kills_this_round_player = 0
 	kills_this_round_ai = 0
 	if _cyno:
 		_cyno.on_prepare_start()
+	## Cyno-gated hulls return to hangar for next induction (MATCH_FLOW §5.0b).
+	if _board and _board.has_method("recall_cyno_entry_ships_to_hangar"):
+		_board.recall_cyno_entry_ships_to_hangar()
+	## Heal empty shop (bad save / mid-refresh persist).
+	if _shop and _shop.slots.is_empty() and not shop_locked:
+		_shop.refresh_shop(true, false)
 	stage_changed.emit(stage)
 	hud_refresh.emit()
+	## Single rolling snapshot at prepare open (开局前), not mid-buy / mid-drag.
 	_autosave_match()
 
 func _on_prepare_complete() -> void:
-	if _ai and _ai.has_method("finalize_prepare"):
+	if mode != "nullsec" and _ai and _ai.has_method("finalize_prepare"):
 		_ai.finalize_prepare()
 	var payload := {"stage": "battle", "battle_phase": battle_phase_value, "round_phase": round_phase_value}
 	var res := AdminBus.request(&"match.stage_change", payload)
@@ -241,8 +282,13 @@ func skip_prepare() -> void:
 	hud_refresh.emit()
 	notice.emit("备战加速 ×%d" % int(speed_multiplier))
 
+func _abort_cyno_channels() -> void:
+	if _cyno != null and _cyno.has_active_channels():
+		_cyno.abort_channels()
+
 func _on_combat_complete(reason: String = "wipe") -> void:
 	_combat.stop_combat()
+	_abort_cyno_channels()
 	_battle_opened_empty = false
 	print("[match] combat complete reason=%s player_field=%d ai_field=%d round=%d-%d" % [
 		reason,
@@ -257,11 +303,12 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 	if round_phase_value > max_rp:
 		round_phase_value = 1
 		battle_phase_value += 1
+	_snapshot_round_outcome()
 	_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
-	_board.try_upgrades_all()
+	## Star merges wait for Prepare (`try_upgrades_all` is prepare-gated).
 	if not shop_locked:
 		_shop.refresh_shop(true)
 	_grant_exp(int(DataStore.economy.get("base_exp_income", 4)))
@@ -270,6 +317,25 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 		_end_match()
 		return
 	_enter_prepare()
+
+## Freeze who was standing at the final combat tick, before hulls are reloaded.
+func _snapshot_round_outcome() -> void:
+	last_round_player_field = _board.count_alive_field(ShipUnit.TEAM_PLAYER) if _board else 0
+	last_round_ai_field = _board.count_alive_field(ShipUnit.TEAM_AI) if _board else 0
+	if last_round_player_field > 0 and last_round_ai_field <= 0:
+		last_round_result = "win"
+	elif last_round_ai_field > 0 and last_round_player_field <= 0:
+		last_round_result = "lose"
+	else:
+		last_round_result = "draw"
+	last_round_freighter_alive = false
+	if _board:
+		for s in _board.all_ships():
+			if s == null or not is_instance_valid(s) or not s.is_protect_target:
+				continue
+			if not s.is_destroyed and float(s.structure_hp) > 0.01:
+				last_round_freighter_alive = true
+				break
 
 func _match_round_number() -> int:
 	## 1-based round index used by early income / citadel bands.
@@ -366,7 +432,13 @@ func _apply_income(team: int, won: bool, kills: int) -> void:
 		streak = loss_streak if team == ShipUnit.TEAM_PLAYER else (_ai.loss_streak if _ai else 0)
 	var streak_g: int = _streak_bonus(streak)
 	var kill_g: int = kills * int(eco.get("kill_gold_per_ship", 1))
-	var income: int = base + interest + win_g + streak_g + kill_g
+	var mining_g: int = _mining_gold_for_team(team)
+	var income: int = base + interest + win_g + streak_g + kill_g + mining_g
+	## Dev: same AI income ×mul on combat part only (mining stays raw).
+	if team == ShipUnit.TEAM_PLAYER and GameSession and GameSession.player_ai_double_economy_active():
+		var mul: float = float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0))
+		var combat_part := income - mining_g
+		income = int(round(float(combat_part) * mul)) + mining_g
 	var payload := {
 		"team": team,
 		"base": base,
@@ -374,6 +446,7 @@ func _apply_income(team: int, won: bool, kills: int) -> void:
 		"win": win_g,
 		"streak": streak_g,
 		"kills": kill_g,
+		"mining": mining_g,
 		"income": income,
 	}
 	var r := AdminBus.request(&"economy.income", payload)
@@ -381,9 +454,51 @@ func _apply_income(team: int, won: bool, kills: int) -> void:
 	var final_income := int(p2.get("income", income))
 	if team == ShipUnit.TEAM_PLAYER:
 		player_gold += final_income
-		notice.emit("你收入了%d黄币" % final_income)
+		player_gold_earned += maxi(0, final_income)
+		if mining_g > 0:
+			notice.emit("你收入了%d黄币（含采矿%d）" % [final_income, mining_g])
+		else:
+			notice.emit("你收入了%d黄币" % final_income)
 	elif _ai and _ai.has_method("add_gold"):
 		_ai.add_gold(final_income)
+
+
+func _mining_gold_for_team(team: int) -> int:
+	## MINING_AND_DUST §3–4: Field survivors; ★k × base; Porpoise command +20% on other sources (floor).
+	if _board == null:
+		return 0
+	var has_command := false
+	for s in _board.field_ships(team):
+		if s == null or s.is_destroyed or s.is_unmanned:
+			continue
+		var sd0: Dictionary = DataStore.get_ship(s.ship_id)
+		if "mining_command" in sd0.get("fetter_ids", []) or int(s.ship_id) == 136:
+			has_command = true
+			break
+	var total := 0
+	for s in _board.field_ships(team):
+		if s == null or s.is_destroyed:
+			continue
+		var sd: Dictionary = DataStore.get_ship(s.ship_id)
+		var base_g := int(sd.get("mining_gold_per_round", 0))
+		if base_g <= 0:
+			continue
+		## Excavators only pay while mother still alive (orphan cull runs in stop_combat).
+		if s.is_unmanned and str(s.unmanned_kind) == "mining_excavator":
+			var mother := instance_from_id(s.mother_ship_id) as ShipUnit
+			if mother == null or not is_instance_valid(mother) or mother.is_destroyed:
+				continue
+		var star_mul := maxi(int(s.star), 1)
+		var starred := base_g * star_mul
+		var is_porpoise: bool = false
+		if not s.is_unmanned:
+			var fids = sd.get("fetter_ids", [])
+			is_porpoise = int(s.ship_id) == 136 or ("mining_command" in fids)
+		if has_command and not is_porpoise:
+			total += int(floor(float(starred) * 1.2))
+		else:
+			total += starred
+	return total
 
 func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionary) -> void:
 	if String(channel) != "combat.hit":
@@ -403,17 +518,16 @@ func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionar
 
 func _take_player_damage(amount: int) -> void:
 	var dmg := amount
-	var mf: Dictionary = DataStore.match_flow
-	if bool(mf.get("citadel_test_mode", false)):
+	## Soften only when Settings → 开发者调试 → 我方扣血软化 is on (default off).
+	if GameSession and GameSession.player_citadel_soften_active():
+		var mf: Dictionary = DataStore.match_flow
 		dmg = int(mf.get("citadel_test_loss_damage", 1))
 	player_hp = maxi(0, player_hp - dmg)
 	notice.emit("主堡受到 %d 伤害" % dmg)
 
 func _take_ai_damage(amount: int) -> void:
-	var dmg := amount
-	var mf: Dictionary = DataStore.match_flow
-	if bool(mf.get("citadel_test_mode", false)):
-		dmg = int(mf.get("citadel_test_loss_damage", 1))
+	## Developer soften never applies to AI; full formula always.
+	var dmg := maxi(0, amount)
 	ai_hp = maxi(0, ai_hp - dmg)
 	notice.emit("对手主堡受到 %d 伤害" % dmg)
 
@@ -426,6 +540,15 @@ func _grant_exp(amount: int) -> void:
 		player_level += 1
 		up_level_demand += inc
 	hud_refresh.emit()
+
+
+## Demand for next level after reaching `level` (1-based).
+static func exp_demand_for_level(level: int) -> int:
+	var eco: Dictionary = DataStore.economy
+	var initial := int(eco.get("initial_level_exp_demand", 4))
+	var inc := int(eco.get("level_exp_demand_increment", 8))
+	return initial + maxi(0, level - 1) * inc
+
 
 func buy_exp() -> void:
 	var eco: Dictionary = DataStore.economy
@@ -442,6 +565,7 @@ func buy_exp() -> void:
 		return
 	player_gold -= cost
 	_grant_exp(amt)
+	request_autosave()
 
 func try_spend(amount: int) -> bool:
 	if player_gold < amount:
@@ -452,13 +576,22 @@ func try_spend(amount: int) -> bool:
 
 func add_gold(amount: int) -> void:
 	player_gold += amount
+	if amount > 0:
+		player_gold_earned += amount
 	hud_refresh.emit()
 
 func population_limit() -> int:
 	return mini(player_level + int(DataStore.board.get("ship_count_buff", 0)), int(DataStore.board.get("max_deployment", 999)))
 
 func prepare_remaining() -> float:
-	return maxf(0.0, float(DataStore.match_flow.get("prepare_duration_s", 16)) - timer)
+	return maxf(0.0, _prepare_duration_s() - timer)
+
+func _prepare_duration_s() -> float:
+	var base := float(DataStore.match_flow.get("prepare_duration_s", 16))
+	## New match first prepare only (`battle_game_stage_count` still 0 until after first battle).
+	if battle_game_stage_count == 0:
+		base += float(DataStore.match_flow.get("prepare_first_round_bonus_s", 10))
+	return base
 
 func battle_elapsed() -> float:
 	return timer
@@ -466,7 +599,9 @@ func battle_elapsed() -> float:
 func _end_match() -> void:
 	stage = Stage.GAME_END
 	_running = false
-	MatchSave.clear()
+	if mode != "nullsec":
+		## A nullsec match never owned last_match, so it must not clear it either.
+		MatchSave.clear()
 	var summary: String
 	if player_hp <= 0 and (mode == "endless" or ai_hp > 0):
 		summary = "主堡失守 · 最终等级 %d" % player_level
@@ -480,7 +615,23 @@ func _end_match() -> void:
 func _autosave_match() -> void:
 	if stage != Stage.PREPARE:
 		return
+	if mode == "nullsec":
+		## Multiplayer rounds are unresumable offline, and writing here would also
+		## bury the single-player last_match (MATCH_FLOW §5.0b 负安多人局不入存档).
+		return
 	if GameSession and bool(GameSession.get("resume_save")):
 		## Resume path loads into memory then applies; skip overwriting the slot mid-start.
 		return
+	if _board and _board.has_method("recall_cyno_entry_ships_to_hangar"):
+		_board.recall_cyno_entry_ships_to_hangar()
 	MatchSave.save_from_match(self, _board, _ai)
+
+
+## Rolling last_match only at prepare open. Mid-prepare buy/drag must not rewrite roster.
+## Return-to-menu / explicit named save still call save_from_match (or force_autosave).
+func request_autosave() -> void:
+	pass
+
+
+func force_autosave() -> void:
+	_autosave_match()

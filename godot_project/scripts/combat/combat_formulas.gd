@@ -14,7 +14,8 @@ static func grid_distance_cells(a: Node3D, b: Node3D) -> float:
 	return flat_a.distance_to(flat_b) / wu
 
 static func distance_meters(cells: float) -> float:
-	return cells * float(DataStore.combat.get("meters_per_cell", 500.0))
+	## Range path: 1 cell = 2 km, same as tracking (COMBAT §3.1 格距语义).
+	return cells * float(DataStore.combat.get("meters_per_cell", 2000.0))
 
 static func tracking_distance_meters(cells: float) -> float:
 	## Turret angular-velocity path only: 1 cell = 2 km (2000 m) by design.

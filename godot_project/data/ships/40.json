@@ -38,7 +38,6 @@
   "med_slots": 5,
   "low_slots": 5,
   "source_module_type_id": 570,
-  "source_charge_type_id": 230,
   "source_repair_module_type_id": 0,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 0,
@@ -48,21 +47,6 @@
   "stars": [
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 104.4,
-        "kinetic": 146.16,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1200.0,
       "armor_hp": 1300.0,
       "structure_hp": 1700.0,
@@ -88,21 +72,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 208.8,
-        "kinetic": 292.32,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 2400.0,
       "armor_hp": 2600.0,
       "structure_hp": 3400.0,
@@ -128,21 +97,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 313.2,
-        "kinetic": 438.48,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 3600.0,
       "armor_hp": 3900.0,
       "structure_hp": 5100.0,
@@ -167,5 +121,6 @@
       "is_logistic": false
     }
   ],
-  "model_long_axis": 79.0
+  "model_long_axis": 79.0,
+  "sof_hull": "gc1_t1"
 }

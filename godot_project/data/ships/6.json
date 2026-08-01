@@ -38,7 +38,6 @@
   "med_slots": 3,
   "low_slots": 4,
   "source_module_type_id": 499,
-  "source_charge_type_id": 210,
   "source_repair_module_type_id": 0,
   "drone_bandwidth": 2.0,
   "drone_bay_slots": 3,
@@ -48,21 +47,6 @@
   "stars": [
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 103.75,
-        "thermal": 103.75,
-        "kinetic": 103.75,
-        "explosive": 103.75
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 0.0,
-      "optimal": 0.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 750.0,
       "armor_hp": 950.0,
       "structure_hp": 850.0,
@@ -84,28 +68,10 @@
         "kinetic": 0.25,
         "explosive": 0.2
       },
-      "is_logistic": false,
-      "explosion_radius": 40.0,
-      "explosion_velocity": 170.0,
-      "drf": 0.604
+      "is_logistic": false
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 207.5,
-        "thermal": 207.5,
-        "kinetic": 207.5,
-        "explosive": 207.5
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 0.0,
-      "optimal": 0.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1500.0,
       "armor_hp": 1900.0,
       "structure_hp": 1700.0,
@@ -127,28 +93,10 @@
         "kinetic": 0.25,
         "explosive": 0.2
       },
-      "is_logistic": false,
-      "explosion_radius": 40.0,
-      "explosion_velocity": 170.0,
-      "drf": 0.604
+      "is_logistic": false
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 311.25,
-        "thermal": 311.25,
-        "kinetic": 311.25,
-        "explosive": 311.25
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 0.0,
-      "optimal": 0.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 2250.0,
       "armor_hp": 2850.0,
       "structure_hp": 2550.0,
@@ -170,11 +118,9 @@
         "kinetic": 0.25,
         "explosive": 0.2
       },
-      "is_logistic": false,
-      "explosion_radius": 40.0,
-      "explosion_velocity": 170.0,
-      "drf": 0.604
+      "is_logistic": false
     }
   ],
-  "model_long_axis": 150.0
+  "model_long_axis": 150.0,
+  "sof_hull": "ade2_t1"
 }

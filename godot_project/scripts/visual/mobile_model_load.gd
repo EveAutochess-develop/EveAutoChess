@@ -13,8 +13,23 @@ static func precision_enabled() -> bool:
 static func mobile_compress_enabled() -> bool:
 	## Attribute recompress mutates ArrayMesh and has caused hull 镂空; off unless explicitly opted in.
 	if DataStore and DataStore.visual is Dictionary:
-		return bool(DataStore.visual.get("model_half_precision_compress_enabled", false))
+		var v: Dictionary = DataStore.visual
+		if bool(v.get("model_half_precision_compress_enabled", false)):
+			return true
+		## Legacy aliases (CONTENT_FORMAT); still default false for ships.
+		if bool(v.get("mobile_half_precision_models", false)):
+			return true
+		if bool(v.get("model_half_precision_all_platforms", false)):
+			return true
 	return false
+
+
+## Force ARRAY_FLAG_COMPRESS_ATTRIBUTES on a subtree (ores). Does not decimate.
+static func apply_half_precision_compress(root: Node) -> void:
+	if root == null:
+		return
+	for mi in _find_meshes(root):
+		_compress_mesh_instance(mi)
 
 
 ## display_size < 0 → baseline only (no scale extra). Returns vertex/texture keep ratio ∈ (0, 1].

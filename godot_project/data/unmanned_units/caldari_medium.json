@@ -36,10 +36,10 @@
     {
       "attack_range": 4,
       "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 24,
-        "explosive": 16
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 72.0,
+        "explosive": 48.0
       },
       "repair": {
         "shield": 0,
@@ -50,9 +50,9 @@
       "optimal": 4.0,
       "falloff": 2.0,
       "optimal_sig_radius": 35.0,
-      "shield_hp": 120,
-      "armor_hp": 100,
-      "structure_hp": 80,
+      "shield_hp": 60,
+      "armor_hp": 50,
+      "structure_hp": 40,
       "shield_resist": {
         "emp": 0.1,
         "thermal": 0.1,
@@ -73,5 +73,7 @@
       }
     }
   ],
-  "model_long_axis": 34.0
+  "model_long_axis": 34.0,
+  "sof_hull": "cdm1_t1",
+  "_content_dph_mul": 3
 }

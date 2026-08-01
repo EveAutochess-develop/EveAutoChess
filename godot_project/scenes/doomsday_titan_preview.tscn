@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bncmwktgx2puo"]
+
+[ext_resource type="Script" uid="uid://k07fm30rmbnq" path="res://scripts/dev/doomsday_titan_preview.gd" id="1_4x4t7"]
+
+[node name="DoomsdayTitanPreview" type="Node3D" unique_id=645638284]
+script = ExtResource("1_4x4t7")

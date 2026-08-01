@@ -22,6 +22,10 @@ _*.log
 godot_project/_*.txt
 godot_project/_probe.gd
 godot_project/_probe.gd.uid
+_check.err
+_check.out
+addons_tmp_*.png
+tmp_*.png
 
 # MCP screenshot cache
 godot_project/addons/godot_mcp/cache/
@@ -30,3 +34,49 @@ godot_project/addons/godot_mcp/cache/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Binary art / audio / models — ship via HF content packs only (not GitHub)
+godot_project/assets/models/
+godot_project/assets/audio/
+godot_project/assets/textures/
+godot_project/assets/skyboxes/
+godot_project/assets/vfx/
+godot_project/assets/ui/ship_portraits/
+godot_project/assets/ui/ship_portraits_capital/
+godot_project/assets/ui/fighter_icons/
+godot_project/assets/ui/heavy_repair_drone_icons/
+godot_project/assets/ui/drone_portraits/
+godot_project/assets/**/*.glb
+godot_project/assets/**/*.gltf
+godot_project/assets/**/*.wav
+godot_project/assets/**/*.mp3
+godot_project/assets/**/*.ogg
+godot_project/assets/**/*.bnk
+godot_project/assets/**/*.dds
+godot_project/assets/**/*.ktx
+godot_project/assets/**/*.ktx2
+godot_project/assets/**/*.png
+godot_project/assets/**/*.jpg
+godot_project/assets/**/*.jpeg
+godot_project/assets/**/*.webp
+
+# Tooling scratch / portrait match dumps / extracted binaries
+tools/_portrait_match/
+tools/_extracted/
+tools/_sc_tmp/
+tools/_tmp/
+tools/**/*.png
+tools/**/*.jpg
+tools/**/*.glb
+tools/**/*.dds
+tools/**/*.gr2
+tools/**/*.wav
+tools/**/*.mp3
+tools/**/*.lnk
+tools/**/*.bin
+tools/**/*.obj
+tools/eve_pc/vendor/
+tools/**/*.dll
+tools/**/*.exe
+tools/**/*.pdb
+

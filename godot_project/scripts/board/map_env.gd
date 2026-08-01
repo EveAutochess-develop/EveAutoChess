@@ -11,8 +11,19 @@ const CITADEL_MESH_ASCII := "res://assets/models/structures/citadel.glb"
 
 ## Player-side citadel node (for world HP bar). AI citadel is not tracked in v1.
 var player_citadel: Node3D
+## Nullsec seat titan berth (MULTIPLAYER_PVP §2.4a). Null outside nullsec / no race picked.
+var titan_berth: TitanBerth
+## PVP rival seat titan on the far side (bow toward local home).
+var rival_titan_berth: TitanBerth
+var belt: AsteroidBelt
 
 func build(mode: String = "endless") -> Node3D:
+	## Nullsec home field shows the seat titan instead of 空堡 (MULTIPLAYER_PVP §2.4a).
+	if mode == "nullsec":
+		_spawn_asteroid_belt()
+		_spawn_titan_berth()
+		_spawn_rival_titan_berth()
+		return titan_berth
 	var size := float(DataStore.visual.get("citadel_target_size", 12.0))
 	if UiLayout.is_mobile():
 		size = float(DataStore.visual.get("citadel_mobile_target_size", minf(size, 8.0)))
@@ -26,10 +37,84 @@ func build(mode: String = "endless") -> Node3D:
 	return player_citadel
 
 func _spawn_asteroid_belt() -> void:
-	var belt := AsteroidBelt.new()
+	belt = AsteroidBelt.new()
 	add_child(belt)
 	belt.build()
 	print("[MapEnv] asteroid belt anchors=%d" % belt.mining_anchors.size())
+
+func _spawn_titan_berth() -> void:
+	var race := _local_seat_titan_race()
+	if race == "":
+		print("[MapEnv] nullsec berth skipped — local seat has no titan race")
+		return
+	titan_berth = TitanBerth.new()
+	add_child(titan_berth)
+	if not titan_berth.build(race, belt.bounds_box(), true):
+		titan_berth.queue_free()
+		titan_berth = null
+
+func _spawn_rival_titan_berth() -> void:
+	## Built once for the doomsday target, but only shown on PVP rounds (§2.4a).
+	var race := _rival_seat_titan_race()
+	if race == "":
+		print("[MapEnv] nullsec rival berth skipped — no rival titan race")
+		return
+	rival_titan_berth = TitanBerth.new()
+	add_child(rival_titan_berth)
+	if not rival_titan_berth.build(race, belt.bounds_box(), false):
+		rival_titan_berth.queue_free()
+		rival_titan_berth = null
+		return
+	rival_titan_berth.visible = false
+
+func _local_seat_titan_race() -> String:
+	var payload: Dictionary = GameSession.pending_nullsec if GameSession else {}
+	if bool(payload.get("spectator", false)):
+		return ""
+	var seats: Array = payload.get("seats", []) as Array
+	var local_seat := int(payload.get("local_seat", -1))
+	for s in seats:
+		if typeof(s) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = s
+		if int(d.get("seat_id", -1)) == local_seat:
+			var race := str(d.get("titan_race", ""))
+			if NullsecNetSession.is_player_race(race):
+				return race
+			return ""
+	var fallback := str(payload.get("local_titan_race", ""))
+	return fallback if NullsecNetSession.is_player_race(fallback) else ""
+
+func _rival_seat_titan_race() -> String:
+	var payload: Dictionary = GameSession.pending_nullsec if GameSession else {}
+	var seats: Array = payload.get("seats", []) as Array
+	var local_seat := int(payload.get("local_seat", -1))
+	## Prefer explicit assignment rival; else first other occupied seat with a race.
+	var assignments: Dictionary = payload.get("assignments", {}) as Dictionary
+	var rival_from_assign := int(assignments.get("rival_seat", assignments.get(str(local_seat), -1)))
+	if rival_from_assign >= 0:
+		for s in seats:
+			if typeof(s) != TYPE_DICTIONARY:
+				continue
+			var d: Dictionary = s
+			if int(d.get("seat_id", -1)) == rival_from_assign:
+				var r := str(d.get("titan_race", ""))
+				if NullsecNetSession.is_player_race(r):
+					return r
+	for s in seats:
+		if typeof(s) != TYPE_DICTIONARY:
+			continue
+		var d2: Dictionary = s
+		if int(d2.get("seat_id", -1)) == local_seat:
+			continue
+		var kind := str(d2.get("kind", d2.get("type", "player")))
+		if kind == "empty":
+			continue
+		var race := str(d2.get("titan_race", ""))
+		if NullsecNetSession.is_player_race(race):
+			return race
+	var fb := str(payload.get("rival_titan_race", ""))
+	return fb if NullsecNetSession.is_player_race(fb) else ""
 
 func _rightmost_hangar_cell() -> Vector3:
 	## Player hangar x=0 is the +X tip (hangar_offset_x < 0).

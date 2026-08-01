@@ -1,0 +1,121 @@
+{
+  "attack_cycle_s": 5.0,
+  "cost": 3.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "fetter_ids": [
+    "ore",
+    "mining_barge"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "id": 135.0,
+  "is_logistic": false,
+  "is_mining_ship": true,
+  "is_unmanned": false,
+  "low_slots": 2.0,
+  "med_slots": 2.0,
+  "mining_gold_per_round": 25.0,
+  "model_key": "lhky_huixuanzhe",
+  "model_long_axis": 202.0,
+  "name": "回旋者级",
+  "name_en": "Retriever",
+  "race": "ore",
+  "scan_resolution": 550.0,
+  "sensor_strength": 9.0,
+  "ship_group": "mining_barge",
+  "ship_groups": [
+    "mining_barge"
+  ],
+  "signature_radius": 200.0,
+  "sof_hull": "oreba2_t1",
+  "source_module_type_id": 11008100000.0,
+  "speed": 125.0,
+  "stars": [
+    {
+      "armor_hp": 3000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 4000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 4000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 6000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 8000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 8000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 9000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 12000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 12000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    }
+  ],
+  "tags": [
+    "ore",
+    "mining_barge"
+  ],
+  "type_id": 17478.0,
+  "unmanned_kind": "",
+  "weapon_fx": "mining"
+}

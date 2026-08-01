@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bnbfhvgwhnqkr"]
+
+[ext_resource type="Script" uid="uid://bmt54gtn8rsyt" path="res://scripts/dev/titan_kill_preview.gd" id="1_hu5f4"]
+
+[node name="TitanKillPreview" type="Node3D" unique_id=436709027]
+script = ExtResource("1_hu5f4")

@@ -37,8 +37,7 @@ void fragment() {
 	colored *= reduction_mask;
 
 	ALBEDO = clamp(colored, vec3(0.0), vec3(1.0));
-	NORMAL_MAP = texture(normal_tex, UV).rgb;
-	NORMAL_MAP_DEPTH = normal_scale;
+	NORMAL_MAP = texture(normal_tex, UV).rgb;	NORMAL_MAP_DEPTH = normal_scale;
 	METALLIC = clamp(pmwo.r * pmwo_metallic + rg.g * 0.15, 0.02, 0.92);
 	ROUGHNESS = clamp(1.0 - pmwo.g * pmwo_roughness + (1.0 - reduction.r) * 0.12, 0.06, 0.97);
 	SPECULAR = 0.22;

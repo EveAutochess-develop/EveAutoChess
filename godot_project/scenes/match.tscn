@@ -51,6 +51,11 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 16
 text = "阶段 1-1"
 
+[node name="Region" type="Label" parent="HUD/Root/RoundBar/RoundInner"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "星域"
+
 [node name="Placement" type="HBoxContainer" parent="HUD/Root/RoundBar/RoundInner"]
 layout_mode = 2
 theme_override_constants/separation = 12
@@ -102,7 +107,7 @@ text = "暂停"
 [node name="ExitBtn" type="Button" parent="HUD/Root/TopRight"]
 custom_minimum_size = Vector2(72, 36)
 layout_mode = 2
-text = "退出"
+text = "菜单"
 
 [node name="LeftCol" type="PanelContainer" parent="HUD/Root"]
 layout_mode = 1

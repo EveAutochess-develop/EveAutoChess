@@ -1,9 +1,9 @@
 {
   "id": 48,
-  "name": "猛鲑级",
+  "name": "幼龙级",
   "name_en": "Drake",
   "type_id": 24698,
-  "model_key": "jdl_menggui",
+  "model_key": "jdl_youlong",
   "cost": 7,
   "ship_groups": [
     "battlecruiser"
@@ -47,21 +47,6 @@
   "stars": [
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 223.5,
-        "thermal": 223.5,
-        "kinetic": 223.5,
-        "explosive": 223.5
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 699.3,
-      "falloff": 399.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1200.0,
       "armor_hp": 1800.0,
       "structure_hp": 900.0,
@@ -82,28 +67,10 @@
         "thermal": 0.2,
         "kinetic": 0.2,
         "explosive": 0.2
-      },
-      "explosion_radius": 140.0,
-      "explosion_velocity": 85.0,
-      "drf": 0.682
+      }
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 447.0,
-        "thermal": 447.0,
-        "kinetic": 447.0,
-        "explosive": 447.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 699.3,
-      "falloff": 399.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 2400.0,
       "armor_hp": 3600.0,
       "structure_hp": 1800.0,
@@ -124,28 +91,10 @@
         "thermal": 0.2,
         "kinetic": 0.2,
         "explosive": 0.2
-      },
-      "explosion_radius": 140.0,
-      "explosion_velocity": 85.0,
-      "drf": 0.682
+      }
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 670.5,
-        "thermal": 670.5,
-        "kinetic": 670.5,
-        "explosive": 670.5
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 699.3,
-      "falloff": 399.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 3600.0,
       "armor_hp": 5400.0,
       "structure_hp": 2700.0,
@@ -166,15 +115,12 @@
         "thermal": 0.2,
         "kinetic": 0.2,
         "explosive": 0.2
-      },
-      "explosion_radius": 140.0,
-      "explosion_velocity": 85.0,
-      "drf": 0.682
+      }
     }
   ],
   "visual": {},
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10400000002,
+  "echoes_item_id": 10400000003,
   "attack_weapon_slots": 6,
-  "source_charge_type_id": 209
+  "sof_hull": "cbc2_t1"
 }

@@ -1,0 +1,21 @@
+{
+  "id": "titan_gallente",
+  "name": "厄勒布洛斯级泰坦",
+  "meta": true,
+  "effects": [
+    {
+      "champion_count": 0,
+      "effect_type": "Damage",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 5
+    },
+    {
+      "champion_count": 0,
+      "effect_type": "ShopRaceWeight",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 10
+    }
+  ]
+}

@@ -6,6 +6,15 @@ const FONT_DISPLAY := "res://assets/fonts/SanJiLuoLiHei-2.ttf"
 const FONT_BODY := "res://assets/fonts/msyh.ttc"
 const MAIN_BG := "res://assets/ui/main_menu/MainMenuBG.jpg"
 const ANNOUNCE_DIR := "res://assets/ui/main_menu/Announcements"
+## Explicit list — DirAccess on exported PCK often yields .ctex / empty, so scan-by-extension fails on mobile.
+const ANNOUNCE_FILES: PackedStringArray = [
+	"afdian.png",
+	"bug_feedback.png",
+	"github_open_source.png",
+	"sponsor.png",
+	"survey.png",
+	"update.png",
+]
 const CHAMPION_ICON_DIR := "res://assets/ui/sprites/ChampionIcons"
 const CHAMPION_ICON_ASCII_MAP := "res://data/champion_icons.json"
 const FETTER_ICON_DIR := "res://assets/ui/sprites/FetterIcons"
@@ -34,15 +43,63 @@ const TONNAGE_ICON_MAP := {
 	"fighter": "fighter.png",
 	"heavy_repair_drone": "droneHeavyAttack_16.png",
 	"repair_drone": "droneHeavyAttack_16.png",
+	"mining_barge": "industrial_32.png",
+	"industrial_command": "industrialCommand_32.png",
+	"capital_industrial": "freighter_32.png",
+	"freighter": "freighter_32.png",
+	"titan": "titan_32.png",
 }
 const SHIPGROUP_ICON_DIR := "res://assets/ui/icons/ShipGroup"
 const TONNAGE_DIR := "res://assets/ui/sprites/tonnage"
+const TONNAGE_OVERLAY_DIR := "res://assets/ui/sprites/tonnage_overlays"
+## In-match tonnage overlays (UI_ICONS §6.1): one bg + one badge per unit, picked by viewer-side allegiance.
+const TONNAGE_OVERLAY_FILES := {
+	"red_minus_badge": "01_red_minus_badge.png",
+	"red_bg": "02_red_bg.png",
+	"fleet_member": "03_fleet_member.png",
+	"fleet_member_bg": "04_fleet_member_bg.png",
+	"blue_bg": "05_blue_bg.png",
+	"friendly_badge": "06_friendly_badge.png",
+}
+## key = allegiance set from the local client's point of view.
+const TONNAGE_OVERLAY_SETS := {
+	"fleet": {"bg": "fleet_member_bg", "badge": "fleet_member"},
+	"enemy": {"bg": "red_bg", "badge": "red_minus_badge"},
+	"friendly": {"bg": "blue_bg", "badge": "friendly_badge"},
+}
+const TIPS_SKYBOX_DIR := "res://assets/ui/tips_skybox"
+const INDUSTRIAL_SHIP_GROUPS := [
+	"mining_barge",
+	"industrial_command",
+	"capital_industrial",
+]
+const RACE_TIPS_FILES := {
+	"amarr": "tips_a01_pic.png",
+	"a": "tips_a01_pic.png",
+	"caldari": "tips_c01_pic.png",
+	"c": "tips_c01_pic.png",
+	"gallente": "tips_g01_pic.png",
+	"g": "tips_g01_pic.png",
+	"minmatar": "tips_m01_pic.png",
+	"m": "tips_m01_pic.png",
+}
+const ORE_TIPS_FILES := {
+	"amarr": "tips_ore_a01_pic.png",
+	"a": "tips_ore_a01_pic.png",
+	"caldari": "tips_ore_c01_pic.png",
+	"c": "tips_ore_c01_pic.png",
+	"gallente": "tips_ore_g01_pic.png",
+	"g": "tips_ore_g01_pic.png",
+	"minmatar": "tips_ore_m01.png",
+	"m": "tips_ore_m01.png",
+}
 
 static var _champ_cache: Dictionary = {}
 static var _champ_path_map: Dictionary = {}
 static var _fetter_cache: Dictionary = {}
 static var _tonnage_cache: Dictionary = {}
 static var _item_icon_cache: Dictionary = {}
+static var _tips_cache: Dictionary = {}
 static var _font_display: Font
 static var _font_body: Font
 static var _shop_refresh: String = ""
@@ -224,6 +281,78 @@ static func _ensure_champ_map() -> void:
 			if typeof(parsed) == TYPE_DICTIONARY:
 				_champ_path_map = parsed
 
+## UI_AND_SHELL §2.1.1 / UI_ICONS §8 — four-empire tips skybox (battle ships / titan options).
+static func race_tips_skybox(race_key: String) -> Texture2D:
+	var k := _normalize_race_key(race_key)
+	if k == "":
+		return null
+	var cache_key := "race:%s" % k
+	if _tips_cache.has(cache_key):
+		return _tips_cache[cache_key]
+	var file_name := str(RACE_TIPS_FILES.get(k, ""))
+	var t: Texture2D = null
+	if file_name != "":
+		t = tex(TIPS_SKYBOX_DIR.path_join(file_name))
+		if t == null:
+			t = _tex_from_image_file(TIPS_SKYBOX_DIR.path_join(file_name))
+	_tips_cache[cache_key] = t
+	return t
+
+## Industrial / mining shop cards — tips_ore_* (never silent-fallback to empire tips).
+static func ore_tips_skybox(variant_key: String) -> Texture2D:
+	var k := _normalize_race_key(variant_key)
+	if k == "":
+		k = "m"
+	var cache_key := "ore:%s" % k
+	if _tips_cache.has(cache_key):
+		return _tips_cache[cache_key]
+	var file_name := str(ORE_TIPS_FILES.get(k, ORE_TIPS_FILES["m"]))
+	var t: Texture2D = null
+	if file_name != "":
+		t = tex(TIPS_SKYBOX_DIR.path_join(file_name))
+		if t == null:
+			t = _tex_from_image_file(TIPS_SKYBOX_DIR.path_join(file_name))
+	_tips_cache[cache_key] = t
+	return t
+
+## Pick the correct tips texture for a shop ship card (or null = keep plain card).
+static func shop_card_tips_skybox(ship: Dictionary, titan_race: String = "") -> Texture2D:
+	if ship == null or ship.is_empty():
+		return null
+	var group := str(ship.get("ship_group", ""))
+	var groups: Array = ship.get("ship_groups", [])
+	var is_industrial := group in INDUSTRIAL_SHIP_GROUPS
+	if not is_industrial:
+		for g in groups:
+			if str(g) in INDUSTRIAL_SHIP_GROUPS:
+				is_industrial = true
+				break
+	if is_industrial:
+		var ore_key := _normalize_race_key(str(ship.get("race", "")))
+		if ore_key == "":
+			ore_key = _normalize_race_key(titan_race)
+		if ore_key == "":
+			ore_key = "m"
+		return ore_tips_skybox(ore_key)
+	var race := _normalize_race_key(str(ship.get("race", "")))
+	if race == "":
+		return null
+	return race_tips_skybox(race)
+
+static func _normalize_race_key(raw: String) -> String:
+	var k := raw.strip_edges().to_lower()
+	match k:
+		"amarr", "a", "am":
+			return "amarr"
+		"caldari", "c", "cald", "jdl":
+			return "caldari"
+		"gallente", "g", "gal", "glt":
+			return "gallente"
+		"minmatar", "m", "min", "mmte":
+			return "minmatar"
+		_:
+			return ""
+
 ## Resolve by fetter id ASCII `{id}.png` only (no Chinese filename fallback).
 ## Battlecruiser/battleship may fall back to tonnage icons.
 static func fetter_icon(fetter_key: String, _display_name: String = "") -> Texture2D:
@@ -239,6 +368,9 @@ static func fetter_icon(fetter_key: String, _display_name: String = "") -> Textu
 			t = tonnage_icon(fetter_key)
 		if t == null and fetter_key == "fighter":
 			t = tex(FETTER_ICON_DIR.path_join("fighter.png"))
+		## Titan meta fetter borrows the race icon (UI_ICONS §8.5).
+		if t == null and fetter_key.begins_with("titan_"):
+			t = tex("res://assets/ui/race_icons/%s.png" % fetter_key.substr(6))
 	if t != null:
 		_fetter_cache[cache_key] = t
 	else:
@@ -263,6 +395,7 @@ static func fetter_effect_text(eff: Dictionary) -> String:
 			scope = "单体"
 		_:
 			scope = ""
+	var signed := ("+" if val > 0.0 else "") + str(int(round(val)))
 	var what := et
 	match et:
 		"Damage":
@@ -278,13 +411,16 @@ static func fetter_effect_text(eff: Dictionary) -> String:
 		"Speed":
 			what = "移速"
 		"ArmorHeal", "RemoteRepair", "Repair":
-			what = "装甲回复"
+			## Logistic heal amount (fetter_repair_mul) — not passive armor regen.
+			what = "后勤维修量"
 		"ShieldResist":
 			what = "盾抗"
 		"ArmorResist":
 			what = "甲抗"
+		"ShopRaceWeight":
+			## Titan meta only — not a combat mul; sidebar copy (FETTERS §4.2).
+			return "本族商店刷新%s%%" % signed
 	var amount := ""
-	var signed := ("+" if val > 0.0 else "") + str(int(round(val)))
 	if vt == "Percentage":
 		amount = signed + "%"
 	elif vt == "Multiplier":
@@ -312,13 +448,47 @@ static func tonnage_icon(ship_group: String) -> Texture2D:
 		if t == null:
 			t = _tex_from_image_file(TONNAGE_DIR.path_join(file_name))
 		## Legacy ShipGroup fallback only if tonnage sprite missing.
-		if t == null and ship_group in ["carrier", "dreadnought", "force_auxiliary"]:
-			t = tex(SHIPGROUP_ICON_DIR.path_join(file_name))
+		if t == null and ship_group in ["carrier", "dreadnought", "force_auxiliary", "titan"]:
+			var sg_name := file_name
+			if ship_group == "titan":
+				sg_name = "Titan.png"
+			t = tex(SHIPGROUP_ICON_DIR.path_join(sg_name))
 			if t == null:
-				t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join(file_name))
+				t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join(sg_name))
+			if t == null and ship_group == "titan":
+				t = tex(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
+				if t == null:
+					t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
 	if t != null:
 		_tonnage_cache[ship_group] = t
 	return t
+
+## Overlay art for the in-match tonnage icon. `key` = TONNAGE_OVERLAY_FILES key.
+static func tonnage_overlay(key: String) -> Texture2D:
+	if key == "":
+		return null
+	var cache_key := "ovl:%s" % key
+	if _tonnage_cache.has(cache_key):
+		return _tonnage_cache[cache_key]
+	var file_name := str(TONNAGE_OVERLAY_FILES.get(key, ""))
+	if file_name == "":
+		return null
+	var t := tex(TONNAGE_OVERLAY_DIR.path_join(file_name))
+	if t == null:
+		t = _tex_from_image_file(TONNAGE_OVERLAY_DIR.path_join(file_name))
+	if t != null:
+		_tonnage_cache[cache_key] = t
+	return t
+
+## Both layers of one allegiance set → {"bg": Texture2D|null, "badge": Texture2D|null}.
+static func tonnage_overlay_set(set_key: String) -> Dictionary:
+	var conf: Dictionary = TONNAGE_OVERLAY_SETS.get(set_key, {}) as Dictionary
+	if conf.is_empty():
+		return {"bg": null, "badge": null}
+	return {
+		"bg": tonnage_overlay(str(conf.get("bg", ""))),
+		"badge": tonnage_overlay(str(conf.get("badge", ""))),
+	}
 
 static func item_icon(type_id: int) -> Texture2D:
 	if type_id <= 0:
@@ -395,17 +565,24 @@ static func _ensure_shop_paths() -> void:
 
 static func announcement_textures() -> Array[Texture2D]:
 	var out: Array[Texture2D] = []
-	var dir := DirAccess.open(ANNOUNCE_DIR)
-	if dir == null:
-		return out
-	dir.list_dir_begin()
-	var fn := dir.get_next()
-	while fn != "":
-		if not dir.current_is_dir() and fn.get_extension().to_lower() in ["png", "jpg", "jpeg"]:
-			var t := tex(ANNOUNCE_DIR.path_join(fn))
-			if t:
-				out.append(t)
-		fn = dir.get_next()
+	for fn in ANNOUNCE_FILES:
+		var t := tex(ANNOUNCE_DIR.path_join(fn))
+		if t == null:
+			t = _tex_from_image_file(ANNOUNCE_DIR.path_join(fn))
+		if t:
+			out.append(t)
+	if out.is_empty():
+		## Editor-only fallback if new files were added without updating ANNOUNCE_FILES.
+		var dir := DirAccess.open(ANNOUNCE_DIR)
+		if dir != null:
+			dir.list_dir_begin()
+			var scan := dir.get_next()
+			while scan != "":
+				if not dir.current_is_dir() and scan.get_extension().to_lower() in ["png", "jpg", "jpeg"]:
+					var t2 := tex(ANNOUNCE_DIR.path_join(scan))
+					if t2:
+						out.append(t2)
+				scan = dir.get_next()
 	return out
 
 static func qq_qr_texture() -> Texture2D:

@@ -1,6 +1,6 @@
 {
   "id": 55,
-  "name": "弥尔米顿级",
+  "name": "弥洱米顿级",
   "name_en": "Myrmidon",
   "type_id": 24700,
   "model_key": "glt_miermidun",
@@ -47,21 +47,6 @@
   "stars": [
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 174.0,
-        "kinetic": 243.6,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1200.0,
       "armor_hp": 1800.0,
       "structure_hp": 900.0,
@@ -86,21 +71,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 348.0,
-        "kinetic": 487.2,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 2400.0,
       "armor_hp": 3600.0,
       "structure_hp": 1800.0,
@@ -125,21 +95,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 522.0,
-        "kinetic": 730.8,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 5.904,
-      "optimal": 43.2,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 3600.0,
       "armor_hp": 5400.0,
       "structure_hp": 2700.0,
@@ -167,5 +122,5 @@
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
   "echoes_item_id": 10400000005,
   "attack_weapon_slots": 5,
-  "source_charge_type_id": 230
+  "sof_hull": "gbc2_t1"
 }
