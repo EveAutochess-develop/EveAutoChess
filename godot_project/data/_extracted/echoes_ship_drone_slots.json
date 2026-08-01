@@ -328,14 +328,6 @@
     "drone_bay_slots": 0
   },
   "47": {
-    "name": "茶隼级",
-    "echoes_item_id": 10101000010,
-    "droneSlotsLeft": 0.0,
-    "droneBandwidth": null,
-    "droneCapacity": 0.0,
-    "drone_bay_slots": 0
-  },
-  "48": {
     "name": "猛鲑级",
     "echoes_item_id": 10400000002,
     "droneSlotsLeft": 0.0,
@@ -343,7 +335,7 @@
     "droneCapacity": 0.0,
     "drone_bay_slots": 0
   },
-  "49": {
+  "48": {
     "name": "幼龙级",
     "echoes_item_id": 10400000003,
     "droneSlotsLeft": 0.0,
@@ -400,7 +392,7 @@
     "drone_bay_slots": 0
   },
   "55": {
-    "name": "弥尔米顿级",
+    "name": "弥洱米顿级",
     "echoes_item_id": 10400000005,
     "droneSlotsLeft": 5.0,
     "droneBandwidth": 4.0,

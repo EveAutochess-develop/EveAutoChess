@@ -25,13 +25,17 @@
   "shop_slot_count": 7,
   "shop_max_same_ship_per_refresh": 2,
   "shop_pseudo_random_window": 3,
+  "titan_shop_race_weight_mul": 1.1,
   "shop_unlock_level_by_group": {
     "cruiser": 5,
     "battlecruiser": 5,
     "battleship": 10,
     "carrier": 15,
     "dreadnought": 15,
-    "force_auxiliary": 15
+    "force_auxiliary": 15,
+    "mining_barge": 1,
+    "industrial_command": 10,
+    "capital_industrial": 15
   },
   "shop_capital_min_level": 15,
   "shop_capital_costs": [

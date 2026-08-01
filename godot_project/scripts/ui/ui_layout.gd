@@ -79,7 +79,8 @@ static func left_col_width_frac() -> float:
 	return 0.12 if is_mobile() else 0.13
 
 static func right_col_width_frac() -> float:
-	return 0.18 if is_mobile() else 0.2
+	## Mobile needs a bit more width so InfoPanel weapon squares / portrait fit.
+	return 0.22 if is_mobile() else 0.2
 
 static func bottom_shop_height_frac() -> float:
 	return 0.22 if is_mobile() else 0.26

@@ -95,6 +95,14 @@
       "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\11102000000.ktx",
       "png": "res://assets/ui/item_icons/11357.png",
       "icon_id": 11102000000
+    },
+    "13320": {
+      "module_type_id": 13320,
+      "name_zh": "巡航导弹发射器",
+      "echoes_item_id": 0,
+      "icon_ktx": "H:\\eve手游\\history\\asset_library\\items\\icons\\120300201.ktx",
+      "png": "res://assets/ui/item_icons/13320.png",
+      "icon_id": 120300201
     }
   },
   "echoes_icon_dir": "H:\\eve手游\\history\\asset_library\\items\\icons"

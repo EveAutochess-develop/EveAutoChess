@@ -1,0 +1,78 @@
+{
+  "_stub_note": "pve_creep_ai unit; requires TQ/Echoes model + Echoes portrait; not shoppable",
+  "agility": 1.0,
+  "attack_cycle_s": 5.0,
+  "capacitor_capacity": 3300.0,
+  "capacitor_recharge_s": 1000.0,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10500003210.0,
+  "fetter_ids": [
+    "sleeper",
+    "battleship"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 6,
+  "id": 225.0,
+  "is_logistic": false,
+  "low_slots": 0.0,
+  "mass": 19000000.0,
+  "med_slots": 0.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "tq_sleeper_slb1",
+  "model_long_axis": 272.8,
+  "name": "冬眠者战列舰A",
+  "name_en": "Sleeper Battleship A",
+  "race": "sleeper",
+  "scan_resolution": 130.0,
+  "sensor_strength": 20.0,
+  "ship_group": "battleship",
+  "ship_groups": [
+    "battleship",
+    "sleeper"
+  ],
+  "shop_eligible": false,
+  "signature_radius": 400.0,
+  "sof_hull": "slb1_t1",
+  "speed": 1125.0,
+  "stars": [
+    {
+      "armor_hp": 3800.0,
+      "armor_resist": {
+        "emp": 0.35,
+        "explosive": 0.35,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 7.0,
+      "is_logistic": false,
+      "shield_hp": 0.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "structure_hp": 2400.0,
+      "structure_resist": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      }
+    }
+  ],
+  "tags": [
+    "sleeper",
+    "battleship",
+    "pve_creep",
+    "shop_ineligible"
+  ],
+  "type_id": 30196.0,
+  "weapon_fx": "missile",
+  "weapon_tier": "large"
+}

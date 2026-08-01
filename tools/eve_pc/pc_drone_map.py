@@ -16,7 +16,14 @@ PC_DRONE_GR2: dict[str, str] = {
     "wrj_m_waerjili": "res:/dx9/model/drone/minmatar/medium/mdm1/mdm1_t1.gr2",
     # heavy
     "wrj_a_zhizheng": "res:/dx9/model/drone/amarr/heavy/adh1/adh1_t1.gr2",
-    "wrj_j_hufeng": "res:/dx9/model/drone/caldari/heavy/cdh1/cdh1_t1.gr2",
+    "wrj_j_hufeng": "res:/dx9/model/drone/caldari/heavy/cdh1/cdh1_t2.gr2",  # t1 FileInfo broken
     "wrj_g_shirenmo": "res:/dx9/model/drone/gallente/heavy/gdh1/gdh1_t1.gr2",
     "wrj_m_kuangzhanshi": "res:/dx9/model/drone/minmatar/heavy/mdh1/mdh1_t1.gr2",
+    # FAX heavy repair drones (same race heavy hulls as maintenance bots)
+    "heavy_repair_amarr": "res:/dx9/model/drone/amarr/heavy/adh1/adh1_t1.gr2",
+    "heavy_repair_caldari": "res:/dx9/model/drone/caldari/heavy/cdh1/cdh1_t2.gr2",
+    "heavy_repair_gallente": "res:/dx9/model/drone/gallente/heavy/gdh1/gdh1_t1.gr2",
+    "heavy_repair_minmatar": "res:/dx9/model/drone/minmatar/heavy/mdh1/mdh1_t1.gr2",
+    # ORE mining excavator (Rorqual drones)
+    "wrj_ore_excavator": "res:/dx9/model/drone/ore/heavy/oredh2/oredh2_t1.gr2",
 }

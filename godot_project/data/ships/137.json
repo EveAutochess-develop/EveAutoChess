@@ -1,0 +1,121 @@
+{
+  "attack_cycle_s": 5.0,
+  "cost": 7.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "fetter_ids": [
+    "ore",
+    "industrial_command"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "id": 137.0,
+  "is_logistic": false,
+  "is_mining_ship": true,
+  "is_unmanned": false,
+  "low_slots": 2.0,
+  "med_slots": 2.0,
+  "mining_gold_per_round": 40.0,
+  "model_key": "lhky_nijijing",
+  "model_long_axis": 550.0,
+  "name": "逆戟鲸级",
+  "name_en": "Orca",
+  "race": "ore",
+  "scan_resolution": 75.0,
+  "sensor_strength": 30.0,
+  "ship_group": "industrial_command",
+  "ship_groups": [
+    "industrial_command"
+  ],
+  "signature_radius": 1000.0,
+  "sof_hull": "orefr1_t1",
+  "source_module_type_id": 11008100000.0,
+  "speed": 60.0,
+  "stars": [
+    {
+      "armor_hp": 7000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 30000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 45000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 14000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 60000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 90000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 21000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 90000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 135000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    }
+  ],
+  "tags": [
+    "ore",
+    "industrial_command"
+  ],
+  "type_id": 28606.0,
+  "unmanned_kind": "",
+  "weapon_fx": "mining"
+}

@@ -1,170 +1,128 @@
 {
-  "id": 134,
-  "name": "尼纳苏级",
-  "name_en": "Ninazu",
-  "type_id": 37607,
-  "model_key": "glt_ninasu",
-  "portrait": "res://assets/ui/ship_portraits_capital/ninazu.png",
-  "cost": 22,
-  "ship_groups": [
-    "force_auxiliary"
-  ],
-  "ship_group": "force_auxiliary",
+  "attack_cycle_s": 6.0,
+  "capacitor_capacity": 67500.0,
+  "capacitor_recharge_s": 4500.0,
   "capital_role": "force_auxiliary",
+  "cost": 22.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 50201000161.0,
   "fetter_ids": [
     "gallente",
     "force_auxiliary",
     "logistic"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "heavy_repair_drone_count": 4.0,
+  "heavy_repair_drone_id": 1413.0,
+  "heavy_repair_drone_key": "heavy_repair_gallente",
+  "hi_slots": 10,
+  "id": 134.0,
+  "is_logistic": true,
+  "low_slots": 5.0,
+  "med_slots": 5.0,
+  "model_key": "glt_ninasu",
+  "model_long_axis": 565.9,
+  "name": "尼纳苏级",
+  "name_en": "Ninazu",
+  "portrait": "res://assets/ui/ship_portraits_capital/ninazu.png",
+  "race": "gallente",
+  "requires_cyno_entry": true,
+  "scan_resolution": 60.0,
+  "sensor_strength": 330.0,
+  "ship_group": "force_auxiliary",
+  "ship_groups": [
+    "force_auxiliary"
+  ],
+  "signature_radius": 10600.0,
+  "sof_hull": "gfaux1_t1",
+  "source_module_type_id": 0.0,
+  "source_repair_module_type_id": 27930.0,
+  "speed": 80.0,
+  "stars": [
+    {
+      "armor_hp": 105000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "is_logistic": true,
+      "shield_hp": 73000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 135000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 210000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "is_logistic": true,
+      "shield_hp": 146000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 270000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 315000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "is_logistic": true,
+      "shield_hp": 219000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 405000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    }
   ],
   "tags": [
     "gallente",
     "force_auxiliary",
     "logistic"
   ],
-  "is_logistic": true,
+  "type_id": 37607.0,
   "weapon_fx": "heal",
-  "weapon_tier": "capital",
-  "race": "gallente",
-  "signature_radius": 10600.0,
-  "speed": 80.0,
-  "attack_cycle_s": 5.0,
-  "drone_bandwidth": 0.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 5,
-  "med_slots": 5,
-  "low_slots": 5,
-  "source_module_type_id": 0,
-  "source_repair_module_type_id": 0,
-  "requires_cyno_entry": true,
-  "hull_repair_zero": true,
-  "heavy_repair_drone_count": 4,
-  "heavy_repair_drone_id": 1413,
-  "heavy_repair_drone_key": "heavy_repair_gallente",
-  "stars": [
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.008,
-      "optimal": 50000.0,
-      "falloff": 10000.0,
-      "optimal_sig_radius": 400.0,
-      "shield_hp": 73000.0,
-      "armor_hp": 105000.0,
-      "structure_hp": 135000.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    },
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.008,
-      "optimal": 50000.0,
-      "falloff": 10000.0,
-      "optimal_sig_radius": 400.0,
-      "shield_hp": 146000.0,
-      "armor_hp": 210000.0,
-      "structure_hp": 270000.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    },
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.008,
-      "optimal": 50000.0,
-      "falloff": 10000.0,
-      "optimal_sig_radius": 400.0,
-      "shield_hp": 219000.0,
-      "armor_hp": 315000.0,
-      "structure_hp": 405000.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    }
-  ],
-  "scan_resolution": 60.0,
-  "sensor_strength": 66.0,
-  "capacitor_capacity": 67500.0,
-  "capacitor_recharge_s": 4500.0,
-  "model_long_axis": 565.9,
-  "echoes_item_id": 50201000161
+  "weapon_tier": "capital"
 }

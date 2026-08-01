@@ -23,7 +23,7 @@
   "weapon_fx": "heal",
   "race": "minmatar",
   "signature_radius": 33.0,
-  "sensor_strength": 9.0,
+  "sensor_strength": 45.0,
   "scan_resolution": 925.0,
   "speed": 415.0,
   "mass": 1420000.0,
@@ -38,7 +38,6 @@
   "med_slots": 3,
   "low_slots": 3,
   "source_module_type_id": 485,
-  "source_charge_type_id": 185,
   "source_repair_module_type_id": 11355,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 0,
@@ -48,21 +47,6 @@
   "stars": [
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 66.84,
-        "thermal": 0.0,
-        "kinetic": 7.44,
-        "explosive": 14.85
-      },
-      "repair": {
-        "shield": 74.0,
-        "armor": 73.0,
-        "structure": 0.0
-      },
-      "tracking": 362.0,
-      "optimal": 14.0,
-      "falloff": 9.46,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 400.0,
       "armor_hp": 250.0,
       "structure_hp": 290.0,
@@ -88,21 +72,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 133.68,
-        "thermal": 0.0,
-        "kinetic": 14.88,
-        "explosive": 29.7
-      },
-      "repair": {
-        "shield": 148.0,
-        "armor": 146.0,
-        "structure": 0.0
-      },
-      "tracking": 362.0,
-      "optimal": 14.0,
-      "falloff": 9.46,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 800.0,
       "armor_hp": 500.0,
       "structure_hp": 580.0,
@@ -128,21 +97,6 @@
     },
     {
       "attack_range": 4,
-      "damage": {
-        "emp": 200.52,
-        "thermal": 0.0,
-        "kinetic": 22.32,
-        "explosive": 44.55
-      },
-      "repair": {
-        "shield": 222.0,
-        "armor": 219.0,
-        "structure": 0.0
-      },
-      "tracking": 362.0,
-      "optimal": 14.0,
-      "falloff": 9.46,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1200.0,
       "armor_hp": 750.0,
       "structure_hp": 870.0,
@@ -167,5 +121,6 @@
       "is_logistic": true
     }
   ],
-  "model_long_axis": 31.0
+  "model_long_axis": 31.0,
+  "sof_hull": "mf6_t1"
 }

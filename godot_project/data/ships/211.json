@@ -1,0 +1,75 @@
+{
+  "id": 211,
+  "name": "渡神级",
+  "name_en": "Charon",
+  "type_id": 20185,
+  "echoes_item_id": 10705000101,
+  "cost": 0,
+  "race": "caldari",
+  "ship_group": "freighter",
+  "ship_groups": [
+    "freighter"
+  ],
+  "model_key": "tq_freighter_cfr1",
+  "fetter_ids": [
+    "caldari",
+    "freighter"
+  ],
+  "tags": [
+    "caldari",
+    "freighter",
+    "pve_salvage",
+    "shop_ineligible"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "missile",
+  "shop_eligible": false,
+  "signature_radius": 10660,
+  "sensor_strength": 0.0,
+  "scan_resolution": 0.0,
+  "speed": 60,
+  "mass": 960000000,
+  "agility": 0.1,
+  "capacitor_capacity": 3500,
+  "capacitor_recharge_s": 215.577,
+  "mid_battle_leave_allowed": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "med_slots": 0,
+  "low_slots": 0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "attack_cycle_s": 0.0,
+  "stars": [
+    {
+      "attack_range": 0,
+      "shield_hp": 60000.0,
+      "armor_hp": 18000.0,
+      "structure_hp": 93000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
+      },
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.5,
+        "kinetic": 0.5,
+        "explosive": 0.5
+      },
+      "structure_resist": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
+      },
+      "is_logistic": false
+    }
+  ],
+  "_stub_note": "pve_salvage target; FREIGHTER_AND_TITAN; not shoppable",
+  "sof_hull": "cfr1_t1"
+}

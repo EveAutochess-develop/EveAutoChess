@@ -56,10 +56,10 @@
     {
       "attack_range": 999,
       "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
       "repair": {
         "shield": 0,
@@ -95,10 +95,10 @@
     {
       "attack_range": 999,
       "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
       "repair": {
         "shield": 0,
@@ -134,10 +134,10 @@
     {
       "attack_range": 999,
       "damage": {
-        "emp": 0,
-        "thermal": 0,
-        "kinetic": 0,
-        "explosive": 0
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
       },
       "repair": {
         "shield": 0,
@@ -170,5 +170,6 @@
         "explosive": 0.2
       }
     }
-  ]
+  ],
+  "sof_hull": "mc3_t2c"
 }

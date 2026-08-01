@@ -1,6 +1,6 @@
 extends Node3D
 ## Horizontal triple bars: shield / armor / structure. Anchored above ship (world-up).
-## Tonnage icon sits in the CENTER of the overlay (not a corner badge).
+## Tonnage icon sits BELOW the bar stack (bars keep their local Y; only badge moves).
 ## Badge size is a fixed world footprint — never follows ship long-axis or raw PNG resolution.
 
 const BAR_W := 1.4
@@ -8,8 +8,13 @@ const BAR_H := 0.1
 const BAR_GAP := 0.04
 const BADGE_SIZE := 0.8
 ## Target on-screen world size for tonnage icons (independent of PNG resolution / ship long-axis).
-const BADGE_WORLD_SIZE := 0.72
+## UI_ICONS §6.1 sizes: icon + faction bg at 1/2, corner badge at 1/3 of the first pass.
+const BADGE_WORLD_SIZE := 0.36
 const BADGE_PIXEL_SIZE := 0.024
+## Allegiance overlays (UI_ICONS §6.1): translucent bg behind the tonnage icon + corner badge.
+const OVERLAY_BG_WORLD_SIZE := BADGE_WORLD_SIZE * 1.5
+const OVERLAY_TAG_WORLD_SIZE := BADGE_WORLD_SIZE * 0.46 * (2.0 / 3.0)
+const OVERLAY_TAG_OFFSET := BADGE_WORLD_SIZE * 0.5
 const COLORS := [
 	Color(0.25, 0.55, 1.0, 0.95),
 	Color(0.95, 0.82, 0.2, 0.95),
@@ -23,6 +28,10 @@ var _bgs: Array[MeshInstance3D] = []
 var _tonnage_icon: Sprite3D
 var _tonnage_label: Label3D
 var _tonnage_plate: MeshInstance3D
+var _overlay_bg: Sprite3D
+var _overlay_tag: Sprite3D
+## Cached allegiance set key so refresh() only swaps textures when it actually flips.
+var _overlay_key: String = ""
 
 func setup(ship: Node3D) -> void:
 	_ship = ship
@@ -38,9 +47,12 @@ func _build() -> void:
 	_tonnage_icon = null
 	_tonnage_label = null
 	_tonnage_plate = null
+	_overlay_bg = null
+	_overlay_tag = null
+	_overlay_key = ""
 	var total_h := 3.0 * BAR_H + 2.0 * BAR_GAP
 	var y0 := total_h * 0.5 - BAR_H * 0.5
-	## Bars first (local origin = overlay center).
+	## Bars first — local Y unchanged (overlay center = bar stack center).
 	for i in range(3):
 		var y := y0 - float(i) * (BAR_H + BAR_GAP)
 		var bg := _make_box(BG)
@@ -51,11 +63,12 @@ func _build() -> void:
 		fill.position = Vector3(0, y, 0.01)
 		add_child(fill)
 		_fills.append(fill)
-	## Tonnage icon: dead center of overlay (above mid bar stack).
-	var badge_y := total_h * 0.5 + BADGE_SIZE * 0.55 + 0.06
+	## Tonnage below the bottom bar (do not shift bar stack / world anchor).
+	var badge_y := _badge_y()
 	_tonnage_plate = _make_badge_plate()
 	_tonnage_plate.position = Vector3(0, badge_y, -0.02)
 	add_child(_tonnage_plate)
+	_build_overlays()
 	var icon_tex := UiAssets.tonnage_icon(_tonnage_group())
 	if icon_tex:
 		_tonnage_icon = Sprite3D.new()
@@ -85,6 +98,65 @@ func _build() -> void:
 	_tonnage_label.no_depth_test = true
 	_tonnage_label.render_priority = 20
 	add_child(_tonnage_label)
+
+func _badge_y() -> float:
+	var total_h := 3.0 * BAR_H + 2.0 * BAR_GAP
+	return -total_h * 0.5 - BADGE_SIZE * 0.55 - 0.06
+
+## Allegiance set is read from the LOCAL client's teams (UI_ICONS §6.1): own pieces are
+## TEAM_PLAYER here, everyone else is TEAM_AI, so the same hull flips sets per viewer.
+func _overlay_set_key() -> String:
+	var su := _ship as ShipUnit
+	if su == null or su.is_unmanned:
+		return ""
+	if su.is_protect_target or _ship_group_from_data() == "freighter":
+		return "friendly"
+	return "fleet" if int(su.team_id) == ShipUnit.TEAM_PLAYER else "enemy"
+
+func _build_overlays() -> void:
+	var key := _overlay_set_key()
+	_overlay_key = key
+	if key == "":
+		return
+	var set_tex: Dictionary = UiAssets.tonnage_overlay_set(key)
+	var badge_y := _badge_y()
+	var bg_tex: Texture2D = set_tex.get("bg")
+	if bg_tex:
+		_overlay_bg = _make_overlay_sprite(bg_tex, OVERLAY_BG_WORLD_SIZE, 19)
+		_overlay_bg.position = Vector3(0, badge_y, 0.02)
+		add_child(_overlay_bg)
+	var tag_tex: Texture2D = set_tex.get("badge")
+	if tag_tex:
+		_overlay_tag = _make_overlay_sprite(tag_tex, OVERLAY_TAG_WORLD_SIZE, 21)
+		## Health-bar root faces the camera with its screen-right axis on local -X.
+		## Corner badge canon = bottom-right (UI_ICONS §6.1).
+		_overlay_tag.position = Vector3(-OVERLAY_TAG_OFFSET, badge_y - OVERLAY_TAG_OFFSET, 0.06)
+		add_child(_overlay_tag)
+
+## Team / protect flag can flip mid-match (mind control, freighter spawn) — swap art in place.
+func _sync_overlays() -> void:
+	var key := _overlay_set_key()
+	if key == _overlay_key:
+		return
+	if _overlay_bg and is_instance_valid(_overlay_bg):
+		_overlay_bg.queue_free()
+	_overlay_bg = null
+	if _overlay_tag and is_instance_valid(_overlay_tag):
+		_overlay_tag.queue_free()
+	_overlay_tag = null
+	_build_overlays()
+
+func _make_overlay_sprite(tex: Texture2D, world_size: float, priority: int) -> Sprite3D:
+	var spr := Sprite3D.new()
+	spr.texture = tex
+	spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	spr.centered = true
+	spr.no_depth_test = true
+	spr.double_sided = true
+	spr.render_priority = priority
+	var longest := float(maxi(tex.get_width(), tex.get_height()))
+	spr.pixel_size = world_size / maxf(longest, 1.0)
+	return spr
 
 func _tonnage_group() -> String:
 	if _ship == null:
@@ -217,6 +289,7 @@ func refresh() -> void:
 	_set_fill(1, float(_ship.get("armor_hp")), float(_ship.get("max_armor")))
 	_set_fill(2, float(_ship.get("structure_hp")), float(_ship.get("max_structure")))
 	visible = not bool(_ship.get("is_destroyed"))
+	_sync_overlays()
 	if _tonnage_icon:
 		var tex := UiAssets.tonnage_icon(_tonnage_group())
 		_tonnage_icon.texture = tex

@@ -25,7 +25,8 @@ func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	AdminBus.register_handler(&"ai.deploy_ship", _on_deploy)
 	AdminBus.after_handoff.connect(_on_after)
 
-func init_army() -> void:
+func init_economy() -> void:
+	## Seat opening only — no shopping. Nullsec builds the rival hulls per PVP round.
 	endless = _match.mode == "endless"
 	var eco: Dictionary = DataStore.economy
 	ai_gold = int(eco.get("base_gold", 5))
@@ -36,10 +37,25 @@ func init_army() -> void:
 	loss_streak = 0
 	_used_field_cells.clear()
 	_refresh_shop()
+
+func init_army() -> void:
+	init_economy()
+	_run_economy_turn()
+
+func rebuild_round_army() -> void:
+	## Nullsec PVP draws a different rival every round, so the hulls are rebuilt from
+	## scratch — but out of the seat's accumulated level/gold, never a fresh level-1
+	## opening (MULTIPLAYER_MATCH_FLOW §5.0: 人机玩家与真人同套).
+	_used_field_cells.clear()
+	_refresh_shop()
 	_run_economy_turn()
 
 func after_round() -> void:
 	_grant_exp(int(DataStore.economy.get("base_exp_income", 4)))
+	if _match.mode == "nullsec":
+		## Hulls bought here would be wiped when the next round's board is authored, so
+		## the seat only banks gold/exp and spends it when it is actually the rival.
+		return
 	_refresh_shop()
 	_run_economy_turn()
 
@@ -49,6 +65,10 @@ func population_limit() -> int:
 func field_cap() -> int:
 	## min(AI pop, floor(player pop × 2.0))
 	var ai_pop := maxi(1, population_limit())
+	## Nullsec seats use their own population, same as humans: the asymmetric cap below
+	## is 1v1 Versus only (MULTIPLAYER_MATCH_FLOW §5.0).
+	if _match and _match.mode == "nullsec":
+		return ai_pop
 	var player_pop := maxi(1, _match.population_limit())
 	var mult := float(DataStore.ai.get("field_cap_vs_player_pop", 2.0))
 	var vs_player := maxi(1, int(floor(float(player_pop) * mult)))
@@ -73,9 +93,12 @@ func apply_income(won: bool, kills: int) -> void:
 	var streak: int = win_streak if won else loss_streak
 	var streak_g: int = _match._streak_bonus(streak) if _match.has_method("_streak_bonus") else 0
 	var kill_g: int = kills * int(eco.get("kill_gold_per_ship", 1))
-	var income: int = base + interest + win_g + streak_g + kill_g
+	var mining_g: int = _match._mining_gold_for_team(ShipUnit.TEAM_AI) if _match.has_method("_mining_gold_for_team") else 0
+	var income: int = base + interest + win_g + streak_g + kill_g + mining_g
 	var mul: float = float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0))
-	income = int(round(float(income) * mul))
+	## Buff multiplies combat economy only; mining gold stays raw (parallel channel).
+	var combat_part := income - mining_g
+	income = int(round(float(combat_part) * mul)) + mining_g
 	ai_gold += income
 
 func add_gold(amount: int) -> void:
@@ -118,7 +141,7 @@ func _refresh_shop() -> void:
 				if ShopController.ship_tonnage_key(cid) == want:
 					pool.append(cid)
 			if not pool.is_empty():
-				sid = ShopController._pick_pseudo_random(pool, _recent_shop_hits)
+				sid = ShopController._pick_pseudo_random(pool, _recent_shop_hits, _ai_titan_race())
 		if sid <= 0:
 			sid = _roll_ship_id(seen_counts)
 		seen_counts[sid] = int(seen_counts.get(sid, 0)) + 1
@@ -135,7 +158,16 @@ func _refresh_shop() -> void:
 
 func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
 	## Reuse shop odds table at min(ai_level, 5).
-	return ShopController.roll_ship_id_for_level(ai_level, _match.battle_game_stage_count, seen_counts, _recent_shop_hits)
+	return ShopController.roll_ship_id_for_level(
+		ai_level, _match.battle_game_stage_count, seen_counts, _recent_shop_hits, _ai_titan_race()
+	)
+
+
+## Rival seat titan in nullsec PVP; empty for PVE creeps / versus (no titan shop boost).
+func _ai_titan_race() -> String:
+	if _board == null:
+		return ""
+	return _board.titan_fetter_race(ShipUnit.TEAM_AI)
 
 func _run_economy_turn() -> void:
 	if not bool(DataStore.ai.get("uses_shop_economy", true)):
@@ -208,6 +240,7 @@ func _try_buy_one() -> bool:
 					break
 			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
 			_board.try_upgrades_all()
+			_board.refresh_cross_team_cell_offsets()
 			return true
 		var field := _pick_ai_field_cell()
 		if field.x < 0:
@@ -336,6 +369,9 @@ func _ensure_one_logistic() -> void:
 			continue
 		if not s.is_logistic:
 			continue
+		## FAX etc. stay in hangar until cyno jump — never force onto field.
+		if s.requires_cyno_entry:
+			continue
 		if s.slot_type == "field":
 			return
 		var cell := _pick_ai_field_cell()
@@ -354,6 +390,8 @@ func _ensure_one_logistic() -> void:
 		return
 
 func _sell_hangar_remainder() -> void:
+	## AI_PLAYER_HANDBOOK §2.1: sell non-capitals; sell capitals ONLY when
+	## capital hangar count > floor(hangar_slots/2), trimming down to that cap.
 	var to_sell: Array = []
 	var capitals: Array[ShipUnit] = []
 	for s in _board.all_ships():
@@ -362,10 +400,10 @@ func _sell_hangar_remainder() -> void:
 				capitals.append(s)
 				continue
 			to_sell.append(s)
-	var hangar_w := int(DataStore.board.get("hangar_width", 15))
-	var hangar_h := int(DataStore.board.get("hangar_height", 1))
-	var keep_cap := maxi(0, int(floor(float(hangar_w * hangar_h) * 0.5)))
-	if capitals.size() > keep_cap:
+	var hangar_slots := maxi(1, int(DataStore.board.get("hangar_width", 15)) * int(DataStore.board.get("hangar_height", 1)))
+	var keep_capitals := int(floor(float(hangar_slots) * 0.5))
+	## 3 capitals on a 15-slot hangar → keep all (3 <= 7). Never wipe the kit.
+	if capitals.size() > keep_capitals:
 		capitals.sort_custom(func(a: ShipUnit, b: ShipUnit) -> bool:
 			if a.star != b.star:
 				return a.star < b.star
@@ -373,13 +411,16 @@ func _sell_hangar_remainder() -> void:
 				return a.get_cost() < b.get_cost()
 			return a.get_instance_id() > b.get_instance_id()
 		)
-		for i in range(keep_cap, capitals.size()):
+		for i in range(keep_capitals, capitals.size()):
 			to_sell.append(capitals[i])
 	var sold_n := 0
 	var sold_gold := 0
 	for s in to_sell:
 		var ship := s as ShipUnit
 		if ship == null or not is_instance_valid(ship):
+			continue
+		## Belt-and-suspenders: never sell cyno-gated hulls outside the excess trim above.
+		if ship.requires_cyno_entry and capitals.size() <= keep_capitals:
 			continue
 		var r: Dictionary = AdminBus.request(&"board.sell", {
 			"ship_instance_id": ship.get_instance_id(),
@@ -456,6 +497,7 @@ func _try_deploy_one_random() -> bool:
 					break
 			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
 			_board.try_upgrades_all()
+			_board.refresh_cross_team_cell_offsets()
 			return true
 		AdminBus.request(&"ai.deploy_ship", {
 			"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,

@@ -967,27 +967,6 @@
   },
   "47": {
     "id": 47,
-    "name": "茶隼级",
-    "model_key": "jdl_chasun",
-    "kind": "ship",
-    "lib_entity": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级",
-    "mesh": "res://assets/models/ships/jdl_chasun/model.glb",
-    "mesh_src": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_chasun\\model.glb",
-    "albedo": "res://assets/models/ships/jdl_chasun/albedo.png",
-    "albedo_src": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级\\textures\\jdl_chasun_ad.ktx",
-    "normal": "res://assets/models/ships/jdl_chasun/normal.png",
-    "normal_src": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级\\textures\\jdl_chasun_n.ktx",
-    "pmwo": "res://assets/models/ships/jdl_chasun/pmwo.png",
-    "pmwo_src": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级\\textures\\jdl_chasun_pmwo.ktx",
-    "rg": "res://assets/models/ships/jdl_chasun/rg.png",
-    "rg_src": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级\\textures\\jdl_chasun_rg.ktx",
-    "reduction": "res://assets/models/ships/jdl_chasun/reduction.png",
-    "reduction_src": "H:\\eve手游\\history\\asset_library\\entities\\ships\\jdl_chasun__茶隼级\\textures\\jdl_chasun_reduction.ktx",
-    "portrait": "res://assets/ui/portraits/jdl_chasun.png",
-    "portrait_src": "H:\\eve手游\\history\\asset_library\\items\\icons\\110000017.ktx"
-  },
-  "48": {
-    "id": 48,
     "name": "猛鲑级",
     "model_key": "jdl_menggui",
     "kind": "ship",
@@ -1007,8 +986,8 @@
     "portrait": "res://assets/ui/portraits/jdl_menggui.png",
     "portrait_src": "H:\\eve手游\\history\\asset_library\\items\\icons\\113000002.ktx"
   },
-  "49": {
-    "id": 49,
+  "48": {
+    "id": 48,
     "name": "幼龙级",
     "model_key": "jdl_youlong",
     "kind": "ship",
@@ -1135,7 +1114,7 @@
   },
   "55": {
     "id": 55,
-    "name": "弥尔米顿级",
+    "name": "弥洱米顿级",
     "model_key": "glt_miermidun",
     "kind": "ship",
     "lib_entity": "H:\\eve手游\\history\\asset_library\\entities\\ships\\glt_miermidun__密尔米顿级",

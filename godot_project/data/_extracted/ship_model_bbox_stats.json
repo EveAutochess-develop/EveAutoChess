@@ -1316,33 +1316,6 @@
       "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_menggui\\model.glb"
     },
     {
-      "id": 49,
-      "name": "幼龙级",
-      "ship_group": "battlecruiser",
-      "model_key": "jdl_youliong",
-      "model_long_axis": null,
-      "bbox_min": [
-        -128.26617431640625,
-        -52.397579193115234,
-        -203.80020141601562
-      ],
-      "bbox_max": [
-        128.26986694335938,
-        50.89291000366211,
-        301.5697326660156
-      ],
-      "size_x": 256.5360412597656,
-      "size_y": 103.29048919677734,
-      "size_z": 505.36993408203125,
-      "size_sorted_small": 103.29048919677734,
-      "size_sorted_mid": 256.5360412597656,
-      "size_sorted_long": 505.36993408203125,
-      "mesh_longest": 505.36993408203125,
-      "bbox_volume": 13391157.679761184,
-      "mesh_over_long_axis": null,
-      "glb": "H:\\game_dev\\eveautochess-dev\\godot_project\\assets\\models\\ships\\jdl_youlong\\model.glb"
-    },
-    {
       "id": 50,
       "name": "毒蝎级",
       "ship_group": "battleship",

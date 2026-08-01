@@ -31,11 +31,21 @@ var _options: Control
 var _about: Control
 var _load_panel: Control
 var _load_list: VBoxContainer
+var _rename_panel: Control
+var _rename_edit: LineEdit
+var _rename_slot_id: String = ""
 var _fps_slider: HSlider
 var _fps_lbl: Label
 var _bgm_check: CheckBox
 var _bgm_slider: HSlider
 var _bgm_lbl: Label
+var _dev_panel: Control
+var _dev_master_check: CheckBox
+var _dev_soften_check: CheckBox
+var _dev_economy_check: CheckBox
+var _dev_enemy_layout_check: CheckBox
+var _dev_ship_data_btn: Button
+var _ship_data_editor: ShipDataEditor
 var _announce: TextureRect
 var _announce_texs: Array[Texture2D] = []
 var _announce_i: int = 0
@@ -43,6 +53,9 @@ var _col: Control
 var _title: Label
 var _btn_box: VBoxContainer
 var _footer: VBoxContainer
+var _nullsec_lobby: NullsecLobbyPopup
+var _nullsec_room: NullsecRoomUI
+var _nullsec_net: NullsecNetSession
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -91,6 +104,7 @@ func _build() -> void:
 
 	_btn_box.add_child(_menu_btn("开始无尽模式", _on_endless))
 	_btn_box.add_child(_menu_btn("开始对战模式", _on_versus))
+	_btn_box.add_child(_menu_btn("多人联机对战", _on_nullsec_open))
 	var cont := _menu_btn("继续上次对局", _on_continue)
 	cont.disabled = not MatchSave.exists()
 	_btn_box.add_child(cont)
@@ -125,9 +139,15 @@ func _build() -> void:
 	_announce.name = "Announcements"
 	_announce.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_announce.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_announce.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_announce.z_index = 8
 	_announce_texs = UiAssets.announcement_textures()
 	if _announce_texs.size() > 0:
 		_announce.texture = _announce_texs[0]
+		_announce.visible = true
+	else:
+		_announce.visible = false
+		push_warning("MainMenu: no announcement textures (check Pack UI / ANNOUNCE_FILES)")
 	add_child(_announce)
 
 	_options = _build_options()
@@ -136,6 +156,16 @@ func _build() -> void:
 	add_child(_about)
 	_load_panel = _build_load_panel()
 	add_child(_load_panel)
+	_rename_panel = _build_rename_panel()
+	add_child(_rename_panel)
+	_nullsec_lobby = NullsecLobbyPopup.new()
+	_nullsec_lobby.visible = false
+	add_child(_nullsec_lobby)
+	_nullsec_lobby.request_match_public.connect(_on_nullsec_match_public)
+	_nullsec_lobby.request_host_public.connect(_on_nullsec_host_public)
+	_nullsec_lobby.request_host_private.connect(_on_nullsec_host_private)
+	_nullsec_lobby.request_join_private.connect(_on_nullsec_join_private)
+	_nullsec_lobby.request_history.connect(_on_nullsec_history)
 
 func _apply_adaptive_layout() -> void:
 	var pad := 0.035 if UiLayout.is_mobile() else 0.038
@@ -181,11 +211,15 @@ func _apply_adaptive_layout() -> void:
 	if _options and _options.visible == false:
 		pass
 	if _options:
-		UiLayout.set_center_panel_frac(_options, 0.78 if UiLayout.is_mobile() else 0.72, 0.62 if UiLayout.is_mobile() else 0.58)
+		UiLayout.set_center_panel_frac(_options, 0.78 if UiLayout.is_mobile() else 0.72, 0.68 if UiLayout.is_mobile() else 0.64)
 	if _about:
 		UiLayout.set_center_panel_frac(_about, 0.7 if UiLayout.is_mobile() else 0.42, 0.82 if UiLayout.is_mobile() else 0.78)
 	if _load_panel:
-		UiLayout.set_center_panel_frac(_load_panel, 0.72 if UiLayout.is_mobile() else 0.48, 0.7 if UiLayout.is_mobile() else 0.62)
+		UiLayout.set_center_panel_frac(_load_panel, 0.86 if UiLayout.is_mobile() else 0.58, 0.72 if UiLayout.is_mobile() else 0.66)
+	if _rename_panel:
+		UiLayout.set_center_panel_frac(_rename_panel, 0.72 if UiLayout.is_mobile() else 0.42, 0.36)
+	if _dev_panel:
+		UiLayout.set_center_panel_frac(_dev_panel, 0.78 if UiLayout.is_mobile() else 0.52, 0.52 if UiLayout.is_mobile() else 0.46)
 
 func _menu_btn(text: String, cb: Callable) -> Button:
 	var b := Button.new()
@@ -310,6 +344,89 @@ func _build_options() -> Control:
 	lang.add_item("English", 1)
 	lang_row.add_child(lang)
 	box.add_child(lang_row)
+
+	var dev_btn := Button.new()
+	dev_btn.text = "开发者调试"
+	dev_btn.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
+	UiAssets.apply_button_font(dev_btn, UiLayout.font_size(16, self))
+	dev_btn.pressed.connect(_on_dev_debug_open)
+	box.add_child(dev_btn)
+
+	_dev_panel = _build_developer_debug_panel()
+	add_child(_dev_panel)
+	return panel
+
+
+func _build_developer_debug_panel() -> Control:
+	var panel := _modal_panel("DeveloperDebugPanel")
+	var box := panel.get_node("Margin/VBox") as VBoxContainer
+	var cap_row := HBoxContainer.new()
+	var cap := Label.new()
+	cap.text = "开发者调试"
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_label_font(cap, true, UiLayout.font_size(22, self))
+	cap_row.add_child(cap)
+	var back := Button.new()
+	back.text = "返回"
+	UiAssets.apply_button_font(back, UiLayout.font_size(16, self))
+	back.pressed.connect(func():
+		panel.visible = false
+		if _options:
+			_options.visible = true
+	)
+	cap_row.add_child(back)
+	box.add_child(cap_row)
+
+	var hint := Label.new()
+	hint.text = "默认关闭。开关状态写入本地设置文件，与对局存档无关。"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiAssets.apply_label_font(hint, false, UiLayout.font_size(13, self))
+	box.add_child(hint)
+
+	_dev_master_check = CheckBox.new()
+	_dev_master_check.text = "启用开发者调试"
+	_dev_master_check.button_pressed = GameSession.developer_debug_enabled
+	UiAssets.apply_button_font(_dev_master_check, UiLayout.font_size(16, self))
+	_dev_master_check.toggled.connect(_on_dev_master_toggled)
+	box.add_child(_dev_master_check)
+
+	_dev_soften_check = CheckBox.new()
+	_dev_soften_check.text = "我方扣血软化（失败惩罚减为 1）"
+	_dev_soften_check.button_pressed = GameSession.player_citadel_soften
+	_dev_soften_check.disabled = not GameSession.developer_debug_enabled
+	UiAssets.apply_button_font(_dev_soften_check, UiLayout.font_size(16, self))
+	_dev_soften_check.toggled.connect(_on_dev_soften_toggled)
+	box.add_child(_dev_soften_check)
+
+	_dev_economy_check = CheckBox.new()
+	_dev_economy_check.text = "人机双倍经济（我方战斗收入×同人机）"
+	_dev_economy_check.button_pressed = GameSession.player_ai_double_economy
+	_dev_economy_check.disabled = not GameSession.developer_debug_enabled
+	UiAssets.apply_button_font(_dev_economy_check, UiLayout.font_size(16, self))
+	_dev_economy_check.toggled.connect(_on_dev_economy_toggled)
+	box.add_child(_dev_economy_check)
+
+	_dev_enemy_layout_check = CheckBox.new()
+	_dev_enemy_layout_check.text = "敌方布局调整许可（暂停时可拖敌方单位）"
+	_dev_enemy_layout_check.button_pressed = GameSession.enemy_layout_adjust
+	_dev_enemy_layout_check.disabled = not GameSession.developer_debug_enabled
+	UiAssets.apply_button_font(_dev_enemy_layout_check, UiLayout.font_size(16, self))
+	_dev_enemy_layout_check.toggled.connect(_on_dev_enemy_layout_toggled)
+	box.add_child(_dev_enemy_layout_check)
+
+	_dev_ship_data_btn = Button.new()
+	_dev_ship_data_btn.text = "全舰船装备数据调整"
+	_dev_ship_data_btn.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
+	_dev_ship_data_btn.disabled = not GameSession.developer_debug_enabled
+	UiAssets.apply_button_font(_dev_ship_data_btn, UiLayout.font_size(16, self))
+	_dev_ship_data_btn.pressed.connect(_on_dev_ship_data_open)
+	box.add_child(_dev_ship_data_btn)
+
+	var swap_hint := Label.new()
+	swap_hint.text = "换边按钮在局内「开发者调试」中（备战阶段）"
+	swap_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiAssets.apply_label_font(swap_hint, false, 14)
+	box.add_child(swap_hint)
 	return panel
 
 func _build_about() -> Control:
@@ -409,15 +526,288 @@ func _on_no_model_toggled(on: bool) -> void:
 func _on_camera_breathe_toggled(on: bool) -> void:
 	GameSession.set_camera_breathe_enabled(on)
 
+func _on_nullsec_open() -> void:
+	_nullsec_lobby.popup_centered(Vector2(720, 420))
+
+func _ensure_nullsec_net() -> NullsecNetSession:
+	if GameSession:
+		var existing := GameSession.get_node_or_null("NullsecNetSession") as NullsecNetSession
+		if existing:
+			_nullsec_net = existing
+			return _nullsec_net
+	if _nullsec_net == null or not is_instance_valid(_nullsec_net):
+		_nullsec_net = NullsecNetSession.new()
+		_nullsec_net.name = "NullsecNetSession"
+		add_child(_nullsec_net)
+		_nullsec_net.rejected.connect(func(r: String):
+			if _nullsec_lobby:
+				_nullsec_lobby.set_status(r)
+		)
+		_nullsec_net.ships_mismatch.connect(func(_h: String):
+			if _nullsec_lobby:
+				_nullsec_lobby.set_status("全舰船数据与房主不一致 · 进入对局后将临时应用房主舰船数据")
+		)
+	return _nullsec_net
+
+func _show_nullsec_room() -> void:
+	if _nullsec_room != null and is_instance_valid(_nullsec_room):
+		_nullsec_room.queue_free()
+	_nullsec_room = NullsecRoomUI.new()
+	_nullsec_room.setup(_ensure_nullsec_net())
+	_nullsec_room.leave_room.connect(_on_nullsec_leave)
+	_nullsec_room.start_match.connect(_on_nullsec_start_match)
+	add_child(_nullsec_room)
+	_nullsec_lobby.hide()
+
+func _on_nullsec_leave() -> void:
+	if _nullsec_net:
+		_nullsec_net.close()
+	if _nullsec_room:
+		_nullsec_room.queue_free()
+		_nullsec_room = null
+
+func _on_nullsec_start_match(assignments: Dictionary) -> void:
+	var net := _ensure_nullsec_net()
+	net.persist_across_scenes()
+	var spectate := net.local_is_spectator()
+	GameSession.pending_mode = "nullsec"
+	GameSession.pending_nullsec = {
+		"assignments": assignments,
+		"seats": net.seats,
+		"local_seat": net.local_seat,
+		"match_seed": int(net.last_match_payload.get("match_seed", Time.get_unix_time_from_system())),
+		"spectator": spectate,
+		"spectate_reason": "seat_spectate" if spectate else "",
+	}
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+func _enter_nullsec_from_mid_join(net: NullsecNetSession, payload: Dictionary) -> void:
+	net.persist_across_scenes()
+	var asg: Dictionary = payload.get("assignments", {}) as Dictionary
+	if asg.is_empty():
+		var rng := MatchRng.new()
+		rng.configure(int(payload.get("match_seed", 1)), str(payload.get("rules_hash", "")))
+		var dir := NullsecMatchDirector.new()
+		dir.setup(rng)
+		dir.set_seats(payload.get("seats", []) as Array)
+		asg = dir.assign_regions()
+	GameSession.pending_mode = "nullsec"
+	GameSession.pending_nullsec = {
+		"assignments": asg,
+		"seats": payload.get("seats", net.seats),
+		"local_seat": net.local_seat,
+		"match_seed": int(payload.get("match_seed", Time.get_unix_time_from_system())),
+		"spectator": true,
+		"spectate_reason": "mid_join",
+	}
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+func _on_nullsec_match_public() -> void:
+	var nick := _nullsec_lobby.current_nick()
+	var ignore_started := _nullsec_lobby.ignore_in_match_rooms()
+	_nullsec_lobby.set_status("正在扫描局域网…")
+	var rules := MatchRng.compute_rules_hash()
+	var rooms: Array = await LanBeacon.discover(self, LanBeacon.DISCOVER_WAIT_S)
+	var pick: Dictionary = PublicRoomEnumerator.pick_public_room(rooms, rules, ignore_started)
+	if pick.is_empty():
+		if ignore_started:
+			var skipped := PublicRoomEnumerator.count_in_match_public(rooms, rules)
+			_nullsec_lobby.set_status("未发现未开局公开房 · 已略过 %d 间已开局" % skipped)
+		else:
+			_nullsec_lobby.set_status("未发现公开房（同版本）· 可点「主持公开房间」开一间")
+		return
+	var code := int(pick.get("code", 0))
+	var ip := str(pick.get("ip", "127.0.0.1"))
+	var port := int(pick.get("port", NullsecNetSession.port_for_code(code)))
+	var in_match_ad := bool(pick.get("in_match", false))
+	var net := _ensure_nullsec_net()
+	net.close()
+	_nullsec_lobby.set_status("正在加入公开房 %04d…" % code)
+	var err := net.join(ip, port, nick, rules)
+	if err != OK:
+		_nullsec_lobby.set_status("加入失败: %s" % error_string(err))
+		return
+	var join_res: Dictionary = await _await_nullsec_join_ex(net, 4.0)
+	if not bool(join_res.get("ok", false)):
+		net.close()
+		_nullsec_lobby.set_status("加入超时或被拒")
+		return
+	PublicRoomEnumerator.advance_past(code)
+	var joined_in_match := bool(join_res.get("in_match", false)) or in_match_ad or net.match_started
+	if joined_in_match:
+		_nullsec_lobby.set_status("已加入公开房 %04d · 观战" % code)
+		if net.last_match_payload.is_empty():
+			var got := {"p": {}}
+			var on_ms := func(p: Dictionary): got["p"] = p
+			net.match_start.connect(on_ms)
+			var end_ms := Time.get_ticks_msec() + 2000
+			while Time.get_ticks_msec() < end_ms and net.last_match_payload.is_empty() and (got["p"] as Dictionary).is_empty():
+				await get_tree().process_frame
+			if net.match_start.is_connected(on_ms):
+				net.match_start.disconnect(on_ms)
+			if not (got["p"] as Dictionary).is_empty():
+				net.last_match_payload = (got["p"] as Dictionary).duplicate(true)
+		_enter_nullsec_from_mid_join(net, net.last_match_payload)
+		return
+	_nullsec_lobby.set_status("已加入公开房 %04d" % code)
+	_show_nullsec_room()
+
+func _on_nullsec_host_public() -> void:
+	var nick := _nullsec_lobby.current_nick()
+	_nullsec_lobby.set_status("正在选定空闲房号…")
+	var rooms: Array = await LanBeacon.discover(self, 0.25)
+	var taken: Dictionary = {}
+	for r in rooms:
+		if typeof(r) == TYPE_DICTIONARY and not bool((r as Dictionary).get("private", false)):
+			taken[int((r as Dictionary).get("code", 0))] = true
+	var code := PublicRoomEnumerator.claim_free_code(taken)
+	var net := _ensure_nullsec_net()
+	net.close()
+	var err := net.host_public(code, nick)
+	if err != OK:
+		_nullsec_lobby.set_status("开房失败: %s" % error_string(err))
+		return
+	_nullsec_lobby.set_status("已主持公开房 %04d（局域网）" % code)
+	_show_nullsec_room()
+
+func _on_nullsec_host_private() -> void:
+	var nick := _nullsec_lobby.current_nick()
+	## 6-char base32-ish private code (0-9a-v), SEMI_ASYNC §7.5.
+	var alphabet := "0123456789abcdefghijklmnopqrstuv"
+	var code := ""
+	for _i in range(6):
+		code += alphabet[randi() % alphabet.length()]
+	var net := _ensure_nullsec_net()
+	net.close()
+	var err := net.host_private(code, nick)
+	if err != OK:
+		_nullsec_lobby.set_status("开房失败: %s" % error_string(err))
+		return
+	_nullsec_lobby.set_status("已主持私密房 %s（局域网）" % code)
+	_show_nullsec_room()
+
+func _on_nullsec_join_private(raw: String) -> void:
+	var nick := _nullsec_lobby.current_nick()
+	var code := raw.strip_edges().to_lower()
+	if code == "":
+		_nullsec_lobby.set_status("请输入私密码")
+		return
+	var re := RegEx.new()
+	re.compile("^[0-9a-v]{6}$")
+	if re.search(code) == null:
+		_nullsec_lobby.set_status("私密码须为 6 位 0-9a-v")
+		return
+	_nullsec_lobby.set_status("正在扫描局域网…")
+	var rules := MatchRng.compute_rules_hash()
+	var rooms: Array = await LanBeacon.discover(self, LanBeacon.DISCOVER_WAIT_S)
+	var pick: Dictionary = {}
+	for r in rooms:
+		if typeof(r) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = r
+		if not bool(d.get("private", false)):
+			continue
+		if str(d.get("private_code", "")).to_lower() != code:
+			continue
+		if str(d.get("rules", "")) != rules:
+			continue
+		pick = d
+		break
+	if pick.is_empty():
+		_nullsec_lobby.set_status("未找到该私密房（同版本 · 局域网）")
+		return
+	var ip := str(pick.get("ip", "127.0.0.1"))
+	var port := int(pick.get("port", NullsecNetSession.port_for_code(NullsecNetSession.code_for_private(code))))
+	var net := _ensure_nullsec_net()
+	net.close()
+	_nullsec_lobby.set_status("正在加入私密房…")
+	var err := net.join(ip, port, nick, rules)
+	if err != OK:
+		_nullsec_lobby.set_status("加入失败: %s" % error_string(err))
+		return
+	var ok := await _await_nullsec_join(net, 4.0)
+	if not ok:
+		net.close()
+		_nullsec_lobby.set_status("加入超时或被拒")
+		return
+	if net.match_started or net.local_is_spectator():
+		_nullsec_lobby.set_status("已加入私密房 %s · 观战" % code)
+		if net.last_match_payload.is_empty():
+			var got := {"p": {}}
+			var on_ms := func(p: Dictionary): got["p"] = p
+			net.match_start.connect(on_ms)
+			var end_ms := Time.get_ticks_msec() + 2000
+			while Time.get_ticks_msec() < end_ms and net.last_match_payload.is_empty() and (got["p"] as Dictionary).is_empty():
+				await get_tree().process_frame
+			if net.match_start.is_connected(on_ms):
+				net.match_start.disconnect(on_ms)
+			if not (got["p"] as Dictionary).is_empty():
+				net.last_match_payload = (got["p"] as Dictionary).duplicate(true)
+		_enter_nullsec_from_mid_join(net, net.last_match_payload)
+		return
+	_nullsec_lobby.set_status("已加入私密房 %s" % code)
+	_show_nullsec_room()
+
+func _await_nullsec_join(net: NullsecNetSession, timeout_s: float) -> bool:
+	var res: Dictionary = await _await_nullsec_join_ex(net, timeout_s)
+	return bool(res.get("ok", false))
+
+func _await_nullsec_join_ex(net: NullsecNetSession, timeout_s: float) -> Dictionary:
+	if net == null:
+		return {"ok": false, "in_match": false}
+	if net.local_seat >= 0:
+		return {"ok": true, "in_match": net.match_started}
+	var done := {"ok": false, "fail": false, "in_match": false}
+	var on_ok := func(_seat: int, in_match: bool = false):
+		done["ok"] = true
+		done["in_match"] = in_match
+	var on_fail := func(_r: String): done["fail"] = true
+	net.join_accepted.connect(on_ok)
+	net.rejected.connect(on_fail)
+	var end_ms := Time.get_ticks_msec() + int(timeout_s * 1000.0)
+	while Time.get_ticks_msec() < end_ms:
+		if bool(done["ok"]) or net.local_seat >= 0:
+			net.join_accepted.disconnect(on_ok)
+			net.rejected.disconnect(on_fail)
+			return {"ok": true, "in_match": bool(done["in_match"]) or net.match_started}
+		if bool(done["fail"]):
+			net.join_accepted.disconnect(on_ok)
+			net.rejected.disconnect(on_fail)
+			return {"ok": false, "in_match": false}
+		await get_tree().process_frame
+	if net.join_accepted.is_connected(on_ok):
+		net.join_accepted.disconnect(on_ok)
+	if net.rejected.is_connected(on_fail):
+		net.rejected.disconnect(on_fail)
+	return {"ok": net.local_seat >= 0, "in_match": net.match_started}
+
+func _on_nullsec_history() -> void:
+	var path := "user://save/nullsec_history.json"
+	if not FileAccess.file_exists(path):
+		_nullsec_lobby.set_status("尚无历史战绩")
+		return
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if typeof(parsed) != TYPE_ARRAY or (parsed as Array).is_empty():
+		_nullsec_lobby.set_status("尚无历史战绩")
+		return
+	var last: Dictionary = (parsed as Array).back()
+	var rows: Array = last.get("rows", []) as Array
+	var panel := NullsecSettlementPanel.new()
+	add_child(panel)
+	panel.title = "多人联机历史战绩"
+	panel.show_rows(rows, false)
+
 func _on_versus() -> void:
 	GameSession.resume_save = false
 	GameSession.resume_slot_id = ""
+	GameSession.resume_payload = {}
 	GameSession.pending_mode = "versus"
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_endless() -> void:
 	GameSession.resume_save = false
 	GameSession.resume_slot_id = ""
+	GameSession.resume_payload = {}
 	GameSession.pending_mode = "endless"
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
@@ -426,8 +816,16 @@ func _on_continue() -> void:
 		return
 	GameSession.resume_save = true
 	GameSession.resume_slot_id = ""
+	GameSession.resume_payload = {}
 	var d := MatchSave.load_dict()
-	GameSession.pending_mode = str(d.get("mode", "versus"))
+	var mode := str(d.get("mode", "versus"))
+	if mode == "nullsec":
+		## Stale multiplayer snapshot from before §5.0b — nothing to resume into.
+		GameSession.resume_save = false
+		MatchSave.clear()
+		_disable_continue_btn()
+		return
+	GameSession.pending_mode = mode
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_load_open() -> void:
@@ -473,7 +871,7 @@ func _refresh_load_list() -> void:
 		slots = [{
 			"id": MatchSave.FLAGSHIP_TEST_ID,
 			"name": MatchSave.FLAGSHIP_TEST_NAME,
-			"path": MatchSave.SAVE_PATH,
+			"path": MatchSave.FLAGSHIP_TEST_PATH if FileAccess.file_exists(MatchSave.FLAGSHIP_TEST_PATH) else MatchSave.SAVE_PATH,
 			"updated_at": "",
 		}]
 	if slots.is_empty():
@@ -489,22 +887,145 @@ func _refresh_load_list() -> void:
 		var sid := str(entry.get("id", ""))
 		var name := str(entry.get("name", sid))
 		var updated := str(entry.get("updated_at", ""))
-		var row := Button.new()
-		row.text = name if updated == "" else "%s\n%s" % [name, updated]
+		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.custom_minimum_size = Vector2(0, UiLayout.px(52, self))
-		UiAssets.apply_button_font(row, UiLayout.font_size(16, self))
-		row.pressed.connect(_on_load_slot.bind(sid))
+		row.add_theme_constant_override("separation", UiLayout.margin_px(8, self))
+		var load_btn := Button.new()
+		load_btn.text = name if updated == "" else "%s\n%s" % [name, updated]
+		load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		load_btn.custom_minimum_size = Vector2(0, UiLayout.px(52, self))
+		load_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		UiAssets.apply_button_font(load_btn, UiLayout.font_size(15, self))
+		load_btn.pressed.connect(_on_load_slot.bind(sid))
+		row.add_child(load_btn)
+		var rename_btn := Button.new()
+		rename_btn.text = "重命名"
+		rename_btn.custom_minimum_size = Vector2(UiLayout.px(72, self), UiLayout.px(52, self))
+		UiAssets.apply_button_font(rename_btn, UiLayout.font_size(14, self))
+		rename_btn.pressed.connect(_on_rename_open.bind(sid, name))
+		row.add_child(rename_btn)
+		var del_btn := Button.new()
+		del_btn.text = "删除"
+		del_btn.custom_minimum_size = Vector2(UiLayout.px(64, self), UiLayout.px(52, self))
+		UiAssets.apply_button_font(del_btn, UiLayout.font_size(14, self))
+		del_btn.pressed.connect(_on_delete_slot.bind(sid, name))
+		row.add_child(del_btn)
 		_load_list.add_child(row)
+
+
+func _build_rename_panel() -> Control:
+	var panel := _modal_panel("RenameSavePanel")
+	var box := panel.get_node("Margin/VBox") as VBoxContainer
+	var cap_row := HBoxContainer.new()
+	var cap := Label.new()
+	cap.text = "重命名存档"
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_label_font(cap, true, UiLayout.font_size(22, self))
+	cap_row.add_child(cap)
+	var close_x := Button.new()
+	close_x.text = "X"
+	close_x.custom_minimum_size = Vector2(UiLayout.px(36, self), UiLayout.px(36, self))
+	UiAssets.apply_button_font(close_x, UiLayout.font_size(18, self))
+	close_x.pressed.connect(func(): panel.visible = false)
+	cap_row.add_child(close_x)
+	box.add_child(cap_row)
+	_rename_edit = LineEdit.new()
+	_rename_edit.placeholder_text = "存档名称"
+	_rename_edit.add_theme_font_size_override("font_size", UiLayout.font_size(16, self))
+	box.add_child(_rename_edit)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var cancel := Button.new()
+	cancel.text = "取消"
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_button_font(cancel, UiLayout.font_size(16, self))
+	cancel.pressed.connect(func(): panel.visible = false)
+	row.add_child(cancel)
+	var ok := Button.new()
+	ok.text = "确认"
+	ok.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_button_font(ok, UiLayout.font_size(16, self))
+	ok.pressed.connect(_on_rename_confirm)
+	row.add_child(ok)
+	box.add_child(row)
+	return panel
+
+
+func _on_rename_open(slot_id: String, current_name: String) -> void:
+	_rename_slot_id = slot_id
+	if _rename_edit:
+		_rename_edit.text = current_name
+	_apply_adaptive_layout()
+	if _rename_panel:
+		_rename_panel.visible = true
+
+
+func _on_rename_confirm() -> void:
+	var name := _rename_edit.text if _rename_edit else ""
+	var r := MatchSave.rename_slot(_rename_slot_id, name)
+	if _rename_panel:
+		_rename_panel.visible = false
+	if bool(r.get("ok", false)):
+		_refresh_load_list()
+	_rename_slot_id = ""
+
+
+func _on_delete_slot(slot_id: String, display_name: String) -> void:
+	## Inline confirm: second press not needed — use a small confirm panel via rename-style, or AcceptDialog.
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "删除存档"
+	dlg.dialog_text = "确定删除「%s」？此操作不可恢复。" % display_name
+	dlg.ok_button_text = "删除"
+	dlg.cancel_button_text = "取消"
+	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(dlg)
+	dlg.confirmed.connect(func():
+		var r := MatchSave.delete_slot(slot_id)
+		if bool(r.get("ok", false)):
+			_refresh_load_list()
+		dlg.queue_free()
+	)
+	dlg.canceled.connect(func(): dlg.queue_free())
+	dlg.close_requested.connect(func(): dlg.queue_free())
+	dlg.popup_centered()
+
+
+func _disable_continue_btn() -> void:
+	if _btn_box == null:
+		return
+	for c in _btn_box.get_children():
+		var b := c as Button
+		if b and b.text == "继续上次对局":
+			b.disabled = true
+			return
+
 
 func _on_load_slot(slot_id: String) -> void:
 	var d := MatchSave.load_slot_dict(slot_id)
 	if d.is_empty() and slot_id == MatchSave.FLAGSHIP_TEST_ID:
-		d = MatchSave.load_dict()
+		## Retry after bundled→user seed (fresh install / deleted slot).
+		MatchSave.list_slots()
+		d = MatchSave.load_slot_dict(slot_id)
+		if d.is_empty():
+			d = MatchSave.load_dict()
 	if d.is_empty():
+		push_warning("MainMenu load_slot empty id=%s" % slot_id)
 		return
+	if str(d.get("mode", "")) == "nullsec":
+		## Left over from before nullsec stopped writing saves — it has no room,
+		## no seats and no host to rejoin (MATCH_FLOW §5.0b).
+		push_warning("MainMenu load_slot nullsec slot refused id=%s" % slot_id)
+		return
+	## 随机诱导/旗舰注入：仅「读取存档」点选旗舰测试；不写回冻结档，不进 load_slot / 继续上次。
+	if slot_id == MatchSave.FLAGSHIP_TEST_ID:
+		d = MatchSave.inject_flagship_test_ai_kit(d)
+		GameSession.resume_payload = d
+		## 勿再带 slot_id 进对局，避免 match 侧二次读盘误注入或读到未注入快照。
+		GameSession.resume_slot_id = ""
+	else:
+		GameSession.resume_payload = {}
+		GameSession.resume_slot_id = slot_id
 	GameSession.resume_save = true
-	GameSession.resume_slot_id = slot_id
 	GameSession.pending_mode = str(d.get("mode", "versus"))
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
@@ -534,6 +1055,81 @@ func _on_options_open() -> void:
 				_bgm_slider.set_value_no_signal(bgm.volume_pct)
 			if _bgm_lbl:
 				_bgm_lbl.text = str(int(bgm.volume_pct))
+
+
+func _on_dev_debug_open() -> void:
+	if _options:
+		_options.visible = false
+	_sync_dev_debug_widgets()
+	if _dev_panel:
+		_apply_adaptive_layout()
+		_dev_panel.visible = true
+
+
+func _sync_dev_debug_widgets() -> void:
+	if _dev_master_check:
+		_dev_master_check.set_pressed_no_signal(GameSession.developer_debug_enabled)
+	var master_on := GameSession.developer_debug_enabled
+	if _dev_soften_check:
+		_dev_soften_check.set_pressed_no_signal(GameSession.player_citadel_soften)
+		_dev_soften_check.disabled = not master_on
+	if _dev_economy_check:
+		_dev_economy_check.set_pressed_no_signal(GameSession.player_ai_double_economy)
+		_dev_economy_check.disabled = not master_on
+	if _dev_enemy_layout_check:
+		_dev_enemy_layout_check.set_pressed_no_signal(GameSession.enemy_layout_adjust)
+		_dev_enemy_layout_check.disabled = not master_on
+	if _dev_ship_data_btn:
+		_dev_ship_data_btn.disabled = not master_on
+
+
+func _on_dev_master_toggled(on: bool) -> void:
+	GameSession.set_developer_debug_enabled(on)
+	if _dev_soften_check:
+		_dev_soften_check.disabled = not on
+	if _dev_economy_check:
+		_dev_economy_check.disabled = not on
+	if _dev_enemy_layout_check:
+		_dev_enemy_layout_check.disabled = not on
+	if _dev_ship_data_btn:
+		_dev_ship_data_btn.disabled = not on
+
+
+## UI_AND_SHELL §2.5.1 — same editor as in-match; exit autosaves and reloads DataStore.
+func _on_dev_ship_data_open() -> void:
+	if not GameSession.developer_debug_enabled:
+		return
+	if _ship_data_editor == null or not is_instance_valid(_ship_data_editor):
+		_ship_data_editor = ShipDataEditor.new()
+		_ship_data_editor.closed.connect(_on_ship_data_editor_closed)
+		add_child(_ship_data_editor)
+	_ship_data_editor.z_index = 9
+	_ship_data_editor.open(false)
+
+
+func _on_ship_data_editor_closed(changed_ids: Array, equipment_changed: bool = false) -> void:
+	if changed_ids.is_empty() and not equipment_changed:
+		return
+	if _nullsec_net == null or not is_instance_valid(_nullsec_net) or not _nullsec_net.is_host:
+		return
+	## Hosting already: guests must learn the roster changed (§3.7).
+	if _nullsec_net.match_started:
+		_nullsec_net.broadcast_ships_table()
+	else:
+		_nullsec_net.broadcast_ships_hash()
+
+
+func _on_dev_soften_toggled(on: bool) -> void:
+	GameSession.set_player_citadel_soften(on)
+
+
+func _on_dev_economy_toggled(on: bool) -> void:
+	GameSession.set_player_ai_double_economy(on)
+
+
+func _on_dev_enemy_layout_toggled(on: bool) -> void:
+	GameSession.set_enemy_layout_adjust(on)
+
 
 func _on_about_open() -> void:
 	if _about:

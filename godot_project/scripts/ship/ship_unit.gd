@@ -12,6 +12,10 @@ var grid_x: int = 0
 var grid_z: int = 0
 var is_destroyed: bool = false
 var is_logistic: bool = false
+var is_mining_ship: bool = false
+## Protected neutral (pve_salvage freighter): nobody targets it, it never counts as a field
+## combatant (FREIGHTER_AND_TITAN §1.2.1).
+var is_protect_target: bool = false
 var is_unmanned: bool = false
 var unmanned_kind: String = ""
 var drone_bandwidth: float = 0.0
@@ -33,6 +37,15 @@ var field_side_team: int = -1  ## which half's world coords; -1 = team_id
 var cyno_channel_ends_at: float = -1.0
 var cyno_completed: bool = false
 var capital_role: String = ""
+## Visual-only TQ siege / industrial morph (`siege` | `industrial`); empty = none.
+var hull_morph: String = ""
+var hull_morph_duration_s: float = 10.0
+## If set (e.g. `mining_command`), morph only when that team fetter is active and this hull is a beneficiary.
+var hull_morph_requires_fetter: String = ""
+var hull_morph_playing: bool = false
+var hull_morphed: bool = false
+## True while capital is micro-sliding apart before siege/industrial unfold.
+var hull_morph_unstacking: bool = false
 
 var shield_hp: float = 0.0
 var armor_hp: float = 0.0
@@ -60,6 +73,9 @@ var attack_duration: float = 1.0
 var base_attack_duration: float = 1.0
 var last_attack_time: float = -999.0
 var damage_pct_bonus: float = 0.0
+## Invisible star DPH multiplier buff (SHIP_STATS_V2 §2.5). ★k → k for kit-derived hulls;
+## stays 1.0 when stars[] already baked star damage (unmanned / unresolved capital kits).
+var star_dph_mul: float = 1.0
 var fetter_repair_mul: float = 1.0
 var fetter_speed_mul: float = 1.0
 var _base_shield_resist_emp: float = 0.0
@@ -68,6 +84,10 @@ var _base_structure_resist_emp: float = 0.0
 var _shield_resist: Dictionary = {}
 var _armor_resist: Dictionary = {}
 var _structure_resist: Dictionary = {}
+## Unmodified star resists — fetter ShieldResist/ArmorResist reapply from these (never stack).
+var _base_shield_resist: Dictionary = {}
+var _base_armor_resist: Dictionary = {}
+var _base_structure_resist: Dictionary = {}
 
 # V2 base stats (ship JSON + star scaling where noted)
 var race: String = "amarr"
@@ -91,6 +111,17 @@ var cap_cost_per_cycle: float = -1.0
 var lock_target_id: int = 0
 var lock_timer: float = 0.0
 var lock_duration_s: float = 0.0
+## Lead lock: the runner-up target is tracked alongside the one being shot, so a
+## retarget that its lead lock already finished switches fire instantly (COMBAT §13.1).
+var pre_lock_target_id: int = 0
+var pre_lock_timer: float = 0.0
+var pre_lock_duration_s: float = 0.0
+
+## Visual soft-follow: logic `global_position` may jump on fixed ticks; the mesh eases
+## toward it and is allowed to lag (COMBAT §3.2). Combat / targeting always use the node root.
+var _visual_world: Vector3 = Vector3.ZERO
+var _visual_follow_on: bool = false
+var _model_rest_local: Vector3 = Vector3.ZERO
 var retreat_until_time: float = -1.0
 var no_target_acc: float = 0.0
 var _stat_modifiers: Array = []
@@ -101,14 +132,28 @@ var _model_root: Node3D
 var _health_bar: Node3D  # ShipHealthBar (avoid class_name cycle with ShipUnit)
 ## Bow muzzle in ShipUnit local space (after model normalize). Forward = −Z.
 var _muzzle_local: Vector3 = Vector3(0.0, 0.4, -0.9)
+## All turret hardpoints in ShipUnit local; `get_muzzle_global` cycles them.
+var _muzzle_locals: Array[Vector3] = []
+var _muzzle_fire_i: int = 0
+## Primary engine nozzle in ShipUnit local (trail emit). Aft = +Z when bow = −Z.
+var _engine_local: Vector3 = Vector3(0.0, 0.12, 0.55)
+## Optional multi-nozzle locals (same space); empty → use `_engine_local` only.
+var _engine_locals: Array[Vector3] = []
+## Per-nozzle outline in ship-local from engine_boosters.json (SOF radius → circle).
+var _engine_outlines: Array = []
 ## Normalized display longest edge (world units) after scale curve — for load precision.
 var _model_display_size: float = -1.0
 ## Combat aim (Variant so null clear is valid).
 var combat_target = null
+## Combat-entry hull glow remaining (sim seconds); <0 = off.
+var _combat_glow_left_s: float = -1.0
 
 const _HEALTH_BAR_SCRIPT := preload("res://scripts/ship/ship_health_bar.gd")
 const _ECHOES_SURFACE_SHADER := preload("res://shaders/echoes_spaceobject.gdshader")
 const _UNITY_SHIP_SHADER := preload("res://shaders/unity_standard_ship.gdshader")
+## Combat entry glow duration in **sim** seconds (scales with 倍速; not FPS / time_scale).
+const COMBAT_GLOW_S := 10.0
+const _HULL_MORPH_FX := preload("res://scripts/combat/hull_morph_fx.gd")
 
 func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 	ship_id = p_ship_id
@@ -132,20 +177,193 @@ func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 	immobile_in_combat = bool(sd.get("immobile_in_combat", false))
 	unlimited_weapon_range = bool(sd.get("unlimited_weapon_range", false))
 	capital_role = str(sd.get("capital_role", ""))
+	hull_morph = str(sd.get("hull_morph", ""))
+	hull_morph_duration_s = float(sd.get("hull_morph_duration_s", 10.0))
+	hull_morph_requires_fetter = str(sd.get("hull_morph_requires_fetter", ""))
+	hull_morph_playing = false
+	hull_morphed = false
+	hull_morph_unstacking = false
 	if field_side_team < 0:
 		field_side_team = team_id
 	_ensure_mesh()
 	_ensure_health_bar()
 	var yaw := float(DataStore.visual.get("player_yaw_deg" if team_id == TEAM_PLAYER else "ai_yaw_deg", 0.0))
 	rotation_degrees = Vector3(0, yaw, 0)
+	## Soft-follow runs only while Battle has armed it (COMBAT §3.2).
+	set_process(false)
 
 ## Yaw so local −Z faces flat XZ direction (Godot forward).
 func face_dir_xz(dir: Vector3) -> void:
+	if (immobile_in_combat and not hull_morph_unstacking) or has_cyno_module():
+		return
 	var flat := Vector3(dir.x, 0.0, dir.z)
 	if flat.length_squared() < 0.0001:
 		return
 	flat = flat.normalized()
 	rotation.y = atan2(-flat.x, -flat.z)
+
+
+func model_root() -> Node3D:
+	return _model_root
+
+
+## Ship-local hardpoints were baked while the mesh sat at `_model_rest_local`.
+## Map them through the *current* mesh pose so FX / trails stay glued when soft-follow lags.
+func visual_to_global(ship_local: Vector3) -> Vector3:
+	if _model_root == null:
+		return to_global(ship_local)
+	var rest_xf := Transform3D(_model_root.transform.basis, _model_rest_local)
+	var model_local := rest_xf.affine_inverse() * ship_local
+	return _model_root.to_global(model_local)
+
+
+func visual_origin_world() -> Vector3:
+	return visual_to_global(Vector3.ZERO)
+
+
+func arm_visual_follow() -> void:
+	## Battle only: mesh soft-chases the logic root; prepare / drag stay glued.
+	if _model_root != null:
+		_model_rest_local = _model_root.position
+	_visual_world = global_position
+	_visual_follow_on = true
+	set_process(true)
+
+
+func disarm_visual_follow() -> void:
+	_visual_follow_on = false
+	set_process(false)
+	_snap_visual_to_logic()
+
+
+func _snap_visual_to_logic() -> void:
+	_visual_world = global_position
+	if _model_root != null:
+		_model_root.position = _model_rest_local
+
+
+func _process(delta: float) -> void:
+	if not _visual_follow_on or _model_root == null:
+		return
+	## Outside combat someone may teleport the root (cyno land / board move): re-glue
+	## instead of dragging the mesh across the map.
+	var err := global_position - _visual_world
+	var snap_wu := 6.0
+	if DataStore != null and DataStore.visual:
+		snap_wu = float(DataStore.visual.get("hull_visual_snap_wu", 6.0))
+	if err.length_squared() > snap_wu * snap_wu:
+		_snap_visual_to_logic()
+		return
+	var rate := 10.0
+	if DataStore != null and DataStore.visual:
+		rate = float(DataStore.visual.get("hull_visual_follow_rate", 10.0))
+	rate = maxf(0.5, rate)
+	var a := 1.0 - exp(-rate * delta)
+	_visual_world = _visual_world.lerp(global_position, a)
+	## Keep rest local offset (centering); only the world translation soft-follows.
+	_model_root.global_position = _visual_world + (global_transform.basis * _model_rest_local)
+
+
+## Pure VFX: TQ StartSiege / Normal2Siege — real AnimationPlayer if present, else proxy.
+func can_begin_hull_morph() -> bool:
+	if hull_morph.is_empty() or hull_morphed or hull_morph_playing:
+		return false
+	if slot_type != "field" or is_destroyed:
+		return false
+	if not hull_morph_requires_fetter.is_empty() and not _hull_morph_fetter_satisfied():
+		return false
+	return true
+
+
+func begin_hull_morph_if_needed() -> void:
+	if not can_begin_hull_morph():
+		return
+	var dur := hull_morph_duration_s
+	if DataStore != null and DataStore.combat:
+		dur = float(DataStore.combat.get("hull_morph_duration_s", dur))
+		if hull_morph_duration_s > 0.0:
+			dur = hull_morph_duration_s
+	var world: Node = get_parent()
+	if world == null:
+		world = self
+	var fx = _HULL_MORPH_FX.new()
+	fx.name = "HullMorphFx_%d" % get_instance_id()
+	world.add_child(fx)
+	fx.play(self, hull_morph, dur)
+
+
+## mining_command: Field Porpoise active → other mining sources receive +20% (MINING §3).
+func _hull_morph_fetter_satisfied() -> bool:
+	var need := hull_morph_requires_fetter
+	if need.is_empty():
+		return true
+	if need != "mining_command":
+		return false
+	## Beneficiaries only — Porpoise itself does not "eat" the bonus.
+	var self_data: Dictionary = DataStore.get_ship(ship_id) if DataStore else {}
+	var self_fids = self_data.get("fetter_ids", [])
+	if int(ship_id) == 136 or ("mining_command" in self_fids):
+		return false
+	var board: BoardController = _find_board_controller() as BoardController
+	if board == null:
+		return false
+	for s in board.field_ships(team_id):
+		if s == null or s.is_destroyed or s.is_unmanned:
+			continue
+		var sd: Dictionary = DataStore.get_ship(s.ship_id)
+		if int(s.ship_id) == 136 or ("mining_command" in sd.get("fetter_ids", [])):
+			return true
+	return false
+
+
+func _find_board_controller() -> Node:
+	var tree := get_tree()
+	if tree:
+		var root := tree.get_first_node_in_group("match_root")
+		if root != null and root.get("board") != null:
+			return root.board as Node
+		var by_group := tree.get_first_node_in_group("board_controller")
+		if by_group != null:
+			return by_group
+	var n: Node = get_parent()
+	while n:
+		if n.has_method("field_ships") and n.has_method("recalculate_fetters"):
+			return n
+		n = n.get_parent()
+	return null
+
+
+func apply_hull_morph_emission(strength: float, kind: String = "siege") -> void:
+	if _model_root == null:
+		return
+	var tint := Color(1.0, 0.55, 0.25) if kind != "industrial" else Color(0.4, 1.0, 0.55)
+	for mi in _find_meshes(_model_root):
+		_set_mesh_emission(mi, strength, tint, true)
+
+
+## After morph FX ends: restore combat-entry glow if still active, else clear white film.
+func restore_emission_after_hull_morph() -> void:
+	_apply_combat_tint_visual(_combat_glow_left_s > 0.0)
+
+
+func _set_mesh_emission(mi: MeshInstance3D, strength: float, tint: Color, morph_tint: bool) -> void:
+	var mats: Array = []
+	if mi.material_override != null:
+		mats.append(mi.material_override)
+	if mi.mesh:
+		for si in range(mi.mesh.get_surface_count()):
+			var sov := mi.get_surface_override_material(si)
+			if sov != null and mats.find(sov) < 0:
+				mats.append(sov)
+	for mat in mats:
+		if mat is ShaderMaterial:
+			var smat := mat as ShaderMaterial
+			smat.set_shader_parameter("combat_emission_strength", strength)
+		elif mat is StandardMaterial3D:
+			var std := mat as StandardMaterial3D
+			std.emission_enabled = strength > 0.001
+			std.emission = tint if morph_tint else Color.WHITE
+			std.emission_energy_multiplier = strength
 
 func restore_team_yaw() -> void:
 	var yaw := float(DataStore.visual.get("player_yaw_deg" if team_id == TEAM_PLAYER else "ai_yaw_deg", 0.0))
@@ -171,9 +389,53 @@ func _ensure_mesh() -> void:
 			## Mesh mutation (decimate/compress) before tint — never rebuild after materials applied.
 			MobileModelLoad.apply_tree(_model_root, _model_display_size)
 			_tint_model(_model_root)
+			_attach_siege_addon_if_any()
+			_cache_model_rest_pose()
 			return
 	## Missing model: leave empty (no placeholder box). Drop-in §0 bundle restores mesh.
 	_muzzle_local = Vector3(0.0, 0.3, -0.9)
+
+
+func _cache_model_rest_pose() -> void:
+	if _model_root == null:
+		return
+	_model_root.set_meta("rest_rotation", _model_root.rotation)
+	_model_root.set_meta("rest_scale", _model_root.scale)
+
+
+func restore_model_rest_pose() -> void:
+	if _model_root == null:
+		return
+	if _model_root.has_meta("rest_rotation"):
+		_model_root.rotation = _model_root.get_meta("rest_rotation") as Vector3
+	if _model_root.has_meta("rest_scale"):
+		_model_root.scale = _model_root.get_meta("rest_scale") as Vector3
+	var addon := _model_root.get_node_or_null("SiegeAddon") as Node3D
+	if addon:
+		addon.visible = false
+
+
+func _attach_siege_addon_if_any() -> void:
+	## Optional static/anim siege flap pack: assets/models/ships/<key>/siege_addon.glb
+	if _model_root == null or DataStore == null:
+		return
+	if _model_root.get_node_or_null("SiegeAddon") != null:
+		return
+	var key := str(DataStore.get_ship(ship_id).get("model_key", ""))
+	if key.is_empty():
+		return
+	var path := "res://assets/models/ships/%s/siege_addon.glb" % key
+	if not ResourceLoader.exists(path):
+		return
+	var packed := load(path)
+	if not (packed is PackedScene):
+		return
+	var addon := (packed as PackedScene).instantiate() as Node3D
+	if addon == null:
+		return
+	addon.name = "SiegeAddon"
+	addon.visible = false
+	_model_root.add_child(addon)
 
 func _mesh_path_safe() -> String:
 	if DataStore != null and DataStore.has_method("ship_mesh_path_resolved"):
@@ -220,7 +482,21 @@ func _apply_model_orientation(root: Node3D) -> void:
 	var pitch := float(DataStore.visual.get("ship_model_pitch_deg", 0.0))
 	var model_yaw := float(DataStore.visual.get("ship_model_yaw_deg", 180.0))
 	var model_roll := float(DataStore.visual.get("ship_model_roll_deg", 0.0))
-	if bool(DataStore.visual.get("ship_model_auto_orient", true)):
+	## Nozzles face astern, so a baked `bow_fit` yaw is ground truth and outranks
+	## both the global default and the extent guess below (CONTENT_FORMAT §喷口).
+	var fit := _bow_fit()
+	if fit.has("model_yaw_deg"):
+		root.rotation_degrees = Vector3(pitch, float(fit["model_yaw_deg"]), model_roll)
+		if bool(DataStore.visual.get("ship_model_level_keel", true)):
+			_level_model_keel(root)
+		return
+	## Echoes hulls are authored length-on-Z, so content keeps auto-orient off globally.
+	## TQ hulls (titans) are length-on-X and must opt back in per ship def.
+	var auto_orient := bool(DataStore.visual.get("ship_model_auto_orient", true))
+	var def_flag: Variant = DataStore.get_ship(ship_id).get("model_auto_orient", null)
+	if def_flag != null:
+		auto_orient = bool(def_flag)
+	if auto_orient:
 		var aabb := _aabb_mesh_local(root)
 		var sx := aabb.size.x
 		var sy := aabb.size.y
@@ -287,6 +563,44 @@ func _level_model_keel(root: Node3D) -> void:
 	corr = clampf(corr, -35.0, 35.0)
 	root.rotation_degrees.x += corr
 
+static func _is_sleeper_hull(ship: Dictionary) -> bool:
+	if str(ship.get("race", "")).to_lower() == "sleeper":
+		return true
+	for t in (ship.get("tags", []) as Array):
+		var ts := str(t).to_lower()
+		if ts == "sleeper" or ts == "pve_creep":
+			return true
+	return false
+
+
+## Shop combat hulls of the four empires in `group` — mean `model_long_axis`.
+## Sleepers must render at this size (MULTIPLAYER_MATCH_FLOW §5.1).
+static func _racial_tonnage_mean_long_axis(group: String) -> float:
+	if group == "" or DataStore == null:
+		return 0.0
+	var sum := 0.0
+	var n := 0
+	for sid in DataStore.ship_ids():
+		var s: Dictionary = DataStore.get_ship(int(sid))
+		if str(s.get("ship_group", "")) != group:
+			continue
+		var race := str(s.get("race", "")).to_lower()
+		if race not in ["amarr", "caldari", "gallente", "minmatar"]:
+			continue
+		if bool(s.get("is_logistic", false)):
+			continue
+		if s.has("shop_eligible") and not bool(s.get("shop_eligible", true)):
+			continue
+		if _is_sleeper_hull(s):
+			continue
+		var ax := float(s.get("model_long_axis", 0.0))
+		if ax <= 0.0:
+			continue
+		sum += ax
+		n += 1
+	return sum / float(n) if n > 0 else 0.0
+
+
 func _normalize_model_scale(root: Node3D) -> void:
 	## Curve-map Echoes dogma long axis (type attr radius / 105) → display size;
 	## mesh AABB longest only scales the GLB to that display size (fallback axis source).
@@ -299,7 +613,13 @@ func _normalize_model_scale(root: Node3D) -> void:
 	var mesh_longest := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
 	if mesh_longest < 0.0001:
 		return
-	var axis := float(DataStore.get_ship(ship_id).get("model_long_axis", 0.0))
+	var ship_data: Dictionary = DataStore.get_ship(ship_id)
+	var axis := float(ship_data.get("model_long_axis", 0.0))
+	## Sleepers share the racial same-tonnage mean long axis (MATCH_FLOW §5.1).
+	if _is_sleeper_hull(ship_data):
+		var mean_axis := _racial_tonnage_mean_long_axis(str(ship_data.get("ship_group", "")))
+		if mean_axis > 0.0:
+			axis = mean_axis
 	if axis <= 0.0:
 		axis = mesh_longest
 	ref_l = maxf(ref_l, 1.0)
@@ -331,10 +651,12 @@ func _normalize_model_scale(root: Node3D) -> void:
 	root.position.z -= center.z
 	aabb = _aabb_in_ship_space(root)
 	root.position.y -= aabb.position.y
-	# Bow muzzle in ShipUnit local (forward −Z tip).
+	# Turret hardpoints + engine nozzles (ShipUnit local).
 	aabb = _aabb_in_ship_space(root)
-	var mid_y := maxf(aabb.get_center().y, aabb.size.y * 0.35)
-	_muzzle_local = Vector3(0.0, mid_y, aabb.position.z)
+	_resolve_turret_locals(root, aabb)
+	_resolve_engine_local(root, aabb)
+	## Soft-follow / visual_to_global treat this as the glued mesh seat.
+	_model_rest_local = root.position
 
 func _aabb_mesh_local(root: Node3D) -> AABB:
 	## Mesh AABB in root's local space via local transforms (safe before/after scale; ignores root.scale).
@@ -375,8 +697,9 @@ func _aabb_in_ship_space(root: Node3D) -> AABB:
 func visual_center_world() -> Vector3:
 	if _model_root != null:
 		var aabb := _aabb_in_ship_space(_model_root)
+		## AABB is already in current ship-local (includes soft-follow offset); map via root.
 		return global_transform * aabb.get_center()
-	return global_position
+	return visual_origin_world()
 
 func visual_radius_world() -> float:
 	if _model_root != null:
@@ -536,49 +859,94 @@ func _race_hull_color(race_id: String) -> Color:
 
 func set_combat_tint(in_combat: bool) -> void:
 	if is_destroyed:
+		_combat_glow_left_s = -1.0
 		return
+	if in_combat:
+		## Fresh window each arm (battle start / cyno jump-in); duration is sim-seconds.
+		_combat_glow_left_s = float(DataStore.visual.get("combat_glow_s", COMBAT_GLOW_S)) if DataStore else COMBAT_GLOW_S
+		_apply_combat_tint_visual(true)
+	else:
+		_combat_glow_left_s = -1.0
+		_apply_combat_tint_visual(false)
+
+
+## Called from CombatResolver each sim step (scaled by 倍速; independent of render FPS).
+func tick_combat_glow(sim_delta: float) -> void:
+	if _combat_glow_left_s < 0.0:
+		return
+	_combat_glow_left_s -= sim_delta
+	if _combat_glow_left_s > 0.0:
+		return
+	_combat_glow_left_s = -1.0
+	## Morph owns emission while playing; clear white film when morph is done.
+	if not hull_morph_playing:
+		_apply_combat_tint_visual(false)
+
+
+func _apply_combat_tint_visual(in_combat: bool) -> void:
+	var unity_strength := 0.06 if in_combat else 0.0
+	var echoes_strength := 0.08 if in_combat else 0.0
+	var std_strength := 0.18 if in_combat else 0.0
 	if _mat:
 		var neutral := Color(0.82, 0.84, 0.88, 1.0)
 		_mat.albedo_color = neutral.lightened(0.06) if in_combat else neutral
-	elif _model_root:
-		var neutral := Color(0.82, 0.84, 0.88, 1.0)
-		for mi in _find_meshes(_model_root):
-			if mi.material_override is ShaderMaterial:
-				var smat := mi.material_override as ShaderMaterial
-				if smat.shader == _UNITY_SHIP_SHADER:
-					smat.set_shader_parameter("combat_emission_strength", 0.06 if in_combat else 0.0)
-				else:
-					smat.set_shader_parameter("team_tint", Color.WHITE)
-					smat.set_shader_parameter("team_mix", 0.0)
-					smat.set_shader_parameter("combat_emission_strength", 0.08 if in_combat else 0.0)
-			elif mi.material_override is StandardMaterial3D:
-				var mat := mi.material_override as StandardMaterial3D
-				if mat.albedo_texture:
-					mat.emission_enabled = true
-					mat.emission = Color.WHITE
-					mat.emission_energy_multiplier = 0.18 if in_combat else 0.0
-				else:
-					mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-					mat.albedo_color = neutral.lightened(0.06) if in_combat else neutral
-					mat.emission_enabled = false
+		_mat.emission_enabled = in_combat
+		_mat.emission = Color.WHITE
+		_mat.emission_energy_multiplier = std_strength
+		return
+	if _model_root == null:
+		return
+	var neutral2 := Color(0.82, 0.84, 0.88, 1.0)
+	for mi in _find_meshes(_model_root):
+		if mi.material_override is ShaderMaterial:
+			var smat := mi.material_override as ShaderMaterial
+			var strength := unity_strength if smat.shader == _UNITY_SHIP_SHADER else echoes_strength
+			_set_mesh_emission(mi, strength, Color.WHITE, false)
+			if smat.shader != _UNITY_SHIP_SHADER and not in_combat:
+				smat.set_shader_parameter("team_tint", Color.WHITE)
+				smat.set_shader_parameter("team_mix", 0.0)
+		elif mi.material_override is StandardMaterial3D:
+			var mat := mi.material_override as StandardMaterial3D
+			if mat.albedo_texture:
+				_set_mesh_emission(mi, std_strength, Color.WHITE, false)
+			else:
+				mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				mat.albedo_color = neutral2.lightened(0.06) if in_combat else neutral2
+				mat.emission_enabled = false
+		else:
+			_set_mesh_emission(mi, unity_strength, Color.WHITE, false)
+
+## Salvage freighters are protected neutrals no matter which half they were spawned on
+## (FREIGHTER_AND_TITAN §1.2.1) — data-driven so a new hull only needs the group/tag.
+static func _resolve_protect_target(ship: Dictionary) -> bool:
+	if str(ship.get("ship_group", "")) == "freighter":
+		return true
+	for t in (ship.get("tags", []) as Array):
+		if str(t) == "pve_salvage":
+			return true
+	return false
 
 func reload_stats() -> void:
-	var st: Dictionary = DataStore.get_star(ship_id, star)
+	var ship := DataStore.get_ship(ship_id)
+	var st: Dictionary = DataStore.get_star_resolved(ship_id, star)
 	if st.is_empty():
 		return
-	var ship := DataStore.get_ship(ship_id)
 	is_logistic = bool(ship.get("is_logistic", false)) or bool(st.get("is_logistic", false))
+	is_mining_ship = bool(ship.get("is_mining_ship", false))
+	is_protect_target = _resolve_protect_target(ship)
 	race = str(ship.get("race", "amarr")).to_lower()
 	attack_range = float(st.get("attack_range", 1))
 	var dmg: Dictionary = st.get("damage", {})
-	## DPH follows star row (×1/×2/×3). Repair always uses 1★ — stars do not raise logistic heal.
+	## Kit-derived hulls keep ★1 base DPH here; star raise is star_dph_mul (invisible buff).
+	## Baked stars[] (unmanned / unresolved capital) already include star × on damage.
 	damage_emp = float(dmg.get("emp", 0))
 	damage_thermal = float(dmg.get("thermal", 0))
 	damage_kinetic = float(dmg.get("kinetic", 0))
 	damage_explosive = float(dmg.get("explosive", 0))
+	star_dph_mul = float(maxi(star, 1)) if ShipWeaponDerive.should_derive(ship) else 1.0
 	var rep_src: Dictionary = st
 	if is_logistic or str(ship.get("unmanned_kind", "")).find("repair") >= 0:
-		var st1: Dictionary = DataStore.get_star(ship_id, 1)
+		var st1: Dictionary = DataStore.get_star_resolved(ship_id, 1)
 		if not st1.is_empty():
 			rep_src = st1
 	var rep: Dictionary = rep_src.get("repair", {})
@@ -603,6 +971,9 @@ func reload_stats() -> void:
 	_shield_resist = sr.duplicate()
 	_armor_resist = ar.duplicate()
 	_structure_resist = str_res.duplicate()
+	_base_shield_resist = _shield_resist.duplicate()
+	_base_armor_resist = _armor_resist.duplicate()
+	_base_structure_resist = _structure_resist.duplicate()
 	shield_resist_emp = float(sr.get("emp", 0))
 	armor_resist_emp = float(ar.get("emp", 0))
 	structure_resist_emp = float(str_res.get("emp", armor_resist_emp))
@@ -627,6 +998,9 @@ func reload_stats() -> void:
 	fetter_speed_mul = 1.0
 	var cd := DataStore.combat
 	var cycle := float(ship.get("attack_cycle_s", -1.0))
+	var derived_cycle := float(st.get("_attack_cycle_s", -1.0))
+	if derived_cycle > 0.0 and ShipWeaponDerive.should_derive(ship):
+		cycle = derived_cycle
 	if cycle <= 0.0:
 		cycle = float(cd.get("logistic_attack_duration_s" if is_logistic else "attack_duration_s", 1.0))
 	var cap_s := float(cd.get("attack_cycle_cap_s", 6.0))
@@ -655,6 +1029,7 @@ func reset_combat_runtime() -> void:
 	lock_target_id = 0
 	lock_timer = 0.0
 	lock_duration_s = 0.0
+	clear_pre_lock()
 	retreat_until_time = -1.0
 	no_target_acc = 0.0
 	combat_target = null
@@ -665,6 +1040,14 @@ func reset_combat_runtime() -> void:
 	fighter_next_squadron_id = 0
 	if not is_unmanned:
 		fighter_squadron_id = -1
+	hull_morph_playing = false
+	hull_morphed = false
+	hull_morph_unstacking = false
+	restore_model_rest_pose()
+	## Drop leftover morph FX from prior round if still parented.
+	var old_fx := get_parent().get_node_or_null("HullMorphFx_%d" % get_instance_id()) if get_parent() else null
+	if old_fx != null and is_instance_valid(old_fx):
+		old_fx.queue_free()
 
 func get_stat(stat_name: String, base_value: float) -> float:
 	var add := 0.0
@@ -709,12 +1092,16 @@ func tick_stat_modifiers(sim_dt: float) -> void:
 func combat_move_speed() -> float:
 	var wu := CombatFormulas.world_units_per_cell()
 	var move_scale := float(DataStore.combat.get("move_speed_scale", 1.65))
-	var m_per_cell := float(DataStore.combat.get("speed_meters_per_cell", DataStore.combat.get("meters_per_cell", 500.0)))
+	## Movement runs on its own metric — 1 cell = 500 m, never the 2 km range metric.
+	var m_per_cell := float(DataStore.combat.get("speed_meters_per_cell", 500.0))
 	var spd := get_stat("speed", base_speed)
 	var mapped := spd / m_per_cell * wu * move_scale * fetter_speed_mul
 	var speed := maxf(mapped, 0.5)
 	if absf(global_position.z) < float(DataStore.combat.get("isolation_half_width_wu", 2.5)):
 		speed *= float(DataStore.combat.get("isolation_speed_mul", 0.7))
+	## Excavators wander the belt slowly (MINING §2.1): 1/5 mapped move speed.
+	if is_unmanned and str(unmanned_kind) == "mining_excavator":
+		speed *= float(DataStore.combat.get("mining_excavator_move_mul", 0.2))
 	return speed
 
 func cap_fraction() -> float:
@@ -725,6 +1112,9 @@ func cap_fraction() -> float:
 func attacks_enabled() -> bool:
 	if has_cyno_module():
 		return false
+	## Cap gate only after capacitor-warfare modules ship (COMBAT §7).
+	if not bool(DataStore.combat.get("capacitor_combat_enabled", false)):
+		return true
 	var frac_need := float(DataStore.combat.get("cap_disable_attack_function_pct", 0.10))
 	return cap_fraction() >= frac_need
 
@@ -761,6 +1151,10 @@ func total_hp_fraction() -> float:
 	return clampf((shield_hp + armor_hp + structure_hp) / mx, 0.0, 1.0)
 
 func tick_capacitor(sim_dt: float) -> void:
+	if not bool(DataStore.combat.get("capacitor_combat_enabled", false)):
+		## Keep display/full for UI; no combat drain/gate until cap warfare exists.
+		cap_current = cap_capacity
+		return
 	if cap_capacity <= 0.0:
 		cap_current = 0.0
 		return
@@ -768,6 +1162,8 @@ func tick_capacitor(sim_dt: float) -> void:
 	cap_current = minf(cap_capacity, cap_current + rate * sim_dt)
 
 func consume_cap_for_cycle() -> void:
+	if not bool(DataStore.combat.get("capacitor_combat_enabled", false)):
+		return
 	if cap_capacity <= 0.0:
 		return
 	var cost := cap_cost_per_cycle
@@ -784,13 +1180,39 @@ func sync_lock(target: ShipUnit, _sim_time: float) -> void:
 	var tid := target.get_instance_id()
 	if lock_target_id != tid:
 		lock_target_id = tid
-		lock_timer = 0.0
 		lock_duration_s = CombatFormulas.lock_time_s(scan_resolution, target.signature_radius)
+		## Lead lock already spent on this hull carries over: a finished one fires at once.
+		lock_timer = minf(pre_lock_timer, pre_lock_duration_s) if pre_lock_target_id == tid else 0.0
+		clear_pre_lock()
 
 func advance_lock(sim_dt: float) -> void:
 	if lock_target_id == 0:
 		return
 	lock_timer += sim_dt
+
+func sync_pre_lock(target: ShipUnit) -> void:
+	if target == null or target.is_destroyed or target.get_instance_id() == lock_target_id:
+		clear_pre_lock()
+		return
+	var tid := target.get_instance_id()
+	if pre_lock_target_id != tid:
+		pre_lock_target_id = tid
+		pre_lock_timer = 0.0
+		pre_lock_duration_s = CombatFormulas.lock_time_s(scan_resolution, target.signature_radius)
+
+func advance_pre_lock(sim_dt: float) -> void:
+	if pre_lock_target_id == 0:
+		return
+	var t := instance_from_id(pre_lock_target_id) as ShipUnit
+	if t == null or not is_instance_valid(t) or t.is_destroyed:
+		clear_pre_lock()
+		return
+	pre_lock_timer += sim_dt
+
+func clear_pre_lock() -> void:
+	pre_lock_target_id = 0
+	pre_lock_timer = 0.0
+	pre_lock_duration_s = 0.0
 
 func is_target_locked() -> bool:
 	if lock_target_id == 0:
@@ -825,7 +1247,7 @@ func missile_damage_factor_vs(target: ShipUnit) -> float:
 	)
 
 func damage_dict_scaled() -> Dictionary:
-	var mul := 1.0 + damage_pct_bonus / 100.0
+	var mul := star_dph_mul * (1.0 + damage_pct_bonus / 100.0)
 	return {
 		"emp": damage_emp * mul,
 		"thermal": damage_thermal * mul,
@@ -840,7 +1262,7 @@ func heal_dict_scaled() -> Dictionary:
 	# FAX heavy repair drones use fixed per-cycle values from content (no global x2 logistic multiplier).
 	var mul := fetter_repair_mul
 	if str(unmanned_kind) != "heavy_repair_drone":
-		mul *= float(DataStore.combat.get("logistic_heal_multiplier", 2.0))
+		mul *= float(DataStore.combat.get("logistic_heal_multiplier", 1.0))
 	return {
 		"shield": repair_shield * mul,
 		"armor": repair_armor * mul,
@@ -906,11 +1328,22 @@ func world_range_wu() -> float:
 	return world_range()
 
 func apply_fetter_mods(shield_mul: float, armor_mul: float, repair_mul: float, speed_mul: float) -> void:
+	## Combat reads `_shield_resist` / `_armor_resist` / `_structure_resist` in apply_hit_dict —
+	## the EMP-only scalars are display leftovers and must stay in sync.
 	fetter_repair_mul = repair_mul
 	fetter_speed_mul = speed_mul
-	shield_resist_emp = minf(0.90, _base_shield_resist_emp * shield_mul)
-	armor_resist_emp = minf(0.90, _base_armor_resist_emp * armor_mul)
-	structure_resist_emp = minf(0.90, _base_structure_resist_emp * armor_mul)
+	_apply_resist_mul(_shield_resist, _base_shield_resist, shield_mul)
+	_apply_resist_mul(_armor_resist, _base_armor_resist, armor_mul)
+	_apply_resist_mul(_structure_resist, _base_structure_resist, armor_mul)
+	shield_resist_emp = float(_shield_resist.get("emp", 0.0))
+	armor_resist_emp = float(_armor_resist.get("emp", 0.0))
+	structure_resist_emp = float(_structure_resist.get("emp", 0.0))
+
+
+func _apply_resist_mul(dst: Dictionary, base: Dictionary, mul: float) -> void:
+	dst.clear()
+	for key in ["emp", "thermal", "kinetic", "explosive"]:
+		dst[key] = minf(0.90, float(base.get(key, 0.0)) * mul)
 
 func upgrade_level() -> void:
 	if star < 3:
@@ -927,9 +1360,386 @@ func get_sell_price() -> int:
 	var floor_p := int(eco.get("sell_price_min", 1))
 	return maxi(floor_p, get_cost() - discount)
 
-## World-space muzzle ≈ turret: cached ShipUnit-local bow (3DS meshes have no hardpoints).
+## World-space muzzle from current turret hardpoint (stable across FX retarget ticks).
+## Bound to the drawn mesh, not the logic root (COMBAT §3.2).
 func get_muzzle_global() -> Vector3:
-	return to_global(_muzzle_local)
+	if _muzzle_locals.is_empty():
+		return visual_to_global(_muzzle_local)
+	return visual_to_global(_muzzle_locals[_muzzle_fire_i % _muzzle_locals.size()])
+
+## Advance to next turret after a shot (multi-gun volley).
+func advance_muzzle() -> void:
+	if _muzzle_locals.size() <= 1:
+		return
+	_muzzle_fire_i = (_muzzle_fire_i + 1) % _muzzle_locals.size()
+
+func get_muzzle_locals() -> Array[Vector3]:
+	if _muzzle_locals.is_empty():
+		return [_muzzle_local] as Array[Vector3]
+	return _muzzle_locals
+
+func _turret_slot_count() -> int:
+	var sd := DataStore.get_ship(ship_id) if DataStore else {}
+	var slots := int(sd.get("attack_weapon_slots", 0))
+	if slots <= 0:
+		slots = int(sd.get("hi_slots", 0))
+	if slots <= 0:
+		slots = 2
+	return clampi(slots, 1, 8)
+
+func _resolve_turret_locals(root: Node3D, aabb: AABB) -> void:
+	_muzzle_locals.clear()
+	_muzzle_fire_i = 0
+	var key := str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
+	var path := "res://assets/models/ships/%s/turret_anchors.json" % key
+	if key != "" and FileAccess.file_exists(path):
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if typeof(parsed) == TYPE_DICTIONARY:
+			var arr: Variant = (parsed as Dictionary).get("anchors_mesh_local", [])
+			if typeof(arr) == TYPE_ARRAY:
+				for item in arr:
+					if typeof(item) != TYPE_ARRAY and typeof(item) != TYPE_PACKED_FLOAT32_ARRAY and typeof(item) != TYPE_PACKED_FLOAT64_ARRAY:
+						continue
+					var a: Array = item as Array
+					if a.size() < 3:
+						continue
+					_muzzle_locals.append(root.transform * Vector3(float(a[0]), float(a[1]), float(a[2])))
+	if _muzzle_locals.is_empty():
+		_muzzle_locals = _sample_turret_locals_from_mesh(root, aabb, _turret_slot_count())
+	if _muzzle_locals.is_empty():
+		var mid_y := maxf(aabb.get_center().y, aabb.size.y * 0.35)
+		_muzzle_locals.append(Vector3(0.0, mid_y, aabb.position.z))
+	_muzzle_local = _muzzle_locals[0]
+
+func _sample_turret_locals_from_mesh(root: Node3D, aabb: AABB, want: int) -> Array[Vector3]:
+	## Prefer authored hardpoints JSON; else sample upper-forward hull verts as turret decks.
+	var pts: Array[Vector3] = []
+	for mi in _find_meshes(root):
+		if mi.mesh == null:
+			continue
+		var xf: Transform3D
+		if is_inside_tree():
+			xf = global_transform.affine_inverse() * mi.global_transform
+		else:
+			xf = root.transform * _xform_to_ancestor(root, mi)
+		for s in range(mi.mesh.get_surface_count()):
+			var arr: Array = mi.mesh.surface_get_arrays(s)
+			if arr.is_empty() or arr[Mesh.ARRAY_VERTEX] == null:
+				continue
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var step := maxi(1, int(verts.size() / 500.0))
+			var i := 0
+			while i < verts.size():
+				pts.append(xf * verts[i])
+				i += step
+	var mid_y := maxf(aabb.get_center().y, aabb.size.y * 0.35)
+	var bow_z := aabb.position.z
+	var z_cut := bow_z + aabb.size.z * 0.55  # forward 55% (bow = min Z)
+	var y_cut := aabb.position.y + aabb.size.y * 0.45
+	var deck: Array[Vector3] = []
+	for p in pts:
+		if p.z <= z_cut and p.y >= y_cut:
+			deck.append(p)
+	if deck.size() < 8:
+		## Soften filters if mesh is sparse / flat.
+		for p in pts:
+			if p.z <= bow_z + aabb.size.z * 0.7:
+				deck.append(p)
+	var out: Array[Vector3] = []
+	if deck.size() < 4:
+		## Symmetric gunwales along forward length.
+		var n := maxi(1, want)
+		for i in range(n):
+			var t := (float(i) + 0.5) / float(n)
+			var z := bow_z + aabb.size.z * 0.08 + aabb.size.z * 0.42 * t
+			var x_off := aabb.size.x * 0.32
+			if n == 1:
+				out.append(Vector3(0.0, mid_y, z))
+			elif i % 2 == 0:
+				out.append(Vector3(-x_off, mid_y, z))
+			else:
+				out.append(Vector3(x_off, mid_y, z))
+		return out
+	## Cluster deck verts by X then Z into `want` hardpoints.
+	deck.sort_custom(func(a: Vector3, b: Vector3) -> bool: return a.x < b.x)
+	var groups: Array = []
+	var per := maxi(1, int(ceil(float(deck.size()) / float(maxi(want, 1)))))
+	var g: Array[Vector3] = []
+	for p in deck:
+		g.append(p)
+		if g.size() >= per and groups.size() + 1 < want:
+			groups.append(g.duplicate())
+			g.clear()
+	if not g.is_empty():
+		groups.append(g)
+	while groups.size() > want:
+		groups.pop_back()
+	for grp in groups:
+		var sx := 0.0
+		var sy := 0.0
+		var sz := 0.0
+		var cn: Array = grp
+		for p2 in cn:
+			var v: Vector3 = p2
+			sx += v.x
+			sy += v.y
+			sz += v.z
+		var n2 := maxf(1.0, float(cn.size()))
+		out.append(Vector3(sx / n2, maxf(sy / n2, mid_y * 0.85), sz / n2))
+	if out.is_empty():
+		out.append(Vector3(0.0, mid_y, bow_z))
+	## Prefer bow-most first so opening shot reads as forward battery.
+	out.sort_custom(func(a: Vector3, b: Vector3) -> bool: return a.z < b.z)
+	return out
+
+## Engine nozzles: formal path engine_boosters.json (SOF); single AABB stern fallback.
+## World sample is mesh-bound (same as muzzle) so trails stick under soft-follow.
+func get_engine_global() -> Vector3:
+	return visual_to_global(_engine_local)
+
+func get_engine_local() -> Vector3:
+	return _engine_local
+
+func get_engine_locals() -> Array[Vector3]:
+	if _engine_locals.is_empty():
+		return [_engine_local] as Array[Vector3]
+	return _engine_locals
+
+func get_engine_outlines() -> Array:
+	return _engine_outlines
+
+func get_model_display_size() -> float:
+	if _model_display_size > 0.0:
+		return _model_display_size
+	return float(DataStore.visual.get("ship_target_size", 2.4)) if DataStore else 2.4
+
+
+## Soft collision sphere radius in world units (scales with on-field display size).
+func collision_radius_wu() -> float:
+	var frac := 0.26
+	var rmin := 0.32
+	var rmax := 0.95
+	var umul := 0.5
+	var fallback := 0.5
+	if DataStore != null and DataStore.combat:
+		frac = float(DataStore.combat.get("collision_radius_display_frac", frac))
+		rmin = float(DataStore.combat.get("collision_radius_min_wu", rmin))
+		rmax = float(DataStore.combat.get("collision_radius_max_wu", rmax))
+		umul = float(DataStore.combat.get("collision_unmanned_mul", umul))
+		fallback = float(DataStore.combat.get("agent_radius", fallback))
+	var disp := get_model_display_size()
+	if disp <= 0.05:
+		return fallback
+	var r := disp * frac
+	if is_unmanned:
+		r *= umul
+	return clampf(r, rmin, rmax)
+
+func _resolve_engine_local(root: Node3D, aabb: AABB) -> void:
+	## Formal: engine_boosters.json mapped SOF→mesh AABB. Fallback: one stern point.
+	_engine_locals.clear()
+	_engine_outlines.clear()
+	_load_engine_boosters(root, aabb)
+	if _engine_locals.is_empty():
+		var mid_y := maxf(aabb.get_center().y, aabb.size.y * 0.25)
+		var z_aft := aabb.position.z + aabb.size.z
+		var p := Vector3(0.0, mid_y, z_aft)
+		_engine_locals.append(p)
+		_engine_outlines.append(_circle_outline(p, maxf(aabb.size.x * 0.06, 0.05)))
+	_engine_local = _engine_locals[0]
+
+## engine_boosters.json per model_key, parsed once per run.
+static var _booster_docs: Dictionary = {}
+
+static func _booster_doc_for(key: String) -> Dictionary:
+	if key == "":
+		return {}
+	if _booster_docs.has(key):
+		return _booster_docs[key]
+	var doc: Dictionary = {}
+	## Open directly: mounted PCK JSON is readable even where file_exists() can miss it.
+	var file := FileAccess.open("res://assets/models/ships/%s/engine_boosters.json" % key, FileAccess.READ)
+	if file != null:
+		var parsed = JSON.parse_string(file.get_as_text())
+		file.close()
+		if typeof(parsed) == TYPE_DICTIONARY:
+			doc = parsed
+	_booster_docs[key] = doc
+	return doc
+
+## Offline nozzle→bow solve (`tools/fit_bow_yaw_from_nozzles.py`); empty when the
+## pack still relies on the global yaw + SOF AABB mapping.
+func _bow_fit() -> Dictionary:
+	var key := str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
+	var fit_v: Variant = _booster_doc_for(key).get("bow_fit", null)
+	return fit_v as Dictionary if typeof(fit_v) == TYPE_DICTIONARY else {}
+
+## True when the pack carries the offline nozzle→bow solve, i.e. heading and nozzles are
+## measured per hull. Callers must not add their own bow flip or nozzle mirror on top.
+func has_baked_bow_fit() -> bool:
+	return not _bow_fit().is_empty()
+
+func _load_engine_boosters(_root: Node3D, mesh_aabb: AABB) -> void:
+	## Map SOF-native nozzle pos into live mesh AABB (Echoes GLB ≠ TQ mesh space).
+	## SOF aft ≈ min Z; Godot ship aft ≈ max Z → flip normalized Z.
+	var key := str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
+	if key == "":
+		return
+	var doc := _booster_doc_for(key)
+	if doc.is_empty():
+		return
+	var items: Variant = doc.get("items", [])
+	if typeof(items) != TYPE_ARRAY or (items as Array).is_empty():
+		return
+	if mesh_aabb.size.x < 1e-4 or mesh_aabb.size.y < 1e-4 or mesh_aabb.size.z < 1e-4:
+		return
+	## TQ-converted GLBs swap axes, so their nozzles are pre-solved against the
+	## real mesh and only need the live post-yaw AABB.
+	if _load_baked_nozzles(mesh_aabb):
+		_sort_nozzles_aft_first()
+		return
+	var sof_aabb := _sof_hull_aabb(doc)
+	if sof_aabb.size.x < 1e-4 or sof_aabb.size.y < 1e-4 or sof_aabb.size.z < 1e-4:
+		return
+	var scale_r := (
+		mesh_aabb.size.x / sof_aabb.size.x
+		+ mesh_aabb.size.y / sof_aabb.size.y
+		+ mesh_aabb.size.z / sof_aabb.size.z
+	) / 3.0
+	## Prefer SOF `has_trail` nozzles. TQ drones often flag all boosters `has_trail:false`
+	## (always_on glow only) — still pin game trails to those real nozzle transforms.
+	var preferred: Array = []
+	var all_valid: Array = []
+	for item in items:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = item
+		var pos_v: Variant = d.get("pos", null)
+		if typeof(pos_v) != TYPE_ARRAY and typeof(pos_v) != TYPE_PACKED_FLOAT32_ARRAY and typeof(pos_v) != TYPE_PACKED_FLOAT64_ARRAY:
+			continue
+		var a0: Array = pos_v as Array
+		if a0.size() < 3:
+			continue
+		all_valid.append(d)
+		if d.get("has_trail", true) != false:
+			preferred.append(d)
+	var use_items: Array = preferred if not preferred.is_empty() else all_valid
+	for d_any in use_items:
+		var d: Dictionary = d_any
+		var a: Array = d.get("pos") as Array
+		var sof_p := Vector3(float(a[0]), float(a[1]), float(a[2]))
+		var nx := (sof_p.x - sof_aabb.position.x) / sof_aabb.size.x
+		var ny := (sof_p.y - sof_aabb.position.y) / sof_aabb.size.y
+		var nz := (sof_p.z - sof_aabb.position.z) / sof_aabb.size.z
+		nx = clampf(nx, -0.05, 1.05)
+		ny = clampf(ny, -0.05, 1.05)
+		nz = clampf(nz, -0.05, 1.05)
+		## Flip length: SOF min-Z aft → Godot max-Z aft.
+		var ship_p := Vector3(
+			mesh_aabb.position.x + nx * mesh_aabb.size.x,
+			mesh_aabb.position.y + ny * mesh_aabb.size.y,
+			mesh_aabb.position.z + (1.0 - nz) * mesh_aabb.size.z
+		)
+		var rad := float(d.get("radius", 0.08)) * scale_r
+		_engine_locals.append(ship_p)
+		_engine_outlines.append(_circle_outline(ship_p, maxf(rad, mesh_aabb.size.x * 0.02)))
+	_sort_nozzles_aft_first()
+
+## Nozzle positions solved offline against the GLB itself, stored 0..1 inside the
+## post-yaw mesh AABB — the live AABB already carries scale and recentre.
+func _load_baked_nozzles(mesh_aabb: AABB) -> bool:
+	var fit := _bow_fit()
+	var norms_v: Variant = fit.get("nozzles_ship_norm", null)
+	if typeof(norms_v) != TYPE_ARRAY or (norms_v as Array).is_empty():
+		return false
+	var norms: Array = norms_v
+	var radii: Array = fit.get("nozzle_radius_norm", []) as Array
+	var longest := maxf(mesh_aabb.size.x, maxf(mesh_aabb.size.y, mesh_aabb.size.z))
+	for i in range(norms.size()):
+		if typeof(norms[i]) != TYPE_ARRAY or (norms[i] as Array).size() < 3:
+			continue
+		var n: Array = norms[i]
+		var p := Vector3(
+			mesh_aabb.position.x + clampf(float(n[0]), -0.05, 1.05) * mesh_aabb.size.x,
+			mesh_aabb.position.y + clampf(float(n[1]), -0.05, 1.05) * mesh_aabb.size.y,
+			mesh_aabb.position.z + clampf(float(n[2]), -0.05, 1.05) * mesh_aabb.size.z
+		)
+		var rad := (float(radii[i]) * longest) if i < radii.size() else 0.0
+		_engine_locals.append(p)
+		_engine_outlines.append(_circle_outline(p, maxf(rad, mesh_aabb.size.x * 0.02)))
+	return not _engine_locals.is_empty()
+
+func _sort_nozzles_aft_first() -> void:
+	if _engine_locals.is_empty():
+		return
+	var order: Array[int] = []
+	for i in range(_engine_locals.size()):
+		order.append(i)
+	order.sort_custom(func(ia: int, ib: int) -> bool: return _engine_locals[ia].z > _engine_locals[ib].z)
+	var locs: Array[Vector3] = []
+	var outs: Array = []
+	for i in order:
+		locs.append(_engine_locals[i])
+		outs.append(_engine_outlines[i])
+	_engine_locals = locs
+	_engine_outlines = outs
+
+func _sof_hull_aabb(doc: Dictionary) -> AABB:
+	var hb: Variant = doc.get("hull_aabb", null)
+	if typeof(hb) == TYPE_DICTIONARY:
+		var pos_v: Variant = (hb as Dictionary).get("position", null)
+		var size_v: Variant = (hb as Dictionary).get("size", null)
+		if typeof(pos_v) == TYPE_ARRAY and typeof(size_v) == TYPE_ARRAY:
+			var pa: Array = pos_v
+			var sa: Array = size_v
+			if pa.size() >= 3 and sa.size() >= 3:
+				return AABB(
+					Vector3(float(pa[0]), float(pa[1]), float(pa[2])),
+					Vector3(float(sa[0]), float(sa[1]), float(sa[2]))
+				)
+	## Derive from item positions if hull_aabb missing.
+	var items: Variant = doc.get("items", [])
+	if typeof(items) != TYPE_ARRAY or (items as Array).is_empty():
+		return AABB()
+	var first := true
+	var mn := Vector3.ZERO
+	var mx := Vector3.ZERO
+	for item in items:
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var pos_v2: Variant = (item as Dictionary).get("pos", null)
+		if typeof(pos_v2) != TYPE_ARRAY:
+			continue
+		var a2: Array = pos_v2
+		if a2.size() < 3:
+			continue
+		var p := Vector3(float(a2[0]), float(a2[1]), float(a2[2]))
+		if first:
+			mn = p
+			mx = p
+			first = false
+		else:
+			mn = mn.min(p)
+			mx = mx.max(p)
+	if first:
+		return AABB()
+	var size := mx - mn
+	## Pad stern cluster toward bow (SOF +Z).
+	var pad := maxf(size.x, maxf(size.y, 1.0)) * 0.5
+	mn.x -= pad
+	mx.x += pad
+	mn.y -= pad
+	mx.y += pad
+	mx.z += maxf(size.z * 2.5, pad * 2.0)
+	return AABB(mn, mx - mn)
+
+func _circle_outline(center: Vector3, radius: float, sides: int = 10) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	var r := maxf(radius, 0.01)
+	for k in range(sides):
+		var ang := TAU * float(k) / float(sides)
+		out.append(center + Vector3(cos(ang) * r, sin(ang) * r, 0.0))
+	return out
 
 func resolve_weapon_fx_kind() -> String:
 	## Prefer ships/<id>.json weapon_fx. Do NOT infer from hull ship_groups (EVEmu stores
@@ -944,7 +1754,7 @@ func resolve_weapon_fx_kind() -> String:
 	return str(cfg.get("default_kind", "laser"))
 
 func apply_hit(raw_emp: float, raw_thermal: float = 0.0, raw_kinetic: float = 0.0, raw_explosive: float = 0.0) -> Dictionary:
-	## Returns {destroyed:bool, dealt:float}. Layers: shield → armor → structure; overflow discarded between layers.
+	## Returns {destroyed:bool, dealt:float}. Layer overflow pierces shield→armor→structure when combat flag is on.
 	var dmg := {
 		"emp": raw_emp,
 		"thermal": raw_thermal,
@@ -972,14 +1782,37 @@ func apply_hit_dict(dmg: Dictionary) -> Dictionary:
 		var resist := clampf(float(resist_map.get(key, 0.0)), 0.0, 0.95)
 		dealt += maxf(raw * min_pct, raw * (1.0 - resist))
 	dealt = maxf(dealt, total_raw * min_pct)
-	if shield_hp > 0.0:
-		shield_hp = maxf(0.0, shield_hp - dealt)
-	elif armor_hp > 0.0:
-		armor_hp = maxf(0.0, armor_hp - dealt)
-	else:
-		structure_hp -= dealt
+	var remaining := dealt
+	var applied := 0.0
+	var pierce := bool(DataStore.combat.get("shield_overflow_pierces_armor", true))
+	if shield_hp > 0.0 and remaining > 0.0:
+		var absorbed := minf(shield_hp, remaining)
+		shield_hp -= absorbed
+		remaining -= absorbed
+		applied += absorbed
+		if not pierce:
+			remaining = 0.0
+	if armor_hp > 0.0 and remaining > 0.0:
+		var absorbed_a := minf(armor_hp, remaining)
+		armor_hp -= absorbed_a
+		remaining -= absorbed_a
+		applied += absorbed_a
+		if not pierce:
+			remaining = 0.0
+	if remaining > 0.0:
+		var absorbed_s := minf(maxf(structure_hp, 0.0), remaining)
+		structure_hp -= remaining
+		applied += absorbed_s
+	if is_capital_flagship() and applied > 0.0:
+		var loss_pct := float(DataStore.combat.get("capital_max_hp_loss_from_damage_pct", 0.10))
+		if loss_pct > 0.0:
+			_apply_capital_max_hp_loss(applied * loss_pct)
 	if shield_hp <= 0.0 and armor_hp <= 0.0 and structure_hp <= 0.0:
 		is_destroyed = true
+		## Titan-same explode FX scaled; no wreck for non-titans.
+		var parent_n := get_parent()
+		if parent_n:
+			ShipDeathFx.spawn_explode(parent_n, global_position, ship_id)
 		visible = false
 		if _health_bar:
 			_health_bar.visible = false
@@ -988,13 +1821,48 @@ func apply_hit_dict(dmg: Dictionary) -> Dictionary:
 		_health_bar.call("refresh")
 	return {"destroyed": false, "dealt": dealt}
 
+## dreadnought / carrier / force_auxiliary only (CAPITAL_AND_CYNO §3.1).
+func is_capital_flagship() -> bool:
+	if capital_role in ["dreadnought", "carrier", "force_auxiliary"]:
+		return true
+	var sg := str(DataStore.get_ship(ship_id).get("ship_group", "")) if DataStore else ""
+	return sg in ["dreadnought", "carrier", "force_auxiliary"]
+
+## Permanently cut base_max_* (and live max_*) proportional to current base caps.
+func _apply_capital_max_hp_loss(loss: float) -> void:
+	if loss <= 0.0:
+		return
+	var total := base_max_shield + base_max_armor + base_max_structure
+	if total <= 1e-6:
+		return
+	loss = minf(loss, total)
+	var mul_s := max_shield / base_max_shield if base_max_shield > 1e-6 else 1.0
+	var mul_a := max_armor / base_max_armor if base_max_armor > 1e-6 else 1.0
+	var flat_st := max_structure - base_max_structure
+	var cut_s := loss * (base_max_shield / total)
+	var cut_a := loss * (base_max_armor / total)
+	var cut_st := loss - cut_s - cut_a
+	base_max_shield = maxf(0.0, base_max_shield - cut_s)
+	base_max_armor = maxf(0.0, base_max_armor - cut_a)
+	base_max_structure = maxf(0.0, base_max_structure - cut_st)
+	max_shield = base_max_shield * mul_s
+	max_armor = base_max_armor * mul_a
+	max_structure = maxf(0.0, base_max_structure + flat_st)
+	shield_hp = minf(shield_hp, max_shield)
+	armor_hp = minf(armor_hp, max_armor)
+	structure_hp = minf(structure_hp, max_structure)
+
 func apply_heal(amount: float) -> bool:
 	## Legacy flat heal — prefer apply_heal_racial.
-	return apply_heal_racial("minmatar", {"shield": amount * 0.5, "armor": amount * 0.5, "structure": 0.0})
+	var res := apply_heal_racial("minmatar", {"shield": amount * 0.5, "armor": amount * 0.5, "structure": 0.0})
+	return bool(res.get("full", false))
 
-func apply_heal_racial(source_race: String, amounts: Dictionary) -> bool:
+## Returns {applied: float, full: bool}. `applied` is HP that actually entered the
+## bars — a layer already at max discards its share (COMBAT §9: 溢出丢弃、不跨层),
+## so callers must never report the requested amount as healing.
+func apply_heal_racial(source_race: String, amounts: Dictionary) -> Dictionary:
 	if is_destroyed:
-		return true
+		return {"applied": 0.0, "full": true}
 	var race_key := source_race.to_lower()
 	var shield_amt := 0.0
 	var armor_amt := 0.0
@@ -1022,15 +1890,19 @@ func apply_heal_racial(source_race: String, amounts: Dictionary) -> bool:
 			shield_amt = float(amounts.get("shield", 0.0))
 			armor_amt = float(amounts.get("armor", 0.0))
 			structure_amt = float(amounts.get("structure", 0.0))
+	var applied := 0.0
 	if shield_amt > 0.0 and shield_hp < max_shield:
-		var room := max_shield - shield_hp
-		shield_hp += minf(room, shield_amt)
+		var add := minf(max_shield - shield_hp, shield_amt)
+		shield_hp += add
+		applied += add
 	if armor_amt > 0.0 and armor_hp < max_armor:
-		var room_a := max_armor - armor_hp
-		armor_hp += minf(room_a, armor_amt)
+		var add_a := minf(max_armor - armor_hp, armor_amt)
+		armor_hp += add_a
+		applied += add_a
 	if structure_amt > 0.0 and structure_hp < max_structure:
-		var room_s := max_structure - structure_hp
-		structure_hp += minf(room_s, structure_amt)
+		var add_s := minf(max_structure - structure_hp, structure_amt)
+		structure_hp += add_s
+		applied += add_s
 	if _health_bar:
 		_health_bar.call("refresh")
-	return is_heal_full_for_race(race_key)
+	return {"applied": applied, "full": is_heal_full_for_race(race_key)}

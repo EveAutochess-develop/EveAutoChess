@@ -47,21 +47,6 @@
   "stars": [
     {
       "attack_range": 2,
-      "damage": {
-        "emp": 40.0,
-        "thermal": 20.0,
-        "kinetic": 20.0,
-        "explosive": 20.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 1.4,
-      "falloff": 0.8,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 400.0,
       "armor_hp": 600.0,
       "structure_hp": 300.0,
@@ -86,21 +71,6 @@
     },
     {
       "attack_range": 2,
-      "damage": {
-        "emp": 80.0,
-        "thermal": 40.0,
-        "kinetic": 40.0,
-        "explosive": 40.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 1.4,
-      "falloff": 0.8,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 800.0,
       "armor_hp": 1200.0,
       "structure_hp": 600.0,
@@ -125,21 +95,6 @@
     },
     {
       "attack_range": 2,
-      "damage": {
-        "emp": 120.0,
-        "thermal": 60.0,
-        "kinetic": 60.0,
-        "explosive": 60.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 1.4,
-      "falloff": 0.8,
-      "optimal_sig_radius": 40.0,
       "shield_hp": 1200.0,
       "armor_hp": 1800.0,
       "structure_hp": 900.0,
@@ -165,5 +120,6 @@
   ],
   "visual": {},
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10101000013
+  "echoes_item_id": 10101000013,
+  "sof_hull": "gf3_t1"
 }

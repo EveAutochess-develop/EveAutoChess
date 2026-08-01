@@ -30,6 +30,12 @@ EDGE_MED_MAX = 5000.0
 
 HULLS = [
     (
+        "00_回旋者_Retriever",
+        "回旋者级",
+        "Retriever",
+        "res:/dx9/model/ship/ore/barge/oreba2/oreba2_t1.gr2",
+    ),
+    (
         "01_妄想_Covetor",
         "妄想级",
         "Covetor",
@@ -191,7 +197,14 @@ def pick_best_mesh(g: Gr2Meshes) -> tuple[str, np.ndarray, np.ndarray]:
     return name, verts, faces
 
 
-def auto_orient(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
+def orient_basis(
+    verts: np.ndarray, faces: np.ndarray, aft_hint: np.ndarray | None = None
+) -> tuple[np.ndarray, bool, str]:
+    """Axis remap + bow flip for `auto_orient`, returned as (matrix, flip, why).
+
+    Split out so probes can draw SOF nozzles in the exported model's space instead of
+    re-deriving it; the two copies had already drifted apart once.
+    """
     used = np.unique(faces.reshape(-1))
     ext = np.ptp(verts[used], axis=0)
     up_ax = 1 if int(np.argmax(ext)) != 1 else int(np.argmin(ext))
@@ -213,6 +226,19 @@ def auto_orient(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
         beam_ax, length_ax = horiz[1], horiz[0]
         sym = s1
 
+    hinted = None
+    if aft_hint is not None:
+        a = np.abs(np.asarray(aft_hint, dtype=np.float64))
+        cand = int(np.argmax(a))
+        ## Only trust it when the stern really lies down one axis; a nozzle cloud
+        ## splayed across two axes says nothing about which one is the length.
+        if cand in horiz and a[cand] > 0.8 * float(np.linalg.norm(a)):
+            hinted = cand
+    if hinted is not None and hinted != length_ax:
+        length_ax = hinted
+        beam_ax = next(i for i in horiz if i != length_ax)
+        sym = s0 if beam_ax == horiz[0] else s1
+
     m = np.zeros((3, 3), dtype=np.float64)
     m[0, length_ax] = 1.0
     m[1, up_ax] = 1.0
@@ -227,13 +253,35 @@ def auto_orient(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
             return 1e9
         return float(np.ptp(v[idx][:, 1:3], axis=0).sum())
 
-    if yz_span(hi) < yz_span(lo):
-        v = v.copy()
-        v[:, 0] *= -1.0
+    if aft_hint is not None:
+        flip = float((m @ np.asarray(aft_hint, dtype=np.float64))[0]) > 0.0
+        why = "sof-aft"
+    else:
+        flip = yz_span(hi) < yz_span(lo)
+        why = "span"
     print(
         f"    orient length={length_ax} up={up_ax} beam={beam_ax} "
-        f"ext={ext} sym={sym:.3f}"
+        f"ext={ext} sym={sym:.3f} flip={flip} by={why}"
     )
+    return m, flip, why
+
+
+def auto_orient(
+    verts: np.ndarray, faces: np.ndarray, aft_hint: np.ndarray | None = None
+) -> np.ndarray:
+    """Lay the hull length on X, up on Y, beam on Z.
+
+    `aft_hint` is a raw model-space vector pointing sternward (see sof_orientation).
+    When given it picks the length axis and the flip outright; the cross-section
+    heuristics mis-read hulls whose broadest point is forward (flip) or whose
+    superstructure out-widens the fuselage (length axis). TQ hulls land stern-on-(-X);
+    ShipUnit re-laid them onto Z and adds yaw PI, so that is the shipped convention.
+    """
+    m, flip, _why = orient_basis(verts, faces, aft_hint)
+    v = verts @ m.T
+    if flip:
+        v = v.copy()
+        v[:, 0] *= -1.0
     return v
 
 

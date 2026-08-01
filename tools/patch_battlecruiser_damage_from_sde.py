@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Patch battlecruiser damage: PC SDE attack hardpoints × T1 kit DPH (×1/×2/×3 stars)."""
+"""Patch battlecruiser slots + representative weapon module from PC SDE hardpoints.
+
+Manned DPH derives at runtime from slots × modules.json (ammo baked into weapons).
+"""
 from __future__ import annotations
 
 import json
@@ -20,7 +23,6 @@ BC_FX = {
     24696: ("laser", "medium"),  # Harbinger
     16227: ("rail", "medium"),  # Ferox
     24698: ("missile", "medium"),  # Drake
-    22470: ("missile", "medium"),  # Nighthawk
     16229: ("rail", "medium"),  # Brutix
     24700: ("rail", "medium"),  # Myrmidon
     24702: ("cannon", "medium"),  # Hurricane
@@ -39,7 +41,7 @@ def load_sde_slots() -> dict[int, dict]:
                 tid = int(o.get("_key") or 0)
                 if tid not in BC_FX:
                     continue
-                attrs = {int(a["attributeID"]): float(a["value"]) for a in (o.get("dogmaAttributes") or [])}
+                attrs = {int(a["attributeID"]): float(a["value"]) for a in o.get("dogmaAttributes", [])}
                 out[tid] = {
                     "hi": int(attrs.get(14, 0)),
                     "med": int(attrs.get(13, 0)),
@@ -61,8 +63,7 @@ def attack_slots(fx: str, slots: dict) -> int:
 
 
 def main() -> None:
-    mods = g.load_preferred_json(g.MODS_RAW_LATEST, g.MODS_RAW)
-    charges = g.load_preferred_json(g.CHARGES_RAW_LATEST, g.CHARGES_RAW)
+    mods = g.load_modules_json()
     sde = load_sde_slots()
     by_tid: dict[int, Path] = {}
     for p in ROOT.glob("*.json"):
@@ -80,9 +81,8 @@ def main() -> None:
             print("skip missing SDE", tid)
             continue
         d = json.loads(path.read_text(encoding="utf-8"))
-        wpn = g.per_slot_weapon(mods, charges, fx, "battlecruiser", tier)
+        wpn = g.per_slot_weapon(mods, fx, "battlecruiser", tier)
         n = attack_slots(fx, slots)
-        dmg1 = {k: round(float(v) * n, 2) for k, v in wpn["damage"].items()}
         d["hi_slots"] = slots["hi"]
         d["med_slots"] = slots["med"]
         d["low_slots"] = slots["low"]
@@ -91,27 +91,28 @@ def main() -> None:
         d["weapon_tier"] = tier
         d["attack_cycle_s"] = float(wpn.get("rate_of_fire_s") or d.get("attack_cycle_s") or 1.0)
         d["source_module_type_id"] = int(wpn.get("module_type_id") or 0)
-        d["source_charge_type_id"] = int(wpn.get("charge_type_id") or 0)
-        stars = d.get("stars") or []
-        for i, mul in enumerate((1, 2, 3)):
-            if i >= len(stars):
-                break
-            st = stars[i]
-            st["damage"] = {k: round(v * mul, 2) for k, v in dmg1.items()}
-            st["tracking"] = float(wpn.get("tracking") or st.get("tracking") or 0.0)
-            st["optimal"] = float(wpn.get("optimal") or st.get("optimal") or 0.0)
-            st["falloff"] = float(wpn.get("falloff") or st.get("falloff") or 0.0)
-            st["optimal_sig_radius"] = float(wpn.get("optimal_sig_radius") or st.get("optimal_sig_radius") or 40.0)
-            if fx == "missile":
-                st["explosion_radius"] = float(wpn.get("explosion_radius") or 0.0)
-                st["explosion_velocity"] = float(wpn.get("explosion_velocity") or 0.0)
-                st["drf"] = float(wpn.get("drf") or 0.0)
-            # Keep design-locked attack_range for turrets when present.
+        d.pop("source_charge_type_id", None)
+        for st in d.get("stars") or []:
+            if not isinstance(st, dict):
+                continue
+            for k in (
+                "damage",
+                "repair",
+                "tracking",
+                "optimal",
+                "falloff",
+                "optimal_sig_radius",
+                "explosion_radius",
+                "explosion_velocity",
+                "drf",
+                "drs",
+            ):
+                st.pop(k, None)
             fixed = g.turret_attack_range_cells(fx, "battlecruiser", tier)
             if fixed is not None:
                 st["attack_range"] = int(fixed)
         path.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tot = sum(dmg1.values())
+        tot = sum(float(v) * n for v in wpn["damage"].values())
         print(
             f"{d.get('name')} tid={tid} hi={slots['hi']} atk_slots={n} "
             f"DPH1={tot:.1f} cycle={d['attack_cycle_s']:.3f}"

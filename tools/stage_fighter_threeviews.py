@@ -150,6 +150,42 @@ class Gr2Meshes:
         print(f"    stride={stride} edge_med={med:.3f} tris={nfaces}")
         return verts, faces
 
+    def extract_mesh_with_uv(self, mesh_off: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return (verts, faces, uvs) for EVE rock meshes.
+
+        Observed TQ asteroid layout (stride 20): float32×3 Position + uint16×2 UV.
+        Godot/OpenGL need V flipped relative to Granny/DirectX.
+        """
+        verts, faces = self.extract_mesh(mesh_off)
+        pvd = self.res(self.u64(mesh_off + 8))
+        vcount, varr = self.aor(pvd.offset + 8)
+        if not varr or vcount < 3:
+            raise RuntimeError("missing vertex array for UV")
+        ## Prefer the same stride extract_mesh settled on (re-probe).
+        best_stride = None
+        for stride in (20, 24, 28, 32, 16, 36, 40, 48):
+            need = vcount * stride
+            if varr.offset + need > len(self.data):
+                continue
+            arr = np.frombuffer(
+                self.data[varr.offset : varr.offset + need], dtype="<f4"
+            ).reshape(-1, stride // 4)[:vcount]
+            if np.allclose(arr[:64, :3], verts[:64], rtol=1e-3, atol=1e-3):
+                best_stride = stride
+                break
+        if best_stride is None or best_stride < 16:
+            raise RuntimeError("could not match stride for UV extract")
+        raw = self.data[varr.offset : varr.offset + vcount * best_stride]
+        u16 = np.frombuffer(raw, dtype="<u2").reshape(vcount, best_stride // 2)
+        ## UV immediately after position (byte 12 → u16 columns 6,7).
+        u = u16[:, 6].astype(np.float64) / 65535.0
+        v = u16[:, 7].astype(np.float64) / 65535.0
+        if not (float(u.min()) >= -0.01 and float(u.max()) <= 1.01 and float(v.min()) >= -0.01 and float(v.max()) <= 1.01):
+            raise RuntimeError(f"UV out of range u=[{u.min()}, {u.max()}] v=[{v.min()}, {v.max()}]")
+        uvs = np.column_stack([u, 1.0 - v]).astype(np.float64)
+        print(f"    uv stride={best_stride} u=[{u.min():.3f},{u.max():.3f}] v=[{v.min():.3f},{v.max():.3f}] (V-flipped)")
+        return verts, faces, uvs
+
 
 def pick_best_mesh(g: Gr2Meshes) -> tuple[str, np.ndarray, np.ndarray]:
     meshes = g.mesh_list()
@@ -169,6 +205,26 @@ def pick_best_mesh(g: Gr2Meshes) -> tuple[str, np.ndarray, np.ndarray]:
     ranked.sort(key=lambda t: t[0], reverse=True)
     _s, name, verts, faces = ranked[0]
     return name, verts, faces
+
+
+def pick_best_mesh_with_uv(g: Gr2Meshes) -> tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+    meshes = g.mesh_list()
+    ranked = []
+    for name, off in meshes:
+        try:
+            verts, faces, uvs = g.extract_mesh_with_uv(off)
+            used = np.unique(faces.reshape(-1))
+            ext = np.ptp(verts[used], axis=0)
+            score = (0 if "LOD" in name.upper() else 1, len(faces), float(ext.max()))
+            ranked.append((score, name, verts, faces, uvs))
+            print(f"  mesh+uv {name!r}: verts={len(verts)} tris={len(faces)} ext={ext}")
+        except Exception as e:
+            print(f"  mesh+uv {name!r}: FAIL {e}")
+    if not ranked:
+        raise RuntimeError("no usable mesh with UV")
+    ranked.sort(key=lambda t: t[0], reverse=True)
+    _s, name, verts, faces, uvs = ranked[0]
+    return name, verts, faces, uvs
 
 
 def auto_orient(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:

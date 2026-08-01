@@ -4,27 +4,40 @@ class_name AsteroidBelt
 ## Each rock has an invisible StaticBody MiningAnchor for future mining FX.
 
 const ASTEROID_DIR := "res://assets/models/env/asteroids"
+const TEX_DIR := "res://assets/models/env/asteroids/tex"
+## Explicit list — DirAccess + FileAccess.file_exists often miss mounted PCK paths on Android.
+const ASTEROID_FILES: Array[String] = [
+	"rock_01_l_v1.glb",
+	"rock_01_m_v1.glb",
+	"rock_01_m_v2.glb",
+	"rock_01_m_v3.glb",
+	"rock_02_l_v1.glb",
+	"rock_02_m_v1.glb",
+	"rock_02_m_v2.glb",
+	"rock_02_m_v3.glb",
+	"rock_02_s_v1.glb",
+	"rock_06_v1.glb",
+]
+## TQ map sets (from res:/dx9/model/celestial/asteroid/rock_XX/rock_XX_{a,n,g}.dds).
+const ROCK_SETS: Array[String] = ["rock_01", "rock_02", "rock_06"]
 const FALLBACK_ROCKS: Array[String] = [
 	"res://assets/models/env/Models_rock_1.glb",
 	"res://assets/models/env/Models_rock_2.glb",
 	"res://assets/models/env/Models_rock_3.glb",
 ]
-const ROCK_TEX: Array[String] = [
-	"res://assets/textures/rock 1 diffuse.png",
-	"res://assets/textures/rock 2 diffuse.png",
-	"res://assets/textures/rock 3 diffuse.png",
-]
 
 ## Public: MiningAnchor nodes (order = asteroid_id 0..n-1).
 var mining_anchors: Array[Node3D] = []
+var _tex_cache: Dictionary = {}  # path -> Texture2D
 
 
 func build() -> void:
 	name = "AsteroidBelt"
+	add_to_group("asteroid_belt")
 	mining_anchors.clear()
 	var v: Dictionary = DataStore.visual
 	var count: int = int(v.get("asteroid_belt_count", 22))
-	var belt_seed: int = int(v.get("asteroid_belt_seed", 20260729))
+	var belt_seed: int = int(v.get("asteroid_belt_seed", 0))
 	var y_min: float = float(v.get("asteroid_belt_y_min", -3.8))
 	var y_max: float = float(v.get("asteroid_belt_y_max", -1.2))
 	var s_min: float = float(v.get("asteroid_belt_scale_min", 0.55))
@@ -43,8 +56,12 @@ func build() -> void:
 		push_warning("AsteroidBelt: invalid midline box %s" % str(box))
 		return
 	var rng := RandomNumberGenerator.new()
-	rng.seed = belt_seed
-	## Uniform scatter inside the isolation strip AABB (strictly under board mid).
+	## ≤0 → fresh entropy each MapEnv.build (per match). >0 → reproducible layout.
+	if belt_seed <= 0:
+		rng.randomize()
+	else:
+		rng.seed = belt_seed
+	print("[AsteroidBelt] seed=%d count=%d meshes=%d" % [rng.seed, count, meshes.size()])
 	var placed: Array[Vector3] = []
 	var min_sep: float = float(v.get("asteroid_belt_min_separation", 1.35))
 	var attempts: int = 0
@@ -79,7 +96,7 @@ func build() -> void:
 			lerpf(z_min, z_max, clampf(w, 0.0, 1.0))
 		))
 	for i in range(count):
-		var mesh_path: String = meshes[i % meshes.size()]
+		var mesh_path: String = meshes[rng.randi() % meshes.size()]
 		var sc: float = rng.randf_range(s_min, s_max)
 		_spawn_one(i, mesh_path, placed[i], target * sc, rng)
 	_attach_belt_light(Vector3(
@@ -87,6 +104,23 @@ func build() -> void:
 		0.5 * (y_min + y_max) + 1.2,
 		0.5 * (z_min + z_max)
 	))
+
+
+## Public: belt outer box in local space (X/Z strip + configured under-board Y band).
+## Titan berth pins its bow to this box expanded ×1.5 (MULTIPLAYER_PVP §2.4a).
+func bounds_box() -> AABB:
+	var v: Dictionary = DataStore.visual
+	var box: Dictionary = _midline_under_board_box()
+	var x_min: float = float(box.get("x_min", -8.0))
+	var x_max: float = float(box.get("x_max", 8.0))
+	var z_min: float = float(box.get("z_min", -2.0))
+	var z_max: float = float(box.get("z_max", 2.0))
+	var y_min: float = float(v.get("asteroid_belt_y_min", -3.8))
+	var y_max: float = float(v.get("asteroid_belt_y_max", -1.2))
+	return AABB(
+		Vector3(x_min, y_min, z_min),
+		Vector3(maxf(x_max - x_min, 0.01), maxf(y_max - y_min, 0.01), maxf(z_max - z_min, 0.01))
+	)
 
 
 ## Isolation strip between the two Field nearest rows; X within field span. Under-board Y is caller-side.
@@ -134,22 +168,27 @@ func get_mining_anchor(asteroid_id: int) -> Node3D:
 
 func _collect_mesh_paths() -> Array[String]:
 	var out: Array[String] = []
+	## Prefer explicit stems (PCK-safe). Optional DirAccess merge for drop-in rocks.
+	for fn in ASTEROID_FILES:
+		var p: String = ASTEROID_DIR.path_join(fn)
+		if ResourceLoader.exists(p):
+			out.append(p)
 	var dir := DirAccess.open(ASTEROID_DIR)
 	if dir:
 		dir.list_dir_begin()
 		var fn: String = dir.get_next()
 		while fn != "":
 			if not dir.current_is_dir() and fn.ends_with(".glb") and not fn.begins_with("."):
-				var p: String = ASTEROID_DIR.path_join(fn)
-				if FileAccess.file_exists(p):
-					out.append(p)
+				var p2: String = ASTEROID_DIR.path_join(fn)
+				if ResourceLoader.exists(p2) and not out.has(p2):
+					out.append(p2)
 			fn = dir.get_next()
 		dir.list_dir_end()
 	out.sort()
 	if out.is_empty():
-		for p in FALLBACK_ROCKS:
-			if FileAccess.file_exists(p):
-				out.append(p)
+		for p3 in FALLBACK_ROCKS:
+			if ResourceLoader.exists(p3):
+				out.append(p3)
 	return out
 
 
@@ -172,7 +211,16 @@ func _spawn_one(id: int, mesh_path: String, pos: Vector3, target_size: float, rn
 			n.name = "Mesh"
 			root.add_child(n)
 			_normalize_longest(n, target_size)
-			_tint_rock(n, id)
+			_tint_rock(n, id, mesh_path)
+			## Half-float attrs only (no triangle cull). Separate from ship compress flag.
+			var do_hp := true
+			if DataStore and DataStore.visual is Dictionary:
+				do_hp = bool(DataStore.visual.get("asteroid_belt_half_precision_compress", true))
+			if do_hp:
+				MobileModelLoad.apply_half_precision_compress(n)
+			for mi in _find_meshes(n):
+				## Prefer full mesh if import LODs exist (board-under rocks vanish with aggressive LOD).
+				mi.lod_bias = 128.0
 	## Invisible solid locator for mining FX (no gameplay collision).
 	var anchor := StaticBody3D.new()
 	anchor.name = "MiningAnchor"
@@ -231,13 +279,13 @@ func _aabb_local(root: Node3D) -> AABB:
 
 func _attach_belt_light(at: Vector3) -> void:
 	var v: Dictionary = DataStore.visual
-	var energy: float = float(v.get("asteroid_belt_light_energy", 1.8))
+	var energy: float = float(v.get("asteroid_belt_light_energy", 1.6))
 	if energy <= 0.001:
 		return
 	var light := OmniLight3D.new()
 	light.name = "AsteroidBeltLight"
 	light.light_energy = energy
-	light.omni_range = float(v.get("asteroid_belt_light_range", 16.0))
+	light.omni_range = float(v.get("asteroid_belt_light_range", 14.0))
 	light.light_color = Color(
 		float(v.get("asteroid_belt_light_color_r", 0.95)),
 		float(v.get("asteroid_belt_light_color_g", 0.88)),
@@ -248,37 +296,86 @@ func _attach_belt_light(at: Vector3) -> void:
 	add_child(light)
 
 
-func _tint_rock(root: Node, id: int) -> void:
-	var v: Dictionary = DataStore.visual
-	var tex_path: String = ROCK_TEX[id % ROCK_TEX.size()]
-	var tex: Texture2D = null
-	if ResourceLoader.exists(tex_path):
-		tex = load(tex_path) as Texture2D
-	var bright: float = float(v.get("asteroid_belt_albedo_boost", 1.05))
-	var hue: Color = Color(0.55, 0.52, 0.48).lerp(Color(0.42, 0.45, 0.5), float(id % 5) / 5.0)
-	hue = Color(
-		clampf(hue.r * bright, 0.0, 1.0),
-		clampf(hue.g * bright, 0.0, 1.0),
-		clampf(hue.b * bright, 0.0, 1.0)
+## Re-apply albedo/emission/light from current `DataStore.visual` without rebuild.
+func refresh_look() -> void:
+	var id := 0
+	for child in get_children():
+		if child is Node3D and str(child.name).begins_with("Asteroid_"):
+			var mesh_root := child.get_node_or_null("Mesh")
+			var mesh_path := str(child.get_meta("mesh_path", ""))
+			if mesh_root:
+				_tint_rock(mesh_root, id, mesh_path)
+			id += 1
+	var light := get_node_or_null("AsteroidBeltLight") as OmniLight3D
+	if light == null:
+		return
+	var v: Dictionary = DataStore.visual if DataStore.visual is Dictionary else {}
+	light.light_energy = float(v.get("asteroid_belt_light_energy", 1.6))
+	light.omni_range = float(v.get("asteroid_belt_light_range", 14.0))
+	light.light_color = Color(
+		float(v.get("asteroid_belt_light_color_r", 0.95)),
+		float(v.get("asteroid_belt_light_color_g", 0.88)),
+		float(v.get("asteroid_belt_light_color_b", 0.78))
 	)
-	var emit_e: float = float(v.get("asteroid_belt_emission_energy", 0.08))
+
+
+func _rock_set_for(mesh_path: String, id: int) -> String:
+	var stem := mesh_path.get_file().get_basename().to_lower()
+	for rs in ROCK_SETS:
+		if stem.begins_with(rs):
+			return rs
+	return ROCK_SETS[id % ROCK_SETS.size()]
+
+
+func _load_tex(path: String) -> Texture2D:
+	if _tex_cache.has(path):
+		return _tex_cache[path] as Texture2D
+	var tex: Texture2D = null
+	if ResourceLoader.exists(path):
+		tex = load(path) as Texture2D
+	_tex_cache[path] = tex
+	return tex
+
+
+func _tint_rock(root: Node, id: int, mesh_path: String = "") -> void:
+	## TQ albedo/normal sampled with mesh UVs (reimported GR2→GLB with TEXCOORD_0).
+	## Do not use triplanar on UV atlases — atlas packing black → solid black patches.
+	var v: Dictionary = DataStore.visual
+	var bright: float = float(v.get("asteroid_belt_albedo_boost", 1.0))
+	var emit_e: float = float(v.get("asteroid_belt_emission_energy", 0.0))
+	var rock_set := _rock_set_for(mesh_path, id)
+	var albedo := _load_tex("%s/%s_albedo.png" % [TEX_DIR, rock_set])
+	var normal := _load_tex("%s/%s_normal.png" % [TEX_DIR, rock_set])
+	var rough_tex := _load_tex("%s/%s_rough.png" % [TEX_DIR, rock_set])
 	for mi in _find_meshes(root):
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		mat.roughness = 0.88
-		mat.metallic = 0.02
-		if tex:
-			mat.albedo_texture = tex
-			mat.albedo_color = hue
-		else:
-			mat.albedo_color = hue.darkened(0.05)
+		mat.metallic = 0.0
+		mat.roughness = 0.92
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		## Warm rock multiply (TQ *_a is grayscale intensity).
+		mat.albedo_color = Color(0.72 * bright, 0.66 * bright, 0.58 * bright)
+		if albedo:
+			mat.albedo_texture = albedo
+			mat.uv1_triplanar = false
+			mat.uv1_scale = Vector3.ONE
+		if normal:
+			mat.normal_enabled = true
+			mat.normal_texture = normal
+			mat.normal_scale = 0.7
+		if rough_tex:
+			mat.roughness_texture = rough_tex
+			mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		## Glow map is nearly empty on these rocks; keep emission off by default.
 		if emit_e > 0.001:
 			mat.emission_enabled = true
-			mat.emission = hue
+			mat.emission = Color(0.35, 0.30, 0.26)
 			mat.emission_energy_multiplier = emit_e
+		else:
+			mat.emission_enabled = false
 		mi.material_override = mat
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _find_meshes(root: Node) -> Array[MeshInstance3D]:

@@ -41,21 +41,6 @@
   "stars": [
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 1574.0,
-        "kinetic": 2204.0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.04,
-      "optimal": 1000000000.0,
-      "falloff": 1000000000.0,
-      "optimal_sig_radius": 2000.0,
       "shield_hp": 86800.0,
       "armor_hp": 104200.0,
       "structure_hp": 121500.0,
@@ -80,21 +65,6 @@
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 3148.0,
-        "kinetic": 4408.0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.04,
-      "optimal": 1000000000.0,
-      "falloff": 1000000000.0,
-      "optimal_sig_radius": 2000.0,
       "shield_hp": 173600.0,
       "armor_hp": 208400.0,
       "structure_hp": 243000.0,
@@ -119,21 +89,6 @@
     },
     {
       "attack_range": 999,
-      "damage": {
-        "emp": 0,
-        "thermal": 4722.0,
-        "kinetic": 6612.0,
-        "explosive": 0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.04,
-      "optimal": 1000000000.0,
-      "falloff": 1000000000.0,
-      "optimal_sig_radius": 2000.0,
       "shield_hp": 260400.0,
       "armor_hp": 312600.0,
       "structure_hp": 364500.0,
@@ -162,5 +117,10 @@
   "capacitor_capacity": 54500.0,
   "capacitor_recharge_s": 4000.0,
   "model_long_axis": 571.7,
-  "echoes_item_id": 50201000158
+  "echoes_item_id": 50201000158,
+  "immobile_in_combat": true,
+  "hull_morph": "siege",
+  "hull_morph_duration_s": 10.0,
+  "sof_hull": "gdn1_t1",
+  "attack_weapon_slots": 5
 }

@@ -32,17 +32,16 @@ func has_active_channels() -> bool:
 	return not _active_channels.is_empty()
 
 
-func force_complete_all(_sim_time: float) -> void:
-	var ids: Array = _active_channels.keys()
-	for iid in ids:
+## Combat ended (wipe / time limit): channels are cut, capitals stay in hangar.
+## CAPITAL_AND_CYNO §2 — never force-complete a channel to hold the round open.
+func abort_channels() -> void:
+	for iid in _active_channels.keys():
 		var ship := instance_from_id(int(iid)) as ShipUnit
-		if ship == null or not is_instance_valid(ship) or ship.is_destroyed:
-			_teardown_fx(int(iid))
-			_active_channels.erase(iid)
-			continue
-		_complete_cyno(ship)
-		_active_channels.erase(iid)
+		if ship != null and is_instance_valid(ship) and not ship.is_destroyed:
+			_announce(ship, "诱导中断")
+		_teardown_fx(int(iid))
 	_active_channels.clear()
+	_channel_fx.clear()
 
 
 func on_battle_start(sim_time: float) -> void:
@@ -185,11 +184,22 @@ func _play_capital_jump(ship: ShipUnit, land: Vector3) -> void:
 		ship.set_combat_tint(true)
 		if ship.has_method("rebuild_health_bar"):
 			ship.rebuild_health_bar()
+		if _combat and _combat.has_method("schedule_capital_hull_morph"):
+			_combat.schedule_capital_hull_morph(ship)
+		elif ship.has_method("begin_hull_morph_if_needed"):
+			ship.begin_hull_morph_if_needed()
 		return
 	var fx := CapitalJumpFx.new()
 	fx.name = "CapitalJumpFx_%d" % ship.get_instance_id()
 	world.add_child(fx)
-	fx.play(ship, land, JUMP_DURATION_S)
+	fx.play(ship, land, JUMP_DURATION_S, func () -> void:
+		if ship == null or not is_instance_valid(ship):
+			return
+		if _combat and _combat.has_method("schedule_capital_hull_morph"):
+			_combat.schedule_capital_hull_morph(ship)
+		elif ship.has_method("begin_hull_morph_if_needed"):
+			ship.begin_hull_morph_if_needed()
+	)
 
 
 func _announce(ship: ShipUnit, msg: String) -> void:

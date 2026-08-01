@@ -46,9 +46,8 @@
     "44": "res://assets/ui/portraits/am_morishachang.png",
     "45": "res://assets/ui/portraits/am_zainan.png",
     "46": "res://assets/ui/portraits/am_diyutianshi.png",
-    "47": "res://assets/ui/portraits/jdl_chasun.png",
-    "48": "res://assets/ui/portraits/jdl_menggui.png",
-    "49": "res://assets/ui/portraits/jdl_youlong.png",
+    "47": "res://assets/ui/portraits/jdl_menggui.png",
+    "48": "res://assets/ui/portraits/jdl_youlong.png",
     "50": "res://assets/ui/portraits/jdl_duxie.png",
     "51": "res://assets/ui/portraits/jdl_wuya.png",
     "52": "res://assets/ui/portraits/jdl_pengkun.png",
@@ -101,6 +100,20 @@
     "1011": "res://assets/ui/drone_icons/heavy_amarr_praetor.png",
     "1012": "res://assets/ui/drone_icons/heavy_caldari_wasp.png",
     "1013": "res://assets/ui/drone_icons/heavy_gallente_ogre.png",
-    "1014": "res://assets/ui/drone_icons/heavy_minmatar_berserker.png"
+    "1014": "res://assets/ui/drone_icons/heavy_minmatar_berserker.png",
+    "135": "res://assets/ui/portraits/lhky_huixuanzhe.png",
+    "136": "res://assets/ui/portraits/lhky_haitun.png",
+    "137": "res://assets/ui/portraits/lhky_nijijing.png",
+    "138": "res://assets/ui/portraits/lhky_changxujing.png",
+    "139": "res://assets/ui/portraits/wrj_ore_excavator.png",
+    "201": "res://assets/ui/portraits/titan_amarr.png",
+    "202": "res://assets/ui/portraits/titan_caldari.png",
+    "203": "res://assets/ui/portraits/titan_gallente.png",
+    "204": "res://assets/ui/portraits/titan_minmatar.png",
+    "221": "res://assets/ui/portraits/tq_sleeper_slf1.png",
+    "222": "res://assets/ui/portraits/tq_sleeper_slf2.png",
+    "223": "res://assets/ui/portraits/tq_sleeper_slde1.png",
+    "224": "res://assets/ui/portraits/tq_sleeper_slc1.png",
+    "225": "res://assets/ui/portraits/tq_sleeper_slb1.png"
   }
 }

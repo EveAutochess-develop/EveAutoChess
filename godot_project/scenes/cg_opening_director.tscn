@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://bk2v7wq4i6q4o"]
+
+[ext_resource type="Script" uid="uid://drrrj15yi2eh5" path="res://scripts/dev/cg_opening_director.gd" id="1_o3rsf"]
+
+[node name="CgOpeningDirector" type="Node3D" unique_id=611639611]
+script = ExtResource("1_o3rsf")

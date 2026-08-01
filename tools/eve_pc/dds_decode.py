@@ -21,6 +21,25 @@ def _size(data: bytes) -> tuple[int, int]:
     return w, h
 
 
+def _reconstruct_normal_z(im: Image.Image) -> Image.Image:
+    """Fill B from XY when BC5 left Z empty (B≈0)."""
+    rgba = im.convert("RGBA")
+    px = rgba.load()
+    w, h = rgba.size
+    # Fast path: if mean B already mid-gray, leave alone.
+    sample = [px[x, y][2] for y in range(0, h, max(1, h // 32)) for x in range(0, w, max(1, w // 32))]
+    if sample and (sum(sample) / len(sample)) > 8:
+        return rgba
+    for y in range(h):
+        for x in range(w):
+            r, g, _b, a = px[x, y]
+            nx = r / 127.5 - 1.0
+            ny = g / 127.5 - 1.0
+            nz = max(0.0, 1.0 - nx * nx - ny * ny) ** 0.5
+            px[x, y] = (r, g, int(nz * 127.5 + 128.0), a)
+    return rgba
+
+
 def decode_dds(path: Path) -> Image.Image | None:
     data = path.read_bytes()
     if data[:4] != b"DDS ":
@@ -36,11 +55,17 @@ def decode_dds(path: Path) -> Image.Image | None:
         if dxgi == 80:  # BC4_UNORM
             need = w * h // 2
             dec = texture2ddecoder.decode_bc4(payload[:need], w, h)
-            return Image.frombytes("L", (w, h), dec).convert("RGBA")
-        if dxgi == 83:  # BC5_UNORM
+            # texture2ddecoder returns RGBA (4 Bpp); luminance is in channel 2 (B).
+            # Interpreting as mode "L" used every 4th byte (often A=255) → vertical stripes / moiré.
+            if len(dec) >= w * h * 4:
+                rgba = Image.frombytes("RGBA", (w, h), dec)
+                return rgba.getchannel("B").convert("RGBA")
+            return Image.frombytes("L", (w, h), dec[: w * h]).convert("RGBA")
+        if dxgi == 83:  # BC5_UNORM — XY only; reconstruct Z for Godot NORMAL_MAP
             need = w * h
             dec = texture2ddecoder.decode_bc5(payload[:need], w, h)
-            return Image.frombytes("RGBA", (w, h), dec, "raw", "BGRA")
+            im = Image.frombytes("RGBA", (w, h), dec, "raw", "BGRA")
+            return _reconstruct_normal_z(im)
         if dxgi == 71:  # BC1
             need = w * h // 2
             dec = texture2ddecoder.decode_bc1(payload[:need], w, h)

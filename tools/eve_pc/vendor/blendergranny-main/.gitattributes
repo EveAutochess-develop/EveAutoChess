@@ -1,9 +1,0 @@
-* text=auto
-*.py text eol=lf
-*.md text eol=lf
-*.toml text eol=lf
-*.c text eol=lf
-*.json text eol=lf
-*.gr2 binary
-*.GR2 binary
-*.bin binary

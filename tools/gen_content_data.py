@@ -2,13 +2,12 @@
 """Generate ships/*.json (40) from EVEMU/SDE extract + amarr_counterparts.csv.
 
 Does NOT overwrite balance/ or fetters/ (those are maintained separately).
-Star scaling: HP / damage / repair ×1/×2/×3. Resists & base attrs unscaled.
+Star scaling: HP ×1/×2/×3. Manned attack/repair derived at runtime from slots×kit.
 """
 from __future__ import annotations
 
 import csv
 import json
-import math
 from pathlib import Path
 
 DEV_ROOT = Path(r"H:\game_dev\eveautochess-dev\godot_project\data")
@@ -16,10 +15,10 @@ DESIGN_EXT = Path(r"H:\game_dev\eveautochess-design\docs\_extracted")
 CSV_PATH = DESIGN_EXT / "amarr_counterparts.csv"
 SHIPS_RAW = DESIGN_EXT / "ships_raw.json"
 MODS_RAW = DESIGN_EXT / "modules_raw.json"
-CHARGES_RAW = DESIGN_EXT / "charges_raw.json"
 SHIPS_RAW_LATEST = DESIGN_EXT / "ships_raw_latest.json"
 MODS_RAW_LATEST = DESIGN_EXT / "modules_raw_latest.json"
-CHARGES_RAW_LATEST = DESIGN_EXT / "charges_raw_latest.json"
+## Runtime kits — ammo baked into weapons (UI_AND_SHELL §2.5.1).
+MODS_RUNTIME = DEV_ROOT / "equipment" / "modules.json"
 DRONE_SLOTS_JSON = DEV_ROOT / "_extracted" / "echoes_ship_drone_slots.json"
 LONG_AXIS_JSON = DEV_ROOT / "_extracted" / "echoes_ship_model_long_axis.json"
 
@@ -50,7 +49,7 @@ REPAIR_RANGE_CELLS = {
 
 
 def ship_group_size_tier(ship_group: str, weapon_tier: str = "") -> str:
-    if weapon_tier in ("small", "medium", "large"):
+    if weapon_tier in ("small", "medium", "large", "capital"):
         return weapon_tier
     if ship_group in ("frigate", "destroyer"):
         return "small"
@@ -58,6 +57,8 @@ def ship_group_size_tier(ship_group: str, weapon_tier: str = "") -> str:
         return "medium"
     if ship_group == "battleship":
         return "large"
+    if ship_group in ("dreadnought", "carrier", "force_auxiliary", "titan"):
+        return "capital"
     return "small"
 
 
@@ -67,6 +68,8 @@ def weapon_kit_size_key(ship_group: str, weapon_tier: str = "") -> str:
         return "frigate"
     if tier == "large":
         return "large"
+    if tier == "capital":
+        return "capital"
     return "cruiser"
 
 
@@ -83,31 +86,35 @@ def turret_attack_range_cells(weapon_fx: str, ship_group: str, weapon_tier: str 
     table = TURRET_RANGE_CELLS.get(tier, TURRET_RANGE_CELLS["small"])
     return int(table.get(weapon_fx, table["laser"]))
 
-# race → representative T1 modules / charges
+# race → representative T1 weapon module type ids (ammo damage baked into module)
 WEAPON_KIT = {
     "laser": {
-        "frigate": (453, 246),
-        "destroyer": (453, 246),
-        "cruiser": (456, 254),
-        "large": (462, 262),
+        "frigate": 453,
+        "destroyer": 453,
+        "cruiser": 456,
+        "large": 462,
+        "capital": 11002810000,
     },
     "rail": {
-        "frigate": (561, 222),
-        "destroyer": (561, 222),
-        "cruiser": (570, 230),
-        "large": (574, 238),
+        "frigate": 561,
+        "destroyer": 561,
+        "cruiser": 570,
+        "large": 574,
+        "capital": 11000320000,
     },
     "cannon": {
-        "frigate": (485, 185),
-        "destroyer": (485, 185),
-        "cruiser": (491, 193),
-        "large": (498, 199),
+        "frigate": 485,
+        "destroyer": 485,
+        "cruiser": 491,
+        "large": 498,
+        "capital": 11004810000,
     },
     "missile": {
-        "frigate": (499, 210),
-        "destroyer": (499, 210),
-        "cruiser": (501, 209),
-        "large": (501, 209),
+        "frigate": 499,
+        "destroyer": 499,
+        "cruiser": 501,
+        "large": 13320,
+        "capital": 11023000000,
     },
 }
 REPAIR_KIT = {
@@ -174,6 +181,12 @@ def load_preferred_json(latest_path: Path, fallback_path: Path) -> dict:
     return json.loads(fallback_path.read_text(encoding="utf-8"))
 
 
+def load_modules_json() -> dict:
+    if MODS_RUNTIME.exists():
+        return json.loads(MODS_RUNTIME.read_text(encoding="utf-8"))
+    return load_preferred_json(MODS_RAW_LATEST, MODS_RAW)
+
+
 def load_optional_json(path: Path) -> dict:
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -217,7 +230,7 @@ def expand_ships(rows: list[dict]) -> list[dict]:
     return sorted(out, key=lambda s: s["id"])
 
 
-def per_slot_weapon(mods: dict, charges: dict, weapon_fx: str, ship_group: str, weapon_tier: str = "") -> dict:
+def per_slot_weapon(mods: dict, weapon_fx: str, ship_group: str, weapon_tier: str = "") -> dict:
     if weapon_fx == "heal":
         return {
             "damage": dmg_dict(),
@@ -227,31 +240,18 @@ def per_slot_weapon(mods: dict, charges: dict, weapon_fx: str, ship_group: str, 
             "optimal_sig_radius": 40.0,
             "rate_of_fire_s": 1.0,
             "module_type_id": 0,
-            "charge_type_id": 0,
             "explosion_radius": 0.0,
             "explosion_velocity": 0.0,
             "drf": 0.0,
         }
     size_key = weapon_kit_size_key(ship_group, weapon_tier)
-    mod_id, charge_id = WEAPON_KIT[weapon_fx][size_key]
+    mod_id = WEAPON_KIT[weapon_fx][size_key]
     mod = mods[str(mod_id)]
-    charge = charges[str(charge_id)]
-    mult = float(mod.get("damageMultiplier") or 1.0)
-    # missiles: launcher has no multiplier; charge is full volley damage
-    if weapon_fx == "missile":
-        mult = 1.0
-    em = mult * float(charge.get("emDamage") or 0)
-    th = mult * float(charge.get("thermalDamage") or 0)
-    ki = mult * float(charge.get("kineticDamage") or 0)
-    ex = mult * float(charge.get("explosiveDamage") or 0)
-    if weapon_fx == "missile":
-        total = em + th + ki + ex
-        if total > 0.0:
-            each = total / 4.0
-            em = each
-            th = each
-            ki = each
-            ex = each
+    ## Ammo already baked into module em/thermal/kinetic/explosiveDamage.
+    em = float(mod.get("emDamage") or 0)
+    th = float(mod.get("thermalDamage") or 0)
+    ki = float(mod.get("kineticDamage") or 0)
+    ex = float(mod.get("explosiveDamage") or 0)
     rof_ms = float(mod.get("rateOfFire") or 1000.0)
     return {
         "damage": dmg_dict(em, th, ki, ex),
@@ -261,10 +261,9 @@ def per_slot_weapon(mods: dict, charges: dict, weapon_fx: str, ship_group: str, 
         "optimal_sig_radius": float(mod.get("signatureResolution") or 40.0),
         "rate_of_fire_s": round(rof_ms / 1000.0, 3),
         "module_type_id": mod_id,
-        "charge_type_id": charge_id,
-        "explosion_radius": float(charge.get("explosionRadius") or 0.0),
-        "explosion_velocity": float(charge.get("explosionVelocity") or 0.0),
-        "drf": float(charge.get("aoeDamageReductionFactor") or 0.0),
+        "explosion_radius": float(mod.get("explosionRadius") or 0.0),
+        "explosion_velocity": float(mod.get("explosionVelocity") or 0.0),
+        "drf": float(mod.get("aoeDamageReductionFactor") or 0.0),
     }
 
 
@@ -293,11 +292,7 @@ def per_slot_repair(mods: dict, race: str, ship_group: str, weapon_tier: str = "
     }
 
 
-def scale_dmg(d: dict, mul: float) -> dict:
-    return {k: round(float(v) * mul, 2) for k, v in d.items()}
-
-
-def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_map: dict, long_axis_map: dict | None = None) -> dict:
+def build_ship(def_row: dict, raw: dict, mods: dict, drone_slots_map: dict, long_axis_map: dict | None = None) -> dict:
     long_axis_map = long_axis_map or {}
     hi = int(raw.get("hiSlots") or 0)
     med = int(raw.get("medSlots") or 0)
@@ -308,37 +303,17 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
     logistic = def_row["is_logistic"]
     weapon_tier = str(def_row.get("weapon_tier", ""))
 
-    wpn = per_slot_weapon(mods, charges, "laser" if fx == "heal" else fx, group, weapon_tier)
+    wpn = per_slot_weapon(mods, "laser" if fx == "heal" else fx, group, weapon_tier)
     # heal fx ships still get a racial default gun profile for token damage if not logistic-only
     if fx == "heal":
         # racial default gun for token DPS while repairs dominate
         default_fx = {"amarr": "laser", "caldari": "rail", "minmatar": "cannon", "gallente": "rail"}[race]
-        wpn = per_slot_weapon(mods, charges, default_fx, group, weapon_tier)
+        wpn = per_slot_weapon(mods, default_fx, group, weapon_tier)
         fx_out = "heal"
     else:
         fx_out = fx
 
-    slot_dmg = wpn["damage"]
-    total_dmg_1 = {k: round(v * hi, 2) for k, v in slot_dmg.items()}
-
     rep_slot = per_slot_repair(mods, race, group, weapon_tier) if logistic else {"amount": 0.0, "optimal": 0.0, "module_type_id": 0, "cycle_s": 0.0}
-    # logistics: repair uses hiSlots as repair hardpoints
-    rep_amount_1 = float(rep_slot["amount"]) * hi if logistic else 0.0
-    if logistic:
-        # racial repair distribution for star rows
-        if race == "amarr":
-            rep1 = {"shield": 0.0, "armor": rep_amount_1, "structure": 0.0}
-        elif race == "caldari":
-            rep1 = {"shield": rep_amount_1, "armor": 0.0, "structure": 0.0}
-        elif race == "gallente":
-            rep1 = {"shield": 0.0, "armor": 0.0, "structure": rep_amount_1}
-        else:  # minmatar split
-            half = rep_amount_1 / 2.0
-            sh = math.ceil(half)
-            ar = math.floor(half)
-            rep1 = {"shield": float(sh), "armor": float(ar), "structure": 0.0}
-    else:
-        rep1 = {"shield": 0.0, "armor": 0.0, "structure": 0.0}
 
     sh_hp = float(raw.get("shieldCapacity") or 0)
     ar_hp = float(raw.get("armorHP") or 0)
@@ -356,14 +331,10 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
 
     stars = []
     for mul in (1, 2, 3):
+        ## Manned attack/repair derived at runtime from slots × equipment (SHIP_STATS_V2 §2.2).
+        ## stars[] keep defense + design-locked attack_range only.
         star = {
             "attack_range": attack_range,
-            "damage": scale_dmg(total_dmg_1, mul),
-            "repair": {k: round(v * mul, 2) for k, v in rep1.items()},
-            "tracking": wpn["tracking"],
-            "optimal": wpn["optimal"] if not logistic else (rep_slot["optimal"] or wpn["optimal"]),
-            "falloff": wpn["falloff"],
-            "optimal_sig_radius": wpn["optimal_sig_radius"] or 40.0,
             "shield_hp": round(sh_hp * mul, 2),
             "armor_hp": round(ar_hp * mul, 2),
             "structure_hp": round(st_hp * mul, 2),
@@ -372,10 +343,6 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
             "structure_resist": st_res,
             "is_logistic": logistic,
         }
-        if fx_out == "missile" or def_row["weapon_fx"] == "missile":
-            star["explosion_radius"] = wpn["explosion_radius"]
-            star["explosion_velocity"] = wpn["explosion_velocity"]
-            star["drf"] = wpn["drf"]
         stars.append(star)
 
     role = def_row["role"]
@@ -392,6 +359,15 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
     drone_slots = int(drone_info.get("drone_bay_slots", drone_info.get("droneSlotsLeft", 0)) or 0)
     long_axis = float(long_info.get("model_long_axis", drone_info.get("model_long_axis", 0)) or 0)
     attack_cycle_s = float(rep_slot.get("cycle_s", 0.0) if logistic else wpn.get("rate_of_fire_s", 0.0))
+    ## Prefer turret/launcher hardpoints for DPH when known on raw row.
+    turret_slots = int(raw.get("turretSlotsLeft") or 0)
+    launcher_slots = int(raw.get("launcherSlotsLeft") or 0)
+    if fx_out == "missile" and launcher_slots > 0:
+        attack_slots = launcher_slots
+    elif fx_out != "missile" and turret_slots > 0:
+        attack_slots = turret_slots
+    else:
+        attack_slots = hi
     doc = {
         "id": def_row["id"],
         "name": def_row["name"],
@@ -407,7 +383,8 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
         "weapon_fx": fx_out,
         "race": race,
         "signature_radius": float(raw.get("signatureRadius") or 0),
-        "sensor_strength": sensor_strength(raw),
+        ## Logistics ships: sensor_strength ×5 (SHIP_STATS_V2 / COMBAT).
+        "sensor_strength": sensor_strength(raw) * (5.0 if logistic else 1.0),
         "scan_resolution": float(raw.get("scanResolution") or 0),
         "speed": float(raw.get("maxVelocity") or 0),
         "mass": float(raw.get("mass") or 0),
@@ -419,8 +396,8 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
         "hi_slots": hi,
         "med_slots": med,
         "low_slots": low,
+        "attack_weapon_slots": attack_slots,
         "source_module_type_id": wpn["module_type_id"],
-        "source_charge_type_id": wpn["charge_type_id"],
         "source_repair_module_type_id": rep_slot["module_type_id"],
         "drone_bandwidth": float(drone_bw or 0.0),
         "drone_bay_slots": drone_slots,
@@ -440,8 +417,7 @@ def build_ship(def_row: dict, raw: dict, mods: dict, charges: dict, drone_slots_
 
 def main():
     ships_raw = load_preferred_json(SHIPS_RAW_LATEST, SHIPS_RAW)
-    mods = load_preferred_json(MODS_RAW_LATEST, MODS_RAW)
-    charges = load_preferred_json(CHARGES_RAW_LATEST, CHARGES_RAW)
+    mods = load_modules_json()
     drone_slots_map = load_optional_json(DRONE_SLOTS_JSON)
     long_axis_map = load_optional_json(LONG_AXIS_JSON).get("ships", {})
     defs = expand_ships(load_csv_rows())
@@ -452,7 +428,7 @@ def main():
     written = []
     for d in defs:
         raw = ships_raw[str(d["type_id"])]
-        doc = build_ship(d, raw, mods, charges, drone_slots_map, long_axis_map)
+        doc = build_ship(d, raw, mods, drone_slots_map, long_axis_map)
         path = out_dir / f"{d['id']}.json"
         path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         written.append(d["id"])
@@ -469,8 +445,12 @@ def main():
         a1["stars"][0]["armor_hp"],
         "struct",
         a1["stars"][0]["structure_hp"],
-        "dmg",
-        a1["stars"][0]["damage"],
+        "attack_range",
+        a1["stars"][0]["attack_range"],
+        "slots",
+        a1.get("attack_weapon_slots", a1.get("hi_slots")),
+        "mod",
+        a1.get("source_module_type_id"),
         "cap",
         a1["capacitor_capacity"],
         "recharge_s",
@@ -479,8 +459,7 @@ def main():
     print(
         "raw source:",
         "ships", SHIPS_RAW_LATEST.name if SHIPS_RAW_LATEST.exists() else SHIPS_RAW.name,
-        "mods", MODS_RAW_LATEST.name if MODS_RAW_LATEST.exists() else MODS_RAW.name,
-        "charges", CHARGES_RAW_LATEST.name if CHARGES_RAW_LATEST.exists() else CHARGES_RAW.name,
+        "mods", MODS_RUNTIME.name if MODS_RUNTIME.exists() else (MODS_RAW_LATEST.name if MODS_RAW_LATEST.exists() else MODS_RAW.name),
     )
 
 

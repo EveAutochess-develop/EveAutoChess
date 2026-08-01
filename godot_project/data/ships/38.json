@@ -1,171 +1,126 @@
 {
-  "id": 38,
-  "name": "送葬者级",
-  "name_en": "Exequror",
-  "type_id": 634,
-  "model_key": "glt_songzangzhe",
-  "cost": 5,
-  "ship_groups": [
-    "cruiser"
-  ],
-  "ship_group": "cruiser",
+  "agility": 0.61,
+  "attack_cycle_s": 6.0,
+  "capacitor_capacity": 1925.0,
+  "capacitor_recharge_s": 385.0,
+  "cost": 5.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10300000011.0,
   "fetter_ids": [
     "gallente",
     "cruiser",
     "logistic"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7,
+  "id": 38.0,
+  "is_logistic": true,
+  "low_slots": 6.0,
+  "mass": 11020000.0,
+  "med_slots": 4.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "glt_songzangzhe",
+  "model_long_axis": 224.0,
+  "name": "送葬者级",
+  "name_en": "Exequror",
+  "race": "gallente",
+  "scan_resolution": 295.0,
+  "sensor_strength": 70.0,
+  "ship_group": "cruiser",
+  "ship_groups": [
+    "cruiser"
+  ],
+  "signature_radius": 80.0,
+  "sof_hull": "gc2_t1",
+  "source_module_type_id": 570.0,
+  "source_repair_module_type_id": 27930.0,
+  "speed": 240.0,
+  "stars": [
+    {
+      "armor_hp": 1400.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 1000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1600.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 2800.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 2000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 3200.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 4200.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 3000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 4800.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    }
   ],
   "tags": [
     "gallente",
     "cruiser",
     "logistic"
   ],
-  "is_logistic": true,
-  "weapon_fx": "heal",
-  "race": "gallente",
-  "signature_radius": 80.0,
-  "sensor_strength": 14.0,
-  "scan_resolution": 295.0,
-  "speed": 240.0,
-  "mass": 11020000.0,
-  "agility": 0.61,
-  "capacitor_capacity": 1925.0,
-  "capacitor_recharge_s": 385.0,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 3,
-  "med_slots": 4,
-  "low_slots": 6,
-  "source_module_type_id": 570,
-  "source_charge_type_id": 230,
-  "source_repair_module_type_id": 27930,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "echoes_item_id": 10300000011,
-  "attack_cycle_s": 6.0,
-  "stars": [
-    {
-      "attack_range": 8,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 104.4,
-        "kinetic": 146.16,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 288.0
-      },
-      "tracking": 5.904,
-      "optimal": 17.5,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 1000.0,
-      "armor_hp": 1400.0,
-      "structure_hp": 1600.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": true
-    },
-    {
-      "attack_range": 8,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 208.8,
-        "kinetic": 292.32,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 576.0
-      },
-      "tracking": 5.904,
-      "optimal": 17.5,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 2000.0,
-      "armor_hp": 2800.0,
-      "structure_hp": 3200.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": true
-    },
-    {
-      "attack_range": 8,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 313.2,
-        "kinetic": 438.48,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 864.0
-      },
-      "tracking": 5.904,
-      "optimal": 17.5,
-      "falloff": 21.6,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 3000.0,
-      "armor_hp": 4200.0,
-      "structure_hp": 4800.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": true
-    }
-  ],
-  "model_long_axis": 224.0
+  "type_id": 634.0,
+  "weapon_fx": "heal"
 }

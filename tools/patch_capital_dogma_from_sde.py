@@ -157,6 +157,9 @@ def patch_ship(ship_id: int, type_id: int, st: dict[str, float]) -> None:
     data["scan_resolution"] = float(st.get("scanResolution", data.get("scan_resolution", 0)))
     data["speed"] = float(st.get("maxVelocity", data.get("speed", 0)))
     data["sensor_strength"] = sensor_strength(st)
+    ## Logistics / FAX: design rule sensor_strength ×5 (SHIP_STATS_V2).
+    if bool(data.get("is_logistic", False)):
+        data["sensor_strength"] = float(data["sensor_strength"]) * 5.0
     data["capacitor_capacity"] = float(st.get("capacitorCapacity", data.get("capacitor_capacity", 0)))
     recharge_ms = float(st.get("rechargeRate", 0.0))
     if recharge_ms > 0.0:

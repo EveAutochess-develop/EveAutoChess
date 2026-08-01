@@ -28,8 +28,10 @@ def _load():
     return dll
 
 
-# aiProcess_Triangulate | JoinIdenticalVertices | ImproveCacheLocality | GenNormals
-FLAGS = 0x8 | 0x2 | 0x2000 | 0x1
+# CalcTangentSpace | JoinIdenticalVertices | Triangulate | GenSmoothNormals |
+# ImproveCacheLocality | FixInfacingNormals | SortByPType
+# (0x1 alone is CalcTangentSpace — needs GenSmoothNormals=0x40 first for UV ships.)
+FLAGS = 0x1 | 0x2 | 0x8 | 0x40 | 0x800 | 0x2000 | 0x8000
 
 
 def convert(src: Path, dst: Path, format_id: str = "glb2") -> None:

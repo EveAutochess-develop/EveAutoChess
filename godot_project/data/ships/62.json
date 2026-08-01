@@ -47,24 +47,9 @@
   "stars": [
     {
       "attack_range": 16,
-      "damage": {
-        "emp": 40.0,
-        "thermal": 20.0,
-        "kinetic": 20.0,
-        "explosive": 20.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 11.2,
-      "falloff": 6.4,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 2000.0,
-      "armor_hp": 2800.0,
-      "structure_hp": 1400.0,
+      "shield_hp": 8800.0,
+      "armor_hp": 8250.0,
+      "structure_hp": 7700.0,
       "shield_resist": {
         "emp": 0.2,
         "thermal": 0.2,
@@ -86,24 +71,9 @@
     },
     {
       "attack_range": 16,
-      "damage": {
-        "emp": 80.0,
-        "thermal": 40.0,
-        "kinetic": 40.0,
-        "explosive": 40.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 11.2,
-      "falloff": 6.4,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 4000.0,
-      "armor_hp": 5600.0,
-      "structure_hp": 2800.0,
+      "shield_hp": 17600.0,
+      "armor_hp": 16500.0,
+      "structure_hp": 15400.0,
       "shield_resist": {
         "emp": 0.2,
         "thermal": 0.2,
@@ -125,24 +95,9 @@
     },
     {
       "attack_range": 16,
-      "damage": {
-        "emp": 120.0,
-        "thermal": 60.0,
-        "kinetic": 60.0,
-        "explosive": 60.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.08,
-      "optimal": 11.2,
-      "falloff": 6.4,
-      "optimal_sig_radius": 150.0,
-      "shield_hp": 6000.0,
-      "armor_hp": 8400.0,
-      "structure_hp": 4200.0,
+      "shield_hp": 26400.0,
+      "armor_hp": 24750.0,
+      "structure_hp": 23100.0,
       "shield_resist": {
         "emp": 0.2,
         "thermal": 0.2,
@@ -165,5 +120,6 @@
   ],
   "visual": {},
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10500000011
+  "echoes_item_id": 10500000011,
+  "sof_hull": "mb3_t1"
 }
