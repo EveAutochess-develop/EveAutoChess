@@ -76,7 +76,10 @@ tools/**/*.lnk
 tools/**/*.bin
 tools/**/*.obj
 tools/eve_pc/vendor/
+tools/eve_pc/_dds_cache/
+tools/eve_pc/_tex_test/
 tools/**/*.dll
 tools/**/*.exe
 tools/**/*.pdb
+tools/**/*.dds
 
