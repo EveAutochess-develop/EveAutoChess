@@ -45,7 +45,7 @@ foreach ($def in $packDefs) {
   }
 }
 
-$ver = "202608.2.1"
+$ver = "202608.2.3"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{
@@ -55,7 +55,7 @@ $versionObj = [ordered]@{
   baseUrl               = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
   entry                 = "res://scenes/main_menu.tscn"
   shellCompatibilityId  = "eveac-shell-v1"
-  notes                 = "Battleship HP from TQ SDE; ship-data editor DPS/HP charts; sleepers+freighters in charts; mining gold x star; content/combat sync 202608.2.1"
+  notes                 = "Drop unused turrets.bnk from packs (bank archived in design asset_library); keep four-weapon wav samples + death pcm 202608.2.3"
 }
 $manifestObj = [ordered]@{
   version = $ver

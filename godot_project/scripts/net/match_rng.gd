@@ -30,6 +30,10 @@ func stream_randi_range(stream: String, from_v: int, to_v: int) -> int:
 		return _match_rng.randi_range(from_v, to_v)
 	return _match_rng.randi_range(from_v, to_v)
 
+func has_battle(battle_serial: int) -> bool:
+	return _battles.has(battle_serial)
+
+
 func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 	var master := master_entropy
 	if master == 0:
@@ -45,7 +49,7 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 			s = int(rng.randi())
 		seen[s] = true
 		seeds[i] = s
-	## Minimal apply table — expand with event kinds later.
+	## SEMI_ASYNC §2.3 event kinds → slot indices (A = battle seeds[10]).
 	var apply_table := {
 		"turret_hit": 0,
 		"retarget_tiebreak": 1,
@@ -55,11 +59,16 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"creep_buy": 5,
 		"creep_cell": 6,
 		"pvp_home": 7,
+		"mining_pick": 8,
+		"mining_wander": 8,
+		"isolation_debris": 9,
+		"isolation_debris_dmg": 9,
 	}
-	## Shuffle table values across 0..9 using remaining entropy.
 	var keys: Array = apply_table.keys()
 	for i in range(keys.size()):
-		apply_table[keys[i]] = i % 10
+		## Keep declared slots; only remap unassigned collisions via master entropy.
+		if int(apply_table[keys[i]]) < 0 or int(apply_table[keys[i]]) > 9:
+			apply_table[keys[i]] = i % 10
 	var job := {"seeds": seeds, "apply_table": apply_table, "slots": []}
 	var slots: Array = []
 	for i in range(10):

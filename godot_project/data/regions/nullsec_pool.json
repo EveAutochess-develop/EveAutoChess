@@ -7,329 +7,370 @@
       "region_id": "branch",
       "name_en": "Branch",
       "name_zh": "血脉星域",
-      "skybox_stem": "c07",
-      "skybox_key": "c07_cube",
-      "eve_region_id": 10000055
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000055,
+      "skybox_race": "c"
     },
     {
       "region_id": "cache",
       "name_en": "Cache",
       "name_zh": "地窖星域",
-      "skybox_stem": "m09",
-      "skybox_key": "m09_cube",
-      "eve_region_id": 10000007
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000007,
+      "skybox_race": "m"
     },
     {
       "region_id": "catch",
       "name_en": "Catch",
       "name_zh": "卡彻星域",
-      "skybox_stem": "a15",
-      "skybox_key": "a15_cube",
-      "eve_region_id": 10000014
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000014,
+      "skybox_race": "a"
     },
     {
       "region_id": "cloud_ring",
       "name_en": "Cloud Ring",
       "name_zh": "云环星域",
-      "skybox_stem": "g07",
-      "skybox_key": "g07_cube",
-      "eve_region_id": 10000051
+      "skybox_stem": "gh1",
+      "skybox_key": "gh1_cube",
+      "eve_region_id": 10000051,
+      "skybox_race": "g"
     },
     {
       "region_id": "cobalt_edge",
       "name_en": "Cobalt Edge",
       "name_zh": "钴蓝边域",
-      "skybox_stem": "c19",
-      "skybox_key": "c19_cube",
-      "eve_region_id": 10000053
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000053,
+      "skybox_race": "c"
     },
     {
       "region_id": "curse",
       "name_en": "Curse",
       "name_zh": "柯尔斯",
-      "skybox_stem": "m06",
-      "skybox_key": "m06_cube",
-      "eve_region_id": 10000012
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000012,
+      "skybox_race": "m"
     },
     {
       "region_id": "deklein",
       "name_en": "Deklein",
       "name_zh": "德克廉星域",
-      "skybox_stem": "c06",
-      "skybox_key": "c06_cube",
-      "eve_region_id": 10000035
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000035,
+      "skybox_race": "c"
     },
     {
       "region_id": "delve",
       "name_en": "Delve",
       "name_zh": "绝地之域",
-      "skybox_stem": "a11",
-      "skybox_key": "a11_cube",
-      "eve_region_id": 10000060
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000060,
+      "skybox_race": "a"
     },
     {
       "region_id": "detorid",
       "name_en": "Detorid",
       "name_zh": "底特里德",
-      "skybox_stem": "m13",
-      "skybox_key": "m13_cube",
-      "eve_region_id": 10000005
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000005,
+      "skybox_race": "m"
     },
     {
       "region_id": "esoteria",
       "name_en": "Esoteria",
       "name_zh": "埃索特亚",
-      "skybox_stem": "a18",
-      "skybox_key": "a18_cube",
-      "eve_region_id": 10000039
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000039,
+      "skybox_race": "a"
     },
     {
       "region_id": "etherium_reach",
       "name_en": "Etherium Reach",
       "name_zh": "琉蓝之穹",
-      "skybox_stem": "m04",
-      "skybox_key": "m04_cube",
-      "eve_region_id": 10000027
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000027,
+      "skybox_race": "m"
     },
     {
       "region_id": "fade",
       "name_en": "Fade",
       "name_zh": "斐德星域",
-      "skybox_stem": "g11",
-      "skybox_key": "g11_cube",
-      "eve_region_id": 10000046
+      "skybox_stem": "gh1",
+      "skybox_key": "gh1_cube",
+      "eve_region_id": 10000046,
+      "skybox_race": "g"
     },
     {
       "region_id": "feythabolis",
       "name_en": "Feythabolis",
       "name_zh": "非塔波利斯",
-      "skybox_stem": "m16",
-      "skybox_key": "m16_cube",
-      "eve_region_id": 10000056
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000056,
+      "skybox_race": "m"
     },
     {
       "region_id": "fountain",
       "name_en": "Fountain",
       "name_zh": "源泉之域",
-      "skybox_stem": "g10",
-      "skybox_key": "g10_cube",
-      "eve_region_id": 10000058
+      "skybox_stem": "gh1",
+      "skybox_key": "gh1_cube",
+      "eve_region_id": 10000058,
+      "skybox_race": "g"
     },
     {
       "region_id": "geminate",
       "name_en": "Geminate",
       "name_zh": "对舞之域",
-      "skybox_stem": "c11",
-      "skybox_key": "c11_cube",
-      "eve_region_id": 10000029
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000029,
+      "skybox_race": "c"
     },
     {
       "region_id": "great_wildlands",
       "name_en": "Great Wildlands",
       "name_zh": "大荒野星域",
-      "skybox_stem": "m05",
-      "skybox_key": "m05_cube",
-      "eve_region_id": 10000011
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000011,
+      "skybox_race": "m"
     },
     {
       "region_id": "immensea",
       "name_en": "Immensea",
       "name_zh": "伊梅瑟亚",
-      "skybox_stem": "m12",
-      "skybox_key": "m12_cube",
-      "eve_region_id": 10000025
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000025,
+      "skybox_race": "m"
     },
     {
       "region_id": "impass",
       "name_en": "Impass",
       "name_zh": "绝径星域",
-      "skybox_stem": "m15",
-      "skybox_key": "m15_cube",
-      "eve_region_id": 10000031
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000031,
+      "skybox_race": "m"
     },
     {
       "region_id": "insmother",
       "name_en": "Insmother",
       "name_zh": "因斯姆尔",
-      "skybox_stem": "m08",
-      "skybox_key": "m08_cube",
-      "eve_region_id": 10000009
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000009,
+      "skybox_race": "m"
     },
     {
       "region_id": "kalevala_expanse",
       "name_en": "The Kalevala Expanse",
       "name_zh": "卡勒瓦拉阔地",
-      "skybox_stem": "c14",
-      "skybox_key": "c14_cube",
-      "eve_region_id": 10000034
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000034,
+      "skybox_race": "c"
     },
     {
       "region_id": "malpais",
       "name_en": "Malpais",
       "name_zh": "糟粕之域",
-      "skybox_stem": "c15",
-      "skybox_key": "c15_cube",
-      "eve_region_id": 10000013
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000013,
+      "skybox_race": "c"
     },
     {
       "region_id": "oasa",
       "name_en": "Oasa",
       "name_zh": "欧莎",
-      "skybox_stem": "c17",
-      "skybox_key": "c17_cube",
-      "eve_region_id": 10000040
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000040,
+      "skybox_race": "c"
     },
     {
       "region_id": "omist",
       "name_en": "Omist",
       "name_zh": "欧米斯特",
-      "skybox_stem": "m17",
-      "skybox_key": "m17_cube",
-      "eve_region_id": 10000062
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000062,
+      "skybox_race": "m"
     },
     {
       "region_id": "outer_passage",
       "name_en": "Outer Passage",
       "name_zh": "域外走廊",
-      "skybox_stem": "c18",
-      "skybox_key": "c18_cube",
-      "eve_region_id": 10000021
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000021,
+      "skybox_race": "c"
     },
     {
       "region_id": "paragon_soul",
       "name_en": "Paragon Soul",
       "name_zh": "摄魂之域",
-      "skybox_stem": "a17",
-      "skybox_key": "a17_cube",
-      "eve_region_id": 10000059
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000059,
+      "skybox_race": "a"
     },
     {
       "region_id": "period_basis",
       "name_en": "Period Basis",
       "name_zh": "贝斯星域",
-      "skybox_stem": "a12",
-      "skybox_key": "a12_cube",
-      "eve_region_id": 10000063
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000063,
+      "skybox_race": "a"
     },
     {
       "region_id": "period_outer_ring",
       "name_en": "Outer Ring",
       "name_zh": "外环星域",
-      "skybox_stem": "g08",
-      "skybox_key": "g08_cube",
-      "eve_region_id": 10000057
+      "skybox_stem": "gh1",
+      "skybox_key": "gh1_cube",
+      "eve_region_id": 10000057,
+      "skybox_race": "g"
     },
     {
       "region_id": "perrigen_falls",
       "name_en": "Perrigen Falls",
       "name_zh": "佩利根弗",
-      "skybox_stem": "c16",
-      "skybox_key": "c16_cube",
-      "eve_region_id": 10000066
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000066,
+      "skybox_race": "c"
     },
     {
       "region_id": "providence",
       "name_en": "Providence",
       "name_zh": "普罗维登斯",
-      "skybox_stem": "a14",
-      "skybox_key": "a14_cube",
-      "eve_region_id": 10000047
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000047,
+      "skybox_race": "a"
     },
     {
       "region_id": "pure_blind",
       "name_en": "Pure Blind",
       "name_zh": "黑渊星域",
-      "skybox_stem": "c05",
-      "skybox_key": "c05_cube",
-      "eve_region_id": 10000023
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000023,
+      "skybox_race": "c"
     },
     {
       "region_id": "querious",
       "name_en": "Querious",
       "name_zh": "逑瑞斯星域",
-      "skybox_stem": "a10",
-      "skybox_key": "a10_cube",
-      "eve_region_id": 10000050
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000050,
+      "skybox_race": "a"
     },
     {
       "region_id": "scalding_pass",
       "name_en": "Scalding Pass",
       "name_zh": "灼热之径",
-      "skybox_stem": "m10",
-      "skybox_key": "m10_cube",
-      "eve_region_id": 10000008
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000008,
+      "skybox_race": "m"
     },
     {
       "region_id": "stain",
       "name_en": "Stain",
       "name_zh": "混浊星域",
-      "skybox_stem": "a16",
-      "skybox_key": "a16_cube",
-      "eve_region_id": 10000022
+      "skybox_stem": "ah1",
+      "skybox_key": "ah1_cube",
+      "eve_region_id": 10000022,
+      "skybox_race": "a"
     },
     {
       "region_id": "syndicate",
       "name_en": "Syndicate",
       "name_zh": "辛迪加",
-      "skybox_stem": "g06",
-      "skybox_key": "g06_cube",
-      "eve_region_id": 10000041
+      "skybox_stem": "gh1",
+      "skybox_key": "gh1_cube",
+      "eve_region_id": 10000041,
+      "skybox_race": "g"
     },
     {
       "region_id": "tenal",
       "name_en": "Tenal",
       "name_zh": "特纳",
-      "skybox_stem": "c12",
-      "skybox_key": "c12_cube",
-      "eve_region_id": 10000045
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000045,
+      "skybox_race": "c"
     },
     {
       "region_id": "tenerifis",
       "name_en": "Tenerifis",
       "name_zh": "特里菲斯",
-      "skybox_stem": "m14",
-      "skybox_key": "m14_cube",
-      "eve_region_id": 10000061
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000061,
+      "skybox_race": "m"
     },
     {
       "region_id": "the_spire",
       "name_en": "The Spire",
       "name_zh": "螺旋之域",
-      "skybox_stem": "m07",
-      "skybox_key": "m07_cube",
-      "eve_region_id": 10000018
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000018,
+      "skybox_race": "m"
     },
     {
       "region_id": "tribute",
       "name_en": "Tribute",
       "name_zh": "特布特星域",
-      "skybox_stem": "c09",
-      "skybox_key": "c09_cube",
-      "eve_region_id": 10000010
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000010,
+      "skybox_race": "c"
     },
     {
       "region_id": "vale_of_the_silent",
       "name_en": "Vale of the Silent",
       "name_zh": "静寂谷星域",
-      "skybox_stem": "c10",
-      "skybox_key": "c10_cube",
-      "eve_region_id": 10000003
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000003,
+      "skybox_race": "c"
     },
     {
       "region_id": "venal",
       "name_en": "Venal",
       "name_zh": "维纳尔星域",
-      "skybox_stem": "c08",
-      "skybox_key": "c08_cube",
-      "eve_region_id": 10000015
+      "skybox_stem": "ch1",
+      "skybox_key": "ch1_cube",
+      "eve_region_id": 10000015,
+      "skybox_race": "c"
     },
     {
       "region_id": "wicked_creek",
       "name_en": "Wicked Creek",
       "name_zh": "邪恶湾流",
-      "skybox_stem": "m11",
-      "skybox_key": "m11_cube",
-      "eve_region_id": 10000006
+      "skybox_stem": "mh1",
+      "skybox_key": "mh1_cube",
+      "eve_region_id": 10000006,
+      "skybox_race": "m"
     }
   ]
 }

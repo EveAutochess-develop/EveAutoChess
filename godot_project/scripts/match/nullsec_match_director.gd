@@ -24,8 +24,10 @@ func all_ready_and_titans_selected() -> bool:
 			return false
 	return true
 
-func assign_regions() -> Dictionary:
-	## One region per participating player seat; spectators skipped.
+func assign_regions(security_mode: String = "nullsec") -> Dictionary:
+	## One region/stem per participating player seat; spectators skipped.
+	if str(security_mode) == "lowsec":
+		return _assign_lowsec_race_skies()
 	var pool: Array = SkyboxCatalog.nullsec_regions()
 	var ids: Array = []
 	for r in pool:
@@ -85,5 +87,35 @@ func assign_regions() -> Dictionary:
 		var rid := str(picked[i % picked.size()]) if not picked.is_empty() else must_id
 		assignments[sid] = rid
 		seat["region_id"] = rid
+	regions_assigned.emit(assignments)
+	return assignments.duplicate()
+
+
+func _assign_lowsec_race_skies() -> Dictionary:
+	## Lowsec: UI region labels only (random stem). Sky rendering deferred — no panorama switch.
+	var stems: Array = SkyboxCatalog.race_stem_list()
+	var player_seats: Array = []
+	for seat in seats:
+		if typeof(seat) != TYPE_DICTIONARY:
+			continue
+		var race := str(seat.get("titan_race", ""))
+		if NullsecNetSession.is_spectate_race(race):
+			continue
+		if not bool(seat.get("occupied", true)):
+			continue
+		if not NullsecNetSession.is_player_race(race):
+			continue
+		player_seats.append(seat)
+	assignments.clear()
+	for seat in player_seats:
+		var sid := int(seat.get("seat_id", 0))
+		var idx := 0
+		if match_rng:
+			idx = match_rng.stream_randi_range("match", 0, stems.size() - 1)
+		else:
+			idx = randi() % stems.size()
+		var stem := str(stems[idx])
+		assignments[sid] = stem
+		seat["region_id"] = stem
 	regions_assigned.emit(assignments)
 	return assignments.duplicate()

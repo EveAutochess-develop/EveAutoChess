@@ -11,6 +11,8 @@ var armor_max: int = 100
 var structure_max: int = 100
 var flag_first_hp_hit: bool = false
 var flag_first_armor_hit: bool = false
+## Lowsec room: 0.25 (75% less). Nullsec / default: 1.0 (MULTIPLAYER_PVP §2.4).
+var pvp_loss_mul: float = 1.0
 
 func setup(p_race: String) -> void:
 	race = p_race
@@ -26,11 +28,14 @@ func setup(p_race: String) -> void:
 func alive() -> bool:
 	return structure > 0
 
+func _scaled_pvp_dmg(base: int) -> int:
+	return maxi(1, int(round(float(base) * pvp_loss_mul)))
+
 func apply_pvp_loss() -> int:
 	## Returns damage applied (for VFX). Always doomsday presentation externally.
-	var dmg := 20
+	var dmg := _scaled_pvp_dmg(20)
 	if race == "minmatar" and not flag_first_hp_hit:
-		dmg = 5
+		dmg = _scaled_pvp_dmg(5)
 		flag_first_hp_hit = true
 		var take := mini(dmg, shield)
 		shield -= take
@@ -49,14 +54,14 @@ func _apply_pipes(dmg: int) -> int:
 	if remaining > 0 and armor > 0:
 		var chunk := remaining
 		if race == "gallente" and not flag_first_armor_hit:
-			chunk = 5
+			chunk = _scaled_pvp_dmg(5)
 			flag_first_armor_hit = true
 		var take2 := mini(chunk, armor)
 		armor -= take2
 		remaining -= take2
 		applied += take2
-		## If gallente first armor absorbed only 5 of a larger hit, rest continues
-		if race == "gallente" and chunk == 5 and remaining > 0:
+		## If gallente first armor absorbed only the scaled chunk of a larger hit, rest continues
+		if race == "gallente" and flag_first_armor_hit and remaining > 0:
 			pass
 	if remaining > 0 and structure > 0:
 		var take3 := mini(remaining, structure)

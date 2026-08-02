@@ -29,6 +29,10 @@ var _mining_wander_anchor: Dictionary = {}
 var _mining_wander_cd: Dictionary = {}
 ## Hull morph after unstack: {ship: ShipUnit, from: Vector3, to: Vector3, t: float, dur: float}
 var _morph_unstack: Array = []
+## SEMI_ASYNC §2 — authority RNG (MatchRng) vs presentation (VisualRng).
+var match_rng: MatchRng = null
+var battle_serial: int = 1
+var visual_rng: VisualRng = VisualRng.new()
 
 const DRONE_BW_COST := 5.0
 const DRONE_CAP := 5
@@ -46,6 +50,42 @@ func bind(board: BoardController, fx = null) -> void:
 		_float_text = FloatTextPool.new()
 		_float_text.name = "FloatTextPool"
 		add_child(_float_text)
+
+
+func bind_match_rng(rng: MatchRng, serial: int = 1) -> void:
+	match_rng = rng
+	battle_serial = maxi(1, serial)
+	if match_rng and not match_rng.has_battle(battle_serial):
+		match_rng.begin_battle(battle_serial)
+
+
+func _auth_randf(event_kind: String) -> float:
+	if match_rng:
+		return match_rng.roll(battle_serial, event_kind)
+	return randf()
+
+
+func _auth_randi_range(event_kind: String, from_v: int, to_v: int) -> int:
+	if match_rng:
+		return match_rng.roll_int(battle_serial, event_kind, from_v, to_v)
+	return randi_range(from_v, to_v)
+
+
+func _auth_randf_range(event_kind: String, from_v: float, to_v: float) -> float:
+	var t := _auth_randf(event_kind)
+	return lerpf(from_v, to_v, t)
+
+
+func _viz_randf() -> float:
+	return visual_rng.randf() if visual_rng else randf()
+
+
+func _viz_randf_range(from_v: float, to_v: float) -> float:
+	return visual_rng.randf_range(from_v, to_v) if visual_rng else randf_range(from_v, to_v)
+
+
+func _viz_randi_range(from_v: int, to_v: int) -> int:
+	return visual_rng.randi_range(from_v, to_v) if visual_rng else randi_range(from_v, to_v)
 
 func start_combat() -> void:
 	_active = true
@@ -642,7 +682,7 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 			})
 		else:
 			var p_hit := s.turret_hit_chance_vs(tgt, dist_cells)
-			if randf() <= p_hit:
+			if _auth_randf("turret_hit") <= p_hit:
 				var payload2 := {
 					"source_id": s.get_instance_id(),
 					"target_id": tgt.get_instance_id(),
@@ -855,11 +895,11 @@ func _spawn_combat_drones() -> void:
 		if drone_id <= 0:
 			continue
 		for i in range(n):
-			var drone := _board.spawn_unmanned(drone_id, s.team_id, s.global_position + Vector3(randf_range(-1.2, 1.2), 0.2, randf_range(-1.2, 1.2)), s)
+			var drone := _board.spawn_unmanned(drone_id, s.team_id, s.global_position + Vector3(_viz_randf_range(-1.2, 1.2), 0.2, _viz_randf_range(-1.2, 1.2)), s)
 			_ensure_drone_trail(drone)
 			var did := drone.get_instance_id()
-			_drone_orbit_phase[did] = randf() * TAU
-			_drone_orbit_dir[did] = 1.0 if randf() < 0.5 else -1.0
+			_drone_orbit_phase[did] = _viz_randf() * TAU
+			_drone_orbit_dir[did] = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 	## Fresh hulls need the team's live SelfAll fetter pass (ArmorHP / Speed / titan …).
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
@@ -930,7 +970,7 @@ func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 			_ensure_drone_trail(d)
 			var did2 := d.get_instance_id()
 			_drone_orbit_phase[did2] = ang2
-			_drone_orbit_dir[did2] = 1.0 if randf() < 0.5 else -1.0
+			_drone_orbit_dir[did2] = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 		_board.recalculate_fetters(s.team_id)
 
 
@@ -974,7 +1014,7 @@ func _ensure_carrier_fighter_squadrons(s: ShipUnit, data: Dictionary) -> void:
 			_ensure_drone_trail(f)
 			var fid := f.get_instance_id()
 			_drone_orbit_phase[fid] = ang
-			_drone_orbit_dir[fid] = 1.0 if randf() < 0.5 else -1.0
+			_drone_orbit_dir[fid] = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 		active_count += 1
 	_board.recalculate_fetters(s.team_id)
 
@@ -1044,11 +1084,12 @@ func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
 	var anchor: Node3D = _mining_wander_anchor.get(id) as Node3D
 	var need_pick := anchor == null or not is_instance_valid(anchor) or cd <= 0.0
 	if need_pick:
-		anchor = belt.mining_anchors[randi() % belt.mining_anchors.size()] as Node3D
+		var pick_i := _auth_randi_range("mining_pick", 0, belt.mining_anchors.size() - 1)
+		anchor = belt.mining_anchors[pick_i] as Node3D
 		_mining_wander_anchor[id] = anchor
 		var cd_min := float(DataStore.visual.get("mining_drone_wander_cd_min_s", 4.0))
 		var cd_max := float(DataStore.visual.get("mining_drone_wander_cd_max_s", 12.0))
-		_mining_wander_cd[id] = randf_range(maxf(1.0, cd_min), maxf(cd_min + 0.1, cd_max))
+		_mining_wander_cd[id] = _auth_randf_range("mining_wander", maxf(1.0, cd_min), maxf(cd_min + 0.1, cd_max))
 	else:
 		_mining_wander_cd[id] = cd
 	if anchor == null or not is_instance_valid(anchor):
@@ -1065,7 +1106,7 @@ func _orbit_around_xz(s: ShipUnit, center: Vector3, delta: float, radius: float,
 	var phase := float(_drone_orbit_phase.get(id, 0.0))
 	var orbit_dir := float(_drone_orbit_dir.get(id, 0.0))
 	if absf(orbit_dir) < 0.5:
-		orbit_dir = 1.0 if randf() < 0.5 else -1.0
+		orbit_dir = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 		_drone_orbit_dir[id] = orbit_dir
 	var flat_self := Vector3(s.global_position.x, 0.0, s.global_position.z)
 	## Net world motion since last orbit tick (includes post-separation pushback).
@@ -1150,7 +1191,7 @@ func _tick_mining_fx(s: ShipUnit, delta: float) -> void:
 	if s.has_method("advance_muzzle"):
 		s.advance_muzzle()
 	var cd_max := float(DataStore.visual.get("mining_fx_cd_max_s", 10.0))
-	_mining_fx_cd[sid] = randf_range(0.05, maxf(0.1, cd_max))
+	_mining_fx_cd[sid] = _viz_randf_range(0.05, maxf(0.1, cd_max))
 
 
 func _pick_random_mining_anchor(belt: AsteroidBelt, firer_id: int) -> Node3D:
@@ -1158,14 +1199,14 @@ func _pick_random_mining_anchor(belt: AsteroidBelt, firer_id: int) -> Node3D:
 	var n := anchors.size()
 	if n <= 0:
 		return null
-	var idx := randi() % n
+	var idx := _auth_randi_range("mining_pick", 0, n - 1)
 	var pick := _anchor_at(anchors, idx)
 	if n == 1:
 		return pick
 	## Prefer a different rock than the previous shot so consecutive beams visibly retarget.
 	var last_id := int(_mining_fx_last_anchor_id.get(firer_id, 0))
 	if pick == null or (last_id != 0 and pick.get_instance_id() == last_id):
-		idx = (idx + 1 + randi() % (n - 1)) % n
+		idx = (idx + 1 + _auth_randi_range("mining_pick", 0, n - 2)) % n
 		pick = _anchor_at(anchors, idx)
 	return pick
 
@@ -1372,12 +1413,12 @@ func _apply_drone_lod() -> void:
 func _spawn_isolation_debris() -> void:
 	var cmin := int(DataStore.combat.get("isolation_debris_count_min", 3))
 	var cmax := int(DataStore.combat.get("isolation_debris_count_max", 5))
-	var n := clampi(cmin + randi() % maxi(1, cmax - cmin + 1), cmin, cmax)
+	var n := clampi(cmin + _auth_randi_range("isolation_debris", 0, maxi(0, cmax - cmin)), cmin, cmax)
 	var half := float(DataStore.combat.get("isolation_half_width_wu", 2.5))
 	for i in range(n):
 		var mi := MeshInstance3D.new()
 		var sphere := SphereMesh.new()
-		sphere.radius = randf_range(0.35, 0.7)
+		sphere.radius = _viz_randf_range(0.35, 0.7)
 		sphere.height = sphere.radius * 2.0
 		mi.mesh = sphere
 		var mat := StandardMaterial3D.new()
@@ -1386,7 +1427,7 @@ func _spawn_isolation_debris() -> void:
 		mat.albedo_color = Color(0.18, 0.16, 0.14, 1.0)
 		mat.roughness = 0.95
 		mi.material_override = mat
-		mi.position = Vector3(randf_range(-10.0, 10.0), sphere.radius, randf_range(-half * 0.8, half * 0.8))
+		mi.position = Vector3(_viz_randf_range(-10.0, 10.0), sphere.radius, _viz_randf_range(-half * 0.8, half * 0.8))
 		var parent: Node = _board.get_parent()
 		if parent:
 			parent.add_child(mi)
@@ -1418,7 +1459,7 @@ func _tick_debris_contacts(delta: float) -> void:
 				continue
 			if s.global_position.distance_to(node.global_position) > 1.4:
 				continue
-			var dealt := randf_range(dmg_lo, dmg_hi)
+			var dealt := _auth_randf_range("isolation_debris_dmg", dmg_lo, dmg_hi)
 			s.apply_hit_dict({"emp": 0.0, "thermal": 0.0, "kinetic": 0.0, "explosive": dealt})
 			cds[sid] = 1.25
 			if _float_text:

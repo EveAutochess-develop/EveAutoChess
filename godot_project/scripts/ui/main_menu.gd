@@ -106,7 +106,7 @@ func _build() -> void:
 	_btn_box.add_child(_menu_btn("开始对战模式", _on_versus))
 	_btn_box.add_child(_menu_btn("多人联机对战", _on_nullsec_open))
 	var cont := _menu_btn("继续上次对局", _on_continue)
-	cont.disabled = not MatchSave.exists()
+	cont.disabled = not MatchSave.exists() and not NullsecRejoinTicket.exists()
 	_btn_box.add_child(cont)
 	var load_btn := _menu_btn("读取存档", _on_load_open)
 	load_btn.disabled = MatchSave.list_slots().is_empty() and not MatchSave.exists()
@@ -164,8 +164,9 @@ func _build() -> void:
 	_nullsec_lobby.request_match_public.connect(_on_nullsec_match_public)
 	_nullsec_lobby.request_host_public.connect(_on_nullsec_host_public)
 	_nullsec_lobby.request_host_private.connect(_on_nullsec_host_private)
-	_nullsec_lobby.request_join_private.connect(_on_nullsec_join_private)
 	_nullsec_lobby.request_history.connect(_on_nullsec_history)
+	_nullsec_lobby.request_copy_share.connect(_on_nullsec_copy_share)
+	_nullsec_lobby.request_join_share.connect(_on_nullsec_join_share)
 
 func _apply_adaptive_layout() -> void:
 	var pad := 0.035 if UiLayout.is_mobile() else 0.038
@@ -575,30 +576,35 @@ func _on_nullsec_start_match(assignments: Dictionary) -> void:
 		"assignments": assignments,
 		"seats": net.seats,
 		"local_seat": net.local_seat,
+		"host_seat": int(net.last_match_payload.get("host_seat", 0)),
 		"match_seed": int(net.last_match_payload.get("match_seed", Time.get_unix_time_from_system())),
 		"spectator": spectate,
 		"spectate_reason": "seat_spectate" if spectate else "",
+		"security_mode": str(net.last_match_payload.get("security_mode", net.security_mode)),
 	}
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _enter_nullsec_from_mid_join(net: NullsecNetSession, payload: Dictionary) -> void:
 	net.persist_across_scenes()
 	var asg: Dictionary = payload.get("assignments", {}) as Dictionary
+	var sec := str(payload.get("security_mode", net.security_mode))
 	if asg.is_empty():
 		var rng := MatchRng.new()
 		rng.configure(int(payload.get("match_seed", 1)), str(payload.get("rules_hash", "")))
 		var dir := NullsecMatchDirector.new()
 		dir.setup(rng)
 		dir.set_seats(payload.get("seats", []) as Array)
-		asg = dir.assign_regions()
+		asg = dir.assign_regions(sec)
 	GameSession.pending_mode = "nullsec"
 	GameSession.pending_nullsec = {
 		"assignments": asg,
 		"seats": payload.get("seats", net.seats),
 		"local_seat": net.local_seat,
+		"host_seat": int(payload.get("host_seat", 0)),
 		"match_seed": int(payload.get("match_seed", Time.get_unix_time_from_system())),
 		"spectator": true,
 		"spectate_reason": "mid_join",
+		"security_mode": sec,
 	}
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
@@ -660,42 +666,136 @@ func _on_nullsec_host_public() -> void:
 	for r in rooms:
 		if typeof(r) == TYPE_DICTIONARY and not bool((r as Dictionary).get("private", false)):
 			taken[int((r as Dictionary).get("code", 0))] = true
+	if taken.size() >= 9999:
+		_nullsec_lobby.set_status("公开房号池已满 · 无法开房")
+		return
 	var code := PublicRoomEnumerator.claim_free_code(taken)
+	if code <= 0 or taken.has(code):
+		_nullsec_lobby.set_status("公开房号池已满 · 无法开房")
+		return
+	var rules := MatchRng.compute_rules_hash()
+	var claim: Dictionary = ShortcodeSignaling.claim_public_sync(code, rules, {"nick": nick})
+	if not bool(claim.get("ok", false)):
+		_nullsec_lobby.set_status("短码 claim 失败: %s" % str(claim.get("reason", "unknown")))
+		return
+	code = int(claim.get("code", code))
 	var net := _ensure_nullsec_net()
 	net.close()
 	var err := net.host_public(code, nick)
 	if err != OK:
 		_nullsec_lobby.set_status("开房失败: %s" % error_string(err))
 		return
-	_nullsec_lobby.set_status("已主持公开房 %04d（局域网）" % code)
+	var via := str(claim.get("via", "lan_local"))
+	var stun_note := " · STUN开" if NetConnectivity.public_stun_enabled() else ""
+	_nullsec_copy_share_silent()
+	_nullsec_lobby.set_status("已主持公开房 %04d（%s%s）· 房间串已复制" % [code, via, stun_note])
 	_show_nullsec_room()
 
 func _on_nullsec_host_private() -> void:
 	var nick := _nullsec_lobby.current_nick()
-	## 6-char base32-ish private code (0-9a-v), SEMI_ASYNC §7.5.
-	var alphabet := "0123456789abcdefghijklmnopqrstuv"
-	var code := ""
-	for _i in range(6):
-		code += alphabet[randi() % alphabet.length()]
+	## 6-char private shortcode still used inside room share + LAN beacon.
+	var code := ShortcodeSignaling.random_private()
+	var rules := MatchRng.compute_rules_hash()
+	var claim: Dictionary = ShortcodeSignaling.claim_private_sync(code, rules, {"nick": nick})
+	if not bool(claim.get("ok", false)):
+		_nullsec_lobby.set_status("短码 claim 失败: %s" % str(claim.get("reason", "unknown")))
+		return
+	code = str(claim.get("code", code))
 	var net := _ensure_nullsec_net()
 	net.close()
 	var err := net.host_private(code, nick)
 	if err != OK:
 		_nullsec_lobby.set_status("开房失败: %s" % error_string(err))
 		return
-	_nullsec_lobby.set_status("已主持私密房 %s（局域网）" % code)
+	var via := str(claim.get("via", "lan_local"))
+	_nullsec_copy_share_silent()
+	_nullsec_lobby.set_status("已主持私密房 · 房间串已复制（内含 %s · %s）" % [code, via])
 	_show_nullsec_room()
 
-func _on_nullsec_join_private(raw: String) -> void:
-	var nick := _nullsec_lobby.current_nick()
-	var code := raw.strip_edges().to_lower()
-	if code == "":
-		_nullsec_lobby.set_status("请输入私密码")
+func _nullsec_copy_share_silent() -> String:
+	var net := _ensure_nullsec_net()
+	if not net.is_host and net.listen_port() <= 0:
+		return ""
+	var blob := net.make_invite_blob()
+	DisplayServer.clipboard_set(InviteBlobHelper.format_for_clipboard(blob))
+	return blob
+
+func _on_nullsec_copy_share() -> void:
+	var net := _ensure_nullsec_net()
+	if not net.is_host and net.listen_port() <= 0:
+		_nullsec_lobby.set_status("请先主持房间再复制房间串")
 		return
-	var re := RegEx.new()
-	re.compile("^[0-9a-v]{6}$")
-	if re.search(code) == null:
-		_nullsec_lobby.set_status("私密码须为 6 位 0-9a-v")
+	var blob := _nullsec_copy_share_silent()
+	if blob == "":
+		_nullsec_lobby.set_status("房间串生成失败")
+		return
+	var turn_n := NetConnectivity.turn_urls().size()
+	var tip := "房间串已复制（EAC+Base62）"
+	if turn_n > 0:
+		tip += " · 直连失败可回落 TURN"
+	elif NetConnectivity.public_stun_enabled():
+		tip += " · 已附公共 STUN"
+	_nullsec_lobby.set_status(tip)
+
+func _on_nullsec_join_share(raw: String) -> void:
+	var kind := InviteBlobHelper.classify(raw)
+	if kind == InviteBlobHelper.KIND_INVALID:
+		_nullsec_lobby.set_status("请粘贴房间串（EAC…）或 6 位私密短码")
+		return
+	if kind == InviteBlobHelper.KIND_PRIVATE_SHORT:
+		await _on_nullsec_join_private_short(raw.strip_edges().to_lower())
+		return
+	await _on_nullsec_join_full_share(raw)
+
+func _on_nullsec_join_full_share(blob: String) -> void:
+	var decoded := InviteBlobHelper.decode(blob)
+	if decoded.is_empty():
+		_nullsec_lobby.set_status("房间串无法解析")
+		return
+	var addr := InviteBlobHelper.join_address(decoded)
+	var ip := str(addr.get("ip", ""))
+	var port := int(addr.get("port", 0))
+	if ip == "" or port <= 0:
+		var room := str(addr.get("room", decoded.get("room", "")))
+		var rules := str(addr.get("rules", MatchRng.compute_rules_hash()))
+		var skind := "private" if bool(decoded.get("private", false)) or room.length() == 6 else "public"
+		var resolved := ShortcodeSignaling.resolve_join_sync(skind, room, rules)
+		if bool(resolved.get("ok", false)):
+			ip = str(resolved.get("ip", ip))
+			port = int(resolved.get("port", port))
+	if ip == "" or port <= 0:
+		## Full share without reachable IP: fall back to embedded shortcode LAN scan.
+		var room2 := str(addr.get("room", ""))
+		if ShortcodeSignaling.is_valid_private(room2):
+			await _on_nullsec_join_private_short(room2)
+			return
+		_nullsec_lobby.set_status("房间串无有效地址（可配 signaling_url / TURN）")
+		return
+	var nick := _nullsec_lobby.current_nick()
+	var rules2 := str(addr.get("rules", MatchRng.compute_rules_hash()))
+	var net := _ensure_nullsec_net()
+	net.close()
+	_nullsec_lobby.set_status("正在按房间串加入 %s:%d…" % [ip, port])
+	var err := net.join(ip, port, nick, rules2)
+	if err != OK:
+		var turn_n := NetConnectivity.turn_urls().size()
+		if turn_n > 0:
+			_nullsec_lobby.set_status("直连失败 · 已配置 TURN 但仍不可达: %s" % error_string(err))
+		else:
+			_nullsec_lobby.set_status("加入失败: %s（可在 user://net_connectivity.cfg 配 TURN）" % error_string(err))
+		return
+	var ok := await _await_nullsec_join(net, 6.0)
+	if not ok:
+		net.close()
+		_nullsec_lobby.set_status("房间串加入超时或被拒")
+		return
+	_nullsec_lobby.set_status("已通过房间串加入")
+	_show_nullsec_room()
+
+func _on_nullsec_join_private_short(code: String) -> void:
+	var nick := _nullsec_lobby.current_nick()
+	if not ShortcodeSignaling.is_valid_private(code):
+		_nullsec_lobby.set_status("私密短码须为 6 位 0-9a-v")
 		return
 	_nullsec_lobby.set_status("正在扫描局域网…")
 	var rules := MatchRng.compute_rules_hash()
@@ -714,7 +814,14 @@ func _on_nullsec_join_private(raw: String) -> void:
 		pick = d
 		break
 	if pick.is_empty():
-		_nullsec_lobby.set_status("未找到该私密房（同版本 · 局域网）")
+		var resolved := ShortcodeSignaling.resolve_join_sync("private", code, rules)
+		if bool(resolved.get("ok", false)):
+			pick = {
+				"ip": str(resolved.get("ip", "")),
+				"port": int(resolved.get("port", 0)),
+			}
+	if pick.is_empty():
+		_nullsec_lobby.set_status("未找到该私密房（局域网或信令）· 异地请粘贴完整房间串")
 		return
 	var ip := str(pick.get("ip", "127.0.0.1"))
 	var port := int(pick.get("port", NullsecNetSession.port_for_code(NullsecNetSession.code_for_private(code))))
@@ -812,20 +919,164 @@ func _on_endless() -> void:
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_continue() -> void:
+	## Prefer live nullsec rejoin ticket (SEMI_ASYNC §5.3a); else single-player last_match.
+	if NullsecRejoinTicket.exists():
+		await _continue_nullsec_rejoin()
+		return
+	_continue_local_last_match()
+
+
+func _usable_local_last_match() -> Dictionary:
+	## Non-nullsec last_match suitable for single-player resume.
 	if not MatchSave.exists():
+		return {}
+	var d := MatchSave.load_dict()
+	if d.is_empty():
+		return {}
+	var mode := str(d.get("mode", "versus"))
+	if mode == "nullsec":
+		return {}
+	return d
+
+
+func _continue_local_last_match() -> void:
+	var d := _usable_local_last_match()
+	if d.is_empty():
+		if MatchSave.exists() and str(MatchSave.load_dict().get("mode", "")) == "nullsec":
+			## Stale combat snapshot — multiplayer uses nullsec_rejoin.json instead.
+			MatchSave.clear()
+			_refresh_continue_btn()
 		return
 	GameSession.resume_save = true
 	GameSession.resume_slot_id = ""
 	GameSession.resume_payload = {}
-	var d := MatchSave.load_dict()
-	var mode := str(d.get("mode", "versus"))
-	if mode == "nullsec":
-		## Stale multiplayer snapshot from before §5.0b — nothing to resume into.
-		GameSession.resume_save = false
-		MatchSave.clear()
-		_disable_continue_btn()
+	GameSession.pending_mode = str(d.get("mode", "versus"))
+	get_tree().change_scene_to_file("res://scenes/match.tscn")
+
+
+func _ask_fallback_local_last_match() -> void:
+	## After failed remote rejoin (2A): offer local autosave if present (MATCH_FLOW §5.0b).
+	var d := _usable_local_last_match()
+	if d.is_empty():
 		return
-	GameSession.pending_mode = mode
+	var mode := str(d.get("mode", "versus"))
+	var mode_l := "对战" if mode == "versus" else "无尽"
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "无法加入远程对局"
+	dlg.dialog_text = "联机对局已无法重连。是否回落本地上次自动存档（%s）？" % mode_l
+	dlg.ok_button_text = "读取本地存档"
+	dlg.cancel_button_text = "取消"
+	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(dlg)
+	dlg.confirmed.connect(func():
+		dlg.queue_free()
+		_continue_local_last_match()
+	)
+	dlg.canceled.connect(func(): dlg.queue_free())
+	dlg.close_requested.connect(func(): dlg.queue_free())
+	dlg.popup_centered()
+
+
+func _continue_nullsec_rejoin() -> void:
+	var ticket := NullsecRejoinTicket.load_dict()
+	if ticket.is_empty():
+		NullsecRejoinTicket.clear()
+		_refresh_continue_btn()
+		return
+	var nick := str(ticket.get("nick", "玩家"))
+	var rules := str(ticket.get("rules_hash", MatchRng.compute_rules_hash()))
+	var net := _ensure_nullsec_net()
+	net.close()
+	net.pending_rejoin_seat = int(ticket.get("seat_id", -1))
+	net.pending_rejoin_secret = str(ticket.get("session_secret", ""))
+	net.session_secret = str(ticket.get("session_secret", ""))
+	net.match_id = str(ticket.get("match_id", ""))
+	net.opening_host_platform = str(ticket.get("opening_host_platform", "pc"))
+	net.opening_host_ships_hash = str(ticket.get("opening_host_ships_hash", ""))
+	net.host_migrate_generation = int(ticket.get("host_migrate_generation", 0))
+	net.security_mode = str(ticket.get("security_mode", NullsecNetSession.SECURITY_NULLSEC))
+	net.room_code = int(ticket.get("room_code", 0))
+	net.is_private = bool(ticket.get("is_private", false))
+	net.private_code = str(ticket.get("private_code", ""))
+	var candidates: Array = []
+	var tip := str(ticket.get("host_ip", ""))
+	var tport := int(ticket.get("host_port", 0))
+	if tip != "" and tport > 0:
+		candidates.append({"ip": tip, "port": tport})
+	var blob := str(ticket.get("room_blob", ""))
+	if blob != "":
+		var decoded := InviteBlobHelper.decode(blob)
+		var addr := InviteBlobHelper.join_address(decoded)
+		if str(addr.get("ip", "")) != "" and int(addr.get("port", 0)) > 0:
+			candidates.append({"ip": str(addr.get("ip", "")), "port": int(addr.get("port", 0))})
+	## LAN beacon for same room_code / in_match.
+	var rooms: Array = await LanBeacon.discover(self, LanBeacon.DISCOVER_WAIT_S)
+	var want_code := int(ticket.get("room_code", 0))
+	for r in rooms:
+		if typeof(r) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = r
+		if int(d.get("code", -1)) != want_code:
+			continue
+		if not bool(d.get("in_match", false)):
+			continue
+		candidates.append({
+			"ip": str(d.get("ip", "127.0.0.1")),
+			"port": int(d.get("port", NullsecNetSession.port_for_code(want_code))),
+		})
+	var joined := false
+	for c in candidates:
+		var ip := str(c.get("ip", ""))
+		var port := int(c.get("port", 0))
+		if ip == "" or port <= 0:
+			continue
+		net.pending_rejoin_seat = int(ticket.get("seat_id", -1))
+		net.pending_rejoin_secret = str(ticket.get("session_secret", ""))
+		var err := net.join(ip, port, nick, rules)
+		if err != OK:
+			continue
+		var join_res: Dictionary = await _await_nullsec_join_ex(net, 5.0)
+		if bool(join_res.get("ok", false)) and net.local_seat == int(ticket.get("seat_id", -2)):
+			joined = true
+			break
+		net.close()
+	if not joined:
+		## 2A: nobody online → clear ticket; offer local last_match if any.
+		NullsecRejoinTicket.clear()
+		_refresh_continue_btn()
+		if _nullsec_lobby:
+			_nullsec_lobby.set_status("无法重连 · 对局已解散")
+		push_warning("Nullsec rejoin failed — ticket cleared (2A)")
+		_ask_fallback_local_last_match()
+		return
+	_enter_nullsec_from_rejoin(net, net.last_match_payload)
+
+
+func _enter_nullsec_from_rejoin(net: NullsecNetSession, payload: Dictionary) -> void:
+	net.persist_across_scenes()
+	var asg: Dictionary = payload.get("assignments", {}) as Dictionary
+	var sec := str(payload.get("security_mode", net.security_mode))
+	if asg.is_empty():
+		var rng := MatchRng.new()
+		rng.configure(int(payload.get("match_seed", 1)), str(payload.get("rules_hash", "")))
+		var dir := NullsecMatchDirector.new()
+		dir.setup(rng)
+		dir.set_seats(payload.get("seats", []) as Array)
+		asg = dir.assign_regions(sec)
+	GameSession.resume_save = false
+	GameSession.pending_mode = "nullsec"
+	GameSession.pending_nullsec = {
+		"assignments": asg,
+		"seats": payload.get("seats", net.seats),
+		"local_seat": net.local_seat,
+		"host_seat": int(payload.get("host_seat", 0)),
+		"match_seed": int(payload.get("match_seed", Time.get_unix_time_from_system())),
+		"spectator": false,
+		"spectate_reason": "",
+		"rejoin": true,
+		"security_mode": sec,
+	}
+	NullsecRejoinTicket.write_from_session(net)
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_load_open() -> void:
@@ -997,6 +1248,17 @@ func _disable_continue_btn() -> void:
 		var b := c as Button
 		if b and b.text == "继续上次对局":
 			b.disabled = true
+			return
+
+
+func _refresh_continue_btn() -> void:
+	if _btn_box == null:
+		return
+	var enable := MatchSave.exists() or NullsecRejoinTicket.exists()
+	for c in _btn_box.get_children():
+		var b := c as Button
+		if b and b.text == "继续上次对局":
+			b.disabled = not enable
 			return
 
 

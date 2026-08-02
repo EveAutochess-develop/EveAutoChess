@@ -37,12 +37,13 @@ const TONNAGE_ICON_MAP := {
 	"carrier": "carrier_32.png",
 	"dreadnought": "dreadnought_32.png",
 	"force_auxiliary": "force_auxiliary_32.png",
-	"drone_light": "droneLightScout_16.png",
-	"drone_medium": "droneMediumScout_16.png",
-	"drone_heavy": "droneHeavyAttack_16.png",
-	"fighter": "fighter.png",
-	"heavy_repair_drone": "droneHeavyAttack_16.png",
-	"repair_drone": "droneHeavyAttack_16.png",
+	"drone_light": "droneAttack_16.png",
+	"drone_medium": "droneAttack_16.png",
+	"drone_heavy": "droneAttack_16.png",
+	"fighter": "fighterSquad_16.png",
+	"mining_drone": "droneMining_M_16.png",
+	"heavy_repair_drone": "droneAttack_16.png",
+	"repair_drone": "droneAttack_16.png",
 	"mining_barge": "industrial_32.png",
 	"industrial_command": "industrialCommand_32.png",
 	"capital_industrial": "freighter_32.png",
@@ -438,27 +439,27 @@ static func tonnage_icon(ship_group: String) -> Texture2D:
 	if file_name == "":
 		return null
 	var t: Texture2D = null
-	## Capitals use the same hollow outline sprites under tonnage/ (not solid ShipGroup art).
-	if ship_group == "fighter":
-		t = tex(FETTER_ICON_DIR.path_join(file_name))
+	## Capitals / drones / fighter use hollow outline sprites under tonnage/.
+	t = tex(TONNAGE_DIR.path_join(file_name))
+	if t == null:
+		t = _tex_from_image_file(TONNAGE_DIR.path_join(file_name))
+	## Fighter legacy: FetterIcons/fighter.png if tonnage sprite missing.
+	if t == null and ship_group == "fighter":
+		t = tex(FETTER_ICON_DIR.path_join("fighter.png"))
 		if t == null:
-			t = _tex_from_image_file(FETTER_ICON_DIR.path_join(file_name))
-	else:
-		t = tex(TONNAGE_DIR.path_join(file_name))
+			t = _tex_from_image_file(FETTER_ICON_DIR.path_join("fighter.png"))
+	## Legacy ShipGroup fallback only if tonnage sprite missing.
+	if t == null and ship_group in ["carrier", "dreadnought", "force_auxiliary", "titan"]:
+		var sg_name := file_name
+		if ship_group == "titan":
+			sg_name = "Titan.png"
+		t = tex(SHIPGROUP_ICON_DIR.path_join(sg_name))
 		if t == null:
-			t = _tex_from_image_file(TONNAGE_DIR.path_join(file_name))
-		## Legacy ShipGroup fallback only if tonnage sprite missing.
-		if t == null and ship_group in ["carrier", "dreadnought", "force_auxiliary", "titan"]:
-			var sg_name := file_name
-			if ship_group == "titan":
-				sg_name = "Titan.png"
-			t = tex(SHIPGROUP_ICON_DIR.path_join(sg_name))
+			t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join(sg_name))
+		if t == null and ship_group == "titan":
+			t = tex(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
 			if t == null:
-				t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join(sg_name))
-			if t == null and ship_group == "titan":
-				t = tex(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
-				if t == null:
-					t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
+				t = _tex_from_image_file(SHIPGROUP_ICON_DIR.path_join("Titan.png"))
 	if t != null:
 		_tonnage_cache[ship_group] = t
 	return t

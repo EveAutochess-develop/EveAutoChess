@@ -6,12 +6,17 @@ signal doomsday_fired(attacker_seat: int, loser_seat: int, from: Vector3, to: Ve
 signal return_home_due(seat_id: int)
 
 var pipes_by_seat: Dictionary = {} ## seat -> TitanHpPipes
+var pvp_loss_mul: float = 1.0
 
 func ensure_seat(seat_id: int, race: String) -> TitanHpPipes:
 	if not pipes_by_seat.has(seat_id):
 		var p := TitanHpPipes.new()
 		p.setup(race)
+		p.pvp_loss_mul = pvp_loss_mul
 		pipes_by_seat[seat_id] = p
+	else:
+		var existing: TitanHpPipes = pipes_by_seat[seat_id]
+		existing.pvp_loss_mul = pvp_loss_mul
 	return pipes_by_seat[seat_id]
 
 func resolve_loss(winner_seat: int, loser_seat: int, from: Vector3, to: Vector3, belt_root: Node3D) -> Dictionary:
