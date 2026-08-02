@@ -103,6 +103,7 @@ const _CITADEL_BAR_SCRIPT := preload("res://scripts/ship/citadel_health_bar.gd")
 var _titan_berth: TitanBerth = null
 var _rival_titan_berth: TitanBerth = null
 var _titan_hp_bar: Node3D = null
+var _rival_titan_hp_bar: Node3D = null
 const _TITAN_BAR_SCRIPT := preload("res://scripts/ship/titan_hp_bar.gd")
 const _TitanKillSequence := preload("res://scripts/match/titan_kill_sequence.gd")
 ## Fetter that marks a hull as an exploration ship (data/fetters/exploration.json).
@@ -137,6 +138,9 @@ var _nullsec_spectating: bool = false
 var _nullsec_spectate_reason: String = ""
 var _nullsec_watch_seat: int = -1
 var _spectate_leave_btn: Button = null
+## SEMI_ASYNC NetBattleSession (host authority / guest repredict).
+var _net_battle: NetBattleSession = null
+var _net_jobs_ready_for_titan: bool = true
 const _BgMusic := preload("res://scripts/audio/bg_music.gd")
 const _CapitalJumpFx := preload("res://scripts/combat/capital_jump_fx.gd")
 const _CAM_MOVE_SPEED := 8.0
@@ -215,6 +219,10 @@ func _ready() -> void:
 	var net_sess := _nullsec_net_session()
 	if net_sess and not net_sess.ships_override_applied.is_connected(_on_host_ships_applied):
 		net_sess.ships_override_applied.connect(_on_host_ships_applied)
+	if net_sess and not net_sess.match_terminated_host_lost.is_connected(_on_match_terminated_host_lost):
+		net_sess.match_terminated_host_lost.connect(_on_match_terminated_host_lost)
+	if net_sess and not net_sess.host_migrated.is_connected(_on_nullsec_host_migrated):
+		net_sess.host_migrated.connect(_on_nullsec_host_migrated)
 	var diag := SessionDiagnostics.instance()
 	if diag and diag.has_method("bind_match"):
 		diag.bind_match(self)
@@ -251,26 +259,30 @@ func _setup_nullsec_runtime() -> void:
 	_nullsec_speed.speed_changed.connect(_on_nullsec_speed_changed)
 	_nullsec_speed.force_draw_remaining.connect(_on_nullsec_force_draw)
 	_nullsec_pve = NullsecPveDirector.new()
+	_nullsec_pve.always_pvp = NullsecNetSession.is_lowsec(str(payload.get("security_mode", "nullsec")))
 	_nullsec_pve.setup(_nullsec_rng, 1)
 	_nullsec_pve.pick_task(1)
-	## Lock R1 creeps from starting gold/level.
-	var gold := int(match_ctrl.player_gold) if match_ctrl else 0
-	var level := int(match_ctrl.player_level) if match_ctrl else 1
-	var pop := 0
-	if match_ctrl and match_ctrl.has_method("population_limit"):
-		pop = int(match_ctrl.population_limit())
-	else:
-		pop = level + 1
-	_nullsec_pve.lock_creeps(gold, level, maxi(1, pop))
 	## Seat economy for the AI players starts with the humans' opening, then banks
 	## gold/exp every round so a later PVP rival is not a level-1 fleet.
 	if ai and ai.has_method("init_economy"):
 		ai.init_economy()
 	## Titan buff rides the fetter rail (MULTIPLAYER_PVP §2.3): always on from setup.
 	board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
-	if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
-		_nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
+	## Lowsec (always_pvp): no R1 creeps / salvage freighter — seat PVP from round 1.
+	if not _nullsec_pve.always_pvp:
+		var gold := int(match_ctrl.player_gold) if match_ctrl else 0
+		var level := int(match_ctrl.player_level) if match_ctrl else 1
+		var pop := 0
+		if match_ctrl and match_ctrl.has_method("population_limit"):
+			pop = int(match_ctrl.population_limit())
+		else:
+			pop = level + 1
+		_nullsec_pve.lock_creeps(gold, level, maxi(1, pop))
+		if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
+			_nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
 	_doomsday_resolver = TitanDoomsdayResolver.new()
+	## Lowsec: fail/draw titan pipe damage ×0.25 (MULTIPLAYER_PVP §2.4).
+	_doomsday_resolver.pvp_loss_mul = 0.25 if _nullsec_pve.always_pvp else 1.0
 	if not _doomsday_resolver.return_home_due.is_connected(_on_titan_return_home):
 		_doomsday_resolver.return_home_due.connect(_on_titan_return_home)
 	var seats: Array = payload.get("seats", []) as Array
@@ -281,6 +293,9 @@ func _setup_nullsec_runtime() -> void:
 		_doomsday_resolver.ensure_seat(int(s.get("seat_id", 0)), race)
 	_refresh_titan_hp_bar()
 	_TitanKillSequence.ensure_wreck_ship_defs()
+	var net_ticket := _nullsec_net_session()
+	if net_ticket:
+		net_ticket.write_rejoin_ticket()
 	_speed_dropdown = SpeedDropdownMenu.new()
 	_speed_dropdown.controller = _nullsec_speed
 	_speed_dropdown.local_nick = "本地"
@@ -292,12 +307,18 @@ func _setup_nullsec_runtime() -> void:
 	_settlement_panel = NullsecSettlementPanel.new()
 	hud.add_child(_settlement_panel)
 	_wire_nullsec_scout()
+	_setup_net_battle_session()
 	var want_spec := bool(payload.get("spectator", false))
 	if want_spec:
 		enter_nullsec_spectate(str(payload.get("spectate_reason", "seat_spectate")))
 	else:
-		show_notice("负安局 · %s · 星域已分配" % _nullsec_pve.current_task)
-		call_deferred("_nullsec_on_prepare_begin")
+		var mode_lbl := "低安局" if _nullsec_pve.always_pvp else "负安局"
+		show_notice("%s · %s · 主场已分配" % [mode_lbl, _nullsec_pve.current_task])
+		## Lowsec R1: PVP prepare (rival army), never creep slide-in.
+		if _nullsec_pve.always_pvp:
+			call_deferred("_nullsec_prepare_pvp_round")
+		else:
+			call_deferred("_nullsec_on_prepare_begin")
 		call_deferred("_play_titan_berth_intro")
 
 func enter_nullsec_spectate(reason: String = "seat_spectate") -> void:
@@ -538,7 +559,78 @@ func _nullsec_on_prepare_begin() -> void:
 		return
 	if _nullsec_spectating:
 		return
+	## Lowsec: never creep slide — PVP prepare path only.
+	if _nullsec_pve.always_pvp:
+		_nullsec_prepare_pvp_round()
+		return
 	_spawn_nullsec_creeps_with_slide()
+
+
+func _setup_net_battle_session() -> void:
+	if combat and _nullsec_rng:
+		combat.bind_match_rng(_nullsec_rng, 1)
+	var net := _nullsec_net_session()
+	if net == null:
+		return
+	if _net_battle and is_instance_valid(_net_battle):
+		_net_battle.queue_free()
+	_net_battle = NetBattleSession.new()
+	_net_battle.name = "NetBattleSession"
+	add_child(_net_battle)
+	var payload: Dictionary = GameSession.pending_nullsec.duplicate(true)
+	if not payload.has("host_seat"):
+		payload["host_seat"] = int(payload.get("host_seat", 0))
+	_net_battle.setup(_nullsec_rng, net, payload)
+	if not net.authority_snapshot_received.is_connected(_on_net_authority_snapshot):
+		net.authority_snapshot_received.connect(_on_net_authority_snapshot)
+	if not net.battle_report_received.is_connected(_on_net_battle_report):
+		net.battle_report_received.connect(_on_net_battle_report)
+	if not net.anticheat_notice_received.is_connected(_on_net_anticheat_notice):
+		net.anticheat_notice_received.connect(_on_net_anticheat_notice)
+	if not _net_battle.round_jobs_complete.is_connected(_on_net_round_jobs_complete):
+		_net_battle.round_jobs_complete.connect(_on_net_round_jobs_complete)
+	if not _net_battle.anticheat_notify.is_connected(_on_net_anticheat_notice):
+		_net_battle.anticheat_notify.connect(_on_net_anticheat_notice)
+	if not _net_battle.spectate_stream.is_connected(_on_net_spectate_stream):
+		_net_battle.spectate_stream.connect(_on_net_spectate_stream)
+	_net_jobs_ready_for_titan = true
+
+
+func _on_net_authority_snapshot(snap: Dictionary) -> void:
+	if _net_battle:
+		_net_battle.apply_authority(snap, board)
+
+
+func _on_net_battle_report(report: Dictionary) -> void:
+	var line := "权威战报 · #%d %s → %s" % [
+		int(report.get("serial", 0)),
+		str(report.get("kind", "")),
+		str(report.get("result", "")),
+	]
+	_append_battle_log(line)
+
+
+func _on_net_anticheat_notice(message: String) -> void:
+	show_notice(str(message))
+	_append_battle_log(str(message))
+
+
+func _on_net_spectate_stream(snap: Dictionary) -> void:
+	if _nullsec_spectating and _net_battle:
+		_net_battle.apply_authority(snap, board)
+
+
+func _on_net_round_jobs_complete(_reports: Array) -> void:
+	_net_jobs_ready_for_titan = true
+
+
+func _tick_net_battle_enrich() -> void:
+	if _net_battle == null or board == null:
+		return
+	if not _net_battle.is_host:
+		return
+	var gold := int(match_ctrl.player_gold_earned) if match_ctrl else 0
+	_net_battle.enrich_and_broadcast(board, gold)
 
 func _spawn_nullsec_creeps_with_slide() -> void:
 	## Clear AI field ships from prior versus AI army when first entering nullsec PVE.
@@ -651,8 +743,8 @@ func _nullsec_lock_next_creeps() -> void:
 	var round_r := maxi(1, match_ctrl.battle_game_stage_count + 1)
 	_nullsec_pve.setup(_nullsec_rng, round_r)
 	_nullsec_pve.pick_task(round_r)
-	if not _nullsec_pve.is_pve_task():
-		## PVP round: opponent is a seat army, never a creep roster.
+	if _nullsec_pve.always_pvp or not _nullsec_pve.is_pve_task():
+		## Lowsec / PVP: opponent is a seat army, never a creep roster.
 		_nullsec_pve.creep_ai.locked_roster.clear()
 		return
 	var pop := match_ctrl.population_limit()
@@ -782,6 +874,9 @@ func begin_titan_kill_shake() -> void:
 
 func _on_titan_return_home(seat_id: int) -> void:
 	## After doomsday VFX +5s: guest returns to own home field (skybox + notice).
+	## Lowsec: already host-home — no hop / return sky switch (MULTIPLAYER_PVP §1).
+	if _nullsec_pve and _nullsec_pve.always_pvp:
+		return
 	var local_seat := int(GameSession.pending_nullsec.get("local_seat", -1))
 	if seat_id != local_seat:
 		return
@@ -897,27 +992,65 @@ func _spawn_map_env(mode: String) -> void:
 	_ensure_sky()
 
 func _attach_titan_hp_bar() -> void:
-	if _titan_berth == null or not is_instance_valid(_titan_berth):
-		return
-	_titan_hp_bar = _TITAN_BAR_SCRIPT.new() as Node3D
-	_titan_hp_bar.name = "TitanHpBar"
-	_titan_berth.add_child(_titan_hp_bar)
-	## Bar rides the stern anchor, so the offset is only clearance above the hull.
-	_titan_hp_bar.call("setup", float(DataStore.visual.get("titan_hp_bar_stern_margin", 2.0)))
+	## Both berths carry stern three-pipes (MULTIPLAYER_PVP §2.4a / §10).
+	_titan_hp_bar = _spawn_titan_hp_bar_on(_titan_berth)
+	_rival_titan_hp_bar = _spawn_titan_hp_bar_on(_rival_titan_berth)
 	_refresh_titan_hp_bar()
 
+func _spawn_titan_hp_bar_on(berth: TitanBerth) -> Node3D:
+	if berth == null or not is_instance_valid(berth):
+		return null
+	var old := berth.get_node_or_null("TitanHpBar")
+	if old:
+		old.queue_free()
+	var bar := _TITAN_BAR_SCRIPT.new() as Node3D
+	bar.name = "TitanHpBar"
+	berth.add_child(bar)
+	## Bar rides the stern anchor, so the offset is only clearance above the hull.
+	bar.call("setup", float(DataStore.visual.get("titan_hp_bar_stern_margin", 2.0)))
+	return bar
+
 func _refresh_titan_hp_bar() -> void:
-	if _titan_hp_bar == null or not is_instance_valid(_titan_hp_bar):
+	_apply_pipes_to_titan_bar(_titan_hp_bar, _local_titan_pipes())
+	_apply_pipes_to_titan_bar(_rival_titan_hp_bar, _rival_titan_pipes())
+	_refresh_berth_info_if_open()
+
+func _apply_pipes_to_titan_bar(bar: Node3D, pipes: TitanHpPipes) -> void:
+	if bar == null or not is_instance_valid(bar) or pipes == null:
 		return
-	var pipes := _local_titan_pipes()
-	if pipes:
-		_titan_hp_bar.call("refresh", pipes)
+	bar.call("refresh", pipes)
 
 func _local_titan_pipes() -> TitanHpPipes:
 	if _doomsday_resolver == null:
 		return null
 	var seat := int(GameSession.pending_nullsec.get("local_seat", -1))
 	return _doomsday_resolver.pipes_by_seat.get(seat) as TitanHpPipes
+
+func _rival_titan_pipes() -> TitanHpPipes:
+	if _doomsday_resolver == null:
+		return null
+	var local_seat := int(GameSession.pending_nullsec.get("local_seat", -1))
+	var rival_seat := _nullsec_rival_seat(local_seat)
+	if rival_seat < 0:
+		return null
+	return _doomsday_resolver.pipes_by_seat.get(rival_seat) as TitanHpPipes
+
+func _pipes_for_berth_unit(ship: ShipUnit) -> TitanHpPipes:
+	## Decorative berth hulls must show scoring pipes, not COMBAT hull tables (§10).
+	if ship == null or _doomsday_resolver == null:
+		return null
+	if _titan_berth and is_instance_valid(_titan_berth) and ship == _titan_berth.unit:
+		return _local_titan_pipes()
+	if _rival_titan_berth and is_instance_valid(_rival_titan_berth) and ship == _rival_titan_berth.unit:
+		return _rival_titan_pipes()
+	return null
+
+func _refresh_berth_info_if_open() -> void:
+	if _info_ship == null or not is_instance_valid(_info_ship):
+		return
+	if _pipes_for_berth_unit(_info_ship) == null:
+		return
+	_show_ship_info(_info_ship)
 
 func _attach_citadel_hp_bar(env: MapEnv) -> void:
 	if env == null or env.player_citadel == null:
@@ -938,6 +1071,7 @@ func _refresh_citadel_bar() -> void:
 	_citadel_hp_bar.call("refresh", float(match_ctrl.player_hp), float(match_ctrl.player_max_hp))
 
 func _ensure_sky() -> void:
+	## NEW_EDEN_REGIONS §2 deferred: old-version construction (amarr/gallente/wormhole.jpeg).
 	if get_node_or_null("WorldEnvironment"):
 		return
 	var we := WorldEnvironment.new()
@@ -945,16 +1079,7 @@ func _ensure_sky() -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
 	environment.background_color = Color(0.08, 0.1, 0.14)
-	var region_id := ""
-	if GameSession.pending_mode == "nullsec" and not GameSession.pending_nullsec.is_empty():
-		var asg: Dictionary = GameSession.pending_nullsec.get("assignments", {})
-		## Own home sky at kickoff — any other seat's is a scout hop away.
-		region_id = _seat_region(int(GameSession.pending_nullsec.get("local_seat", -1)))
-		if region_id == "" and not asg.is_empty():
-			region_id = str(asg.values()[0])
-	var sky_tex: Texture2D = null
-	if region_id != "":
-		sky_tex = SkyboxCatalog.load_sky_texture(region_id)
+	var sky_tex := SkyboxCatalog.load_legacy_panorama()
 	if sky_tex == null:
 		sky_tex = UiAssets.tex("res://assets/skyboxes/amarr.jpeg")
 	if sky_tex == null:
@@ -964,11 +1089,11 @@ func _ensure_sky() -> void:
 		var sky := Sky.new()
 		var mat := PanoramaSkyMaterial.new()
 		mat.panorama = sky_tex
-		mat.energy_multiplier = 1.0
+		mat.energy_multiplier = SkyboxCatalog.RACE_SKY_ENERGY
 		sky.sky_material = mat
 		environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.74, 0.76, 0.80)
+	environment.ambient_light_color = Color(0.72, 0.74, 0.78)
 	environment.ambient_light_energy = 0.70
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.tonemap_exposure = 0.86
@@ -980,23 +1105,15 @@ func _ensure_sky() -> void:
 	environment.glow_enabled = false
 	environment.ssao_enabled = false
 	ShipLook.apply_match_environment(environment)
+	if environment.sky and environment.sky.sky_material is PanoramaSkyMaterial:
+		(environment.sky.sky_material as PanoramaSkyMaterial).energy_multiplier = SkyboxCatalog.RACE_SKY_ENERGY
 	we.environment = environment
 	add_child(we)
 	_ensure_board_lights()
 
-func apply_region_skybox(region_id: String) -> void:
-	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
-	if we == null or we.environment == null:
-		return
-	var sky_tex := SkyboxCatalog.load_sky_texture(region_id)
-	if sky_tex == null:
-		return
-	var sky := Sky.new()
-	var mat := PanoramaSkyMaterial.new()
-	mat.panorama = sky_tex
-	sky.sky_material = mat
-	we.environment.background_mode = Environment.BG_SKY
-	we.environment.sky = sky
+func apply_region_skybox(_region_id: String) -> void:
+	## Deferred: do not swap panorama per region / race stem (NEW_EDEN_REGIONS §2).
+	return
 
 func _ensure_board_lights() -> void:
 	## Off-frustum lights — driven by visual.json ship_look (unity-standard default).
@@ -1113,6 +1230,12 @@ func _process(delta: float) -> void:
 	_tick_exp_hold(delta)
 	_tick_titan_intro(delta)
 	_tick_info_hold()
+	if GameSession.pending_mode == "nullsec" and match_ctrl \
+			and match_ctrl.stage == MatchController.Stage.BATTLE:
+		_tick_net_battle_enrich()
+		if _net_battle and _net_battle.is_host:
+			_net_jobs_ready_for_titan = _net_battle.host_sim == null \
+				or _net_battle.host_sim.pending_count() == 0
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -3586,12 +3709,20 @@ func _show_ship_info(ship: ShipUnit) -> void:
 		return
 	var data: Dictionary = DataStore.get_ship(ship.ship_id)
 	var st: Dictionary = DataStore.get_star_resolved(ship.ship_id, ship.star)
+	var shield_txt := "%.0f/%.0f" % [ship.shield_hp, ship.max_shield]
+	var armor_txt := "%.0f/%.0f" % [ship.armor_hp, ship.max_armor]
+	var structure_txt := "%.0f/%.0f" % [ship.structure_hp, ship.max_structure]
+	var pipes := _pipes_for_berth_unit(ship)
+	if pipes:
+		shield_txt = "%d/%d" % [pipes.shield, pipes.shield_max]
+		armor_txt = "%d/%d" % [pipes.armor, pipes.armor_max]
+		structure_txt = "%d/%d" % [pipes.structure, pipes.structure_max]
 	_fill_info_panel(
 		str(data.get("name", "?")),
 		ship.star,
-		"%.0f/%.0f" % [ship.shield_hp, ship.max_shield],
-		"%.0f/%.0f" % [ship.armor_hp, ship.max_armor],
-		"%.0f/%.0f" % [ship.structure_hp, ship.max_structure],
+		shield_txt,
+		armor_txt,
+		structure_txt,
 		ship.damage_dict_scaled(),
 		ship.attack_range,
 		data.get("fetter_ids", []),
@@ -3689,9 +3820,26 @@ func _show_nullsec_settlement(summary: String) -> void:
 		_settlement_panel = NullsecSettlementPanel.new()
 		hud.add_child(_settlement_panel)
 	_settlement_panel.confirmed.connect(func():
+		NullsecRejoinTicket.clear()
+		var net := _nullsec_net_session()
+		if net and net.has_method("clear_ghosts_after_settlement"):
+			net.clear_ghosts_after_settlement()
+		if net:
+			net.close()
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 	, CONNECT_ONE_SHOT)
-	_settlement_panel.show_rows([row])
+	## Full-seat settlement rows when multi-seat payload present.
+	var rows: Array = [row]
+	for s in seats:
+		if not bool(s.get("occupied", false)):
+			continue
+		if NullsecNetSession.is_spectate_race(str(s.get("titan_race", ""))):
+			continue
+		var snick := str(s.get("nick", "席位"))
+		if snick == nick:
+			continue
+		rows.append(NullsecSettlement.make_row(snick, 1, 0, "—", []))
+	_settlement_panel.show_rows(rows)
 	show_notice(summary)
 
 func _on_refresh_pressed() -> void:
@@ -4386,6 +4534,28 @@ func _on_host_ships_applied(mid_match: bool) -> void:
 	_refresh_hud()
 
 
+func _on_match_terminated_host_lost(reason: String) -> void:
+	NullsecRejoinTicket.clear()
+	show_notice(reason if reason != "" else "房主掉线，对局终止")
+	get_tree().paused = false
+	await get_tree().create_timer(1.2).timeout
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+
+func _on_nullsec_host_migrated(generation: int, new_host_seat: int) -> void:
+	GameSession.pending_nullsec["host_seat"] = new_host_seat
+	var net := _nullsec_net_session()
+	if net:
+		net.write_rejoin_ticket()
+		if _net_battle and _net_battle.has_method("refresh_host_role"):
+			_net_battle.refresh_host_role()
+	var local_seat := int(GameSession.pending_nullsec.get("local_seat", -1))
+	if new_host_seat == local_seat:
+		show_notice("你已成为新房主 · 继续主持对局（迁移 #%d）" % generation)
+	else:
+		show_notice("房主已迁移 · 席位 %d 接手（#%d）" % [new_host_seat + 1, generation])
+
+
 func _nullsec_net_session() -> NullsecNetSession:
 	if GameSession == null:
 		return null
@@ -4424,6 +4594,12 @@ func _confirm_save_named_slot() -> void:
 func _return_to_main_menu() -> void:
 	if match_ctrl and match_ctrl.has_method("force_autosave"):
 		match_ctrl.force_autosave()
+	if GameSession.pending_mode == "nullsec":
+		var net := _nullsec_net_session()
+		if net:
+			net.request_mark_local_ghost()
+			net.write_rejoin_ticket()
+			net.close()
 	_close_game_menu()
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
@@ -4513,9 +4689,17 @@ func _on_stage_changed_ui(stage: int) -> void:
 		_cam_pose_before_shop_valid = false
 		_cam_pose_before_shop.clear()
 		_apply_adaptive_hud_layout()
-		## PVP: prepare stayed home — teleport (if guest) then fight starts immediately (§4.1).
+		## PVP: nullsec guest hop (§4.1). Lowsec stays host-home — no teleport/sky switch.
 		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_pve.is_pve_task():
-			_nullsec_pvp_battle_teleport()
+			if not _nullsec_pve.always_pvp:
+				_nullsec_pvp_battle_teleport()
+			if _net_battle:
+				_net_jobs_ready_for_titan = false
+				_net_battle.on_local_battle_begin()
+		elif GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_pve.is_pve_task():
+			if _net_battle:
+				_net_jobs_ready_for_titan = false
+				_net_battle.on_local_battle_begin()
 		## Free / observe view keeps current pose across combat enter.
 		if not _camera_manual_pose():
 			_apply_camera_view_dict(_camera_primary_view())
@@ -4588,6 +4772,12 @@ func _nullsec_after_battle_into_prepare() -> void:
 		## PVE failures do not deduct titan HP — evaluate BEFORE locking next task.
 		var was_pve := _nullsec_pve.is_pve_task()
 		if not was_pve:
+			## Nullsec multi-seat: wait until host authority jobs flush before titan settle.
+			if _net_battle and _net_battle.is_host and not _net_jobs_ready_for_titan:
+				_nullsec_prepare_pending = true
+				return
+			if _net_battle and _net_battle.is_host:
+				_net_battle.take_round_reports()
 			_nullsec_resolve_pvp_doomsday(result)
 			if _doomsday_busy or _titan_kill_busy:
 				## Hold the next round until the beam (and any hull kill) has played out.
@@ -4626,14 +4816,22 @@ func _restore_local_home_skybox() -> void:
 
 func _nullsec_prepare_pvp_round() -> void:
 	## Prepare: clear creeps, rebuild rival army, stay on own skybox (MULTIPLAYER_PVP §4.1).
+	## Lowsec: always host-home — never roll guest hop (D-EAC-47).
 	var local_seat := int(GameSession.pending_nullsec.get("local_seat", 0))
 	var rival := _nullsec_rival_seat(local_seat)
 	_set_rival_berth_visible(true)
 	_restore_local_home_skybox()
 	_nullsec_pvp_guest = false
+	var lowsec := _nullsec_pve != null and _nullsec_pve.always_pvp
 	if rival < 0:
-		## Nobody to travel to — the round runs at home against whatever the AI seat fields.
 		show_notice("PVP 准备 · 本房无对手席位 · 本场主场进行")
+	elif lowsec:
+		## Host home field for both ends (sky stem = host seat region).
+		var host_seat := int(GameSession.pending_nullsec.get("host_seat", 0))
+		var host_region := _seat_region(host_seat)
+		if host_region != "":
+			apply_region_skybox(host_region)
+		show_notice("低安 · 对手席位 %02d · 房主主场开战" % (rival + 1))
 	else:
 		if _nullsec_rng:
 			_nullsec_pvp_guest = _nullsec_rng.roll_int(
@@ -4658,10 +4856,15 @@ func _nullsec_prepare_pvp_round() -> void:
 	## Rival seat is a titan holder too — its buff rides the same fetter rail.
 	board.set_titan_fetter_race(ShipUnit.TEAM_AI, _seat_titan_race(rival))
 	board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
+	if combat and _nullsec_rng:
+		combat.bind_match_rng(_nullsec_rng, maxi(1, int(match_ctrl.round_phase_value) if match_ctrl else 1))
 
 
 func _nullsec_pvp_battle_teleport() -> void:
-	## Prepare→Battle only: guest hops to rival skybox + cyno flash, then combat is already on.
+	## Prepare→Battle only: guest hops to rival skybox + cyno flash (nullsec §4.1).
+	## Lowsec callers must not reach here.
+	if _nullsec_pve and _nullsec_pve.always_pvp:
+		return
 	var local_seat := int(GameSession.pending_nullsec.get("local_seat", 0))
 	var rival := _nullsec_rival_seat(local_seat)
 	var land_team := ShipUnit.TEAM_PLAYER if _nullsec_pvp_guest else ShipUnit.TEAM_AI

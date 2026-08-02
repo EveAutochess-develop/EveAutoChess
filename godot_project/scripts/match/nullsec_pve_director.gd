@@ -13,6 +13,8 @@ var current_task: String = TASK_ELIMINATE
 var freighter_ship_id: int = 0
 var freighter_alive: bool = true
 var slide_done: bool = false
+## Lowsec room (D-EAC-47): every round is PVP — skip nullsec stage table.
+var always_pvp: bool = false
 
 func setup(rng: MatchRng, serial: int) -> void:
 	match_rng = rng
@@ -22,7 +24,8 @@ func setup(rng: MatchRng, serial: int) -> void:
 func pick_task(round_r: int) -> String:
 	## MULTIPLAYER_MATCH_FLOW §5: stage one R1 PVE · R2 PVE · R3 PVP · R4 PVE;
 	## from R5 on odd rounds are PVE and even rounds are PVP.
-	if is_pvp_round(round_r):
+	## Lowsec exception: always PVP (MATCH_FLOW §3 lead-in).
+	if always_pvp or is_pvp_round(round_r):
 		current_task = TASK_PVP
 		return current_task
 	if round_r % 2 == 0:

@@ -1,12 +1,14 @@
 extends AcceptDialog
 class_name NullsecLobbyPopup
 ## Main-menu multipath lobby: nick + public/private/history.
+## Join path: single room-share field (SEMI_ASYNC §7.2).
 
 signal request_match_public
 signal request_host_public
 signal request_host_private
-signal request_join_private(code: String)
+signal request_join_share(share: String)
 signal request_history
+signal request_copy_share
 
 const NICK_CFG := "user://player_settings.cfg"
 const NICK_SECTION := "nullsec"
@@ -16,7 +18,7 @@ const ENUM_DIR_KEY := "public_enum_dir"
 const IGNORE_IN_MATCH_KEY := "ignore_in_match"
 
 var _nick: LineEdit
-var _join_code: LineEdit
+var _share_edit: LineEdit
 var _status: Label
 var _ignore_in_match: CheckBox
 
@@ -64,19 +66,23 @@ func _ready() -> void:
 		if _gate_nick():
 			request_host_private.emit()
 	)
-	var join_row := HBoxContainer.new()
-	right.add_child(join_row)
-	_join_code = LineEdit.new()
-	_join_code.placeholder_text = "私密码"
-	_join_code.custom_minimum_size = Vector2(120, 0)
-	join_row.add_child(_join_code)
+	_add_btn(right, "复制房间串", func():
+		if _gate_nick():
+			request_copy_share.emit()
+	)
+	var share_row := HBoxContainer.new()
+	right.add_child(share_row)
+	_share_edit = LineEdit.new()
+	_share_edit.placeholder_text = "粘贴房间串（或 6 位私密短码）"
+	_share_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	share_row.add_child(_share_edit)
 	var join_btn := Button.new()
-	join_btn.text = "加入私密房间"
+	join_btn.text = "加入"
 	join_btn.pressed.connect(func():
 		if _gate_nick():
-			request_join_private.emit(_join_code.text.strip_edges())
+			request_join_share.emit(_share_edit.text.strip_edges())
 	)
-	join_row.add_child(join_btn)
+	share_row.add_child(join_btn)
 	_add_btn(right, "多人联机历史战绩", func(): request_history.emit())
 
 func _add_btn(parent: Control, text: String, cb: Callable) -> void:

@@ -44,6 +44,9 @@ func _make_box(col: Color) -> MeshInstance3D:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.albedo_color = col
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	## Match field ship bars: look_at billboards can flip the thin box; never cull the face.
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = true
 	mat.render_priority = 8
 	mi.material_override = mat
 	return mi
@@ -51,15 +54,17 @@ func _make_box(col: Color) -> MeshInstance3D:
 func refresh(pipes: TitanHpPipes) -> void:
 	if pipes == null or _fills.size() < 3:
 		return
+	visible = true
 	_set_pipe(0, float(pipes.shield), float(pipes.shield_max))
 	_set_pipe(1, float(pipes.armor), float(pipes.armor_max))
 	_set_pipe(2, float(pipes.structure), float(pipes.structure_max))
 
 func _set_pipe(idx: int, cur: float, mx: float) -> void:
 	var fill := _fills[idx]
+	var y := fill.position.y
 	var ratio := 0.0 if mx <= 0.0 else clampf(cur / mx, 0.0, 1.0)
 	fill.scale = Vector3(maxf(ratio, 0.001), 1, 1)
-	fill.position.x = -BAR_W * 0.5 + BAR_W * ratio * 0.5
+	fill.position = Vector3(-BAR_W * 0.5 + BAR_W * ratio * 0.5, y, 0.04)
 
 ## Berth hosts anchor the pipes over the stern; anything else keeps origin+offset.
 func _anchor() -> Vector3:
