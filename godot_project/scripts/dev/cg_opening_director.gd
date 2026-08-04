@@ -7,7 +7,7 @@ extends Node3D
 ## TQ length-on-X hulls need. Injecting private ids would drop that flag → titan flies sideways.
 ## 大航 = 超级航母（supercarrier），不是执政官级那种航母（carrier）。
 ## 俗称：万古=永恒/Aeon · 飞龙=Wyvern · 夜神=尼克斯/Nyx · 冥府=地狱/Hel。
-const RACES := [
+const RACES: Array[Dictionary] = [
 	{"id": 201, "race": "A", "race_id": "amarr", "model_key": "tq_titan_a", "sc_key": "tq_supercarrier_a", "sc_id": 971, "sc_name": "永恒级", "sc_alias": "万古", "sc_name_en": "Aeon", "name": "圣像级", "name_en": "Avatar", "color": Color(1.0, 0.82, 0.28), "sky_jpeg": "res://assets/skyboxes/races/ah1.jpg"},
 	{"id": 202, "race": "C", "race_id": "caldari", "model_key": "tq_titan_c", "sc_key": "tq_supercarrier_c", "sc_id": 972, "sc_name": "飞龙级", "sc_alias": "飞龙", "sc_name_en": "Wyvern", "name": "利维坦级", "name_en": "Leviathan", "color": Color(0.35, 0.72, 1.0), "sky_jpeg": "res://assets/skyboxes/races/ch1.jpg"},
 	{"id": 203, "race": "G", "race_id": "gallente", "model_key": "tq_titan_g", "sc_key": "tq_supercarrier_g", "sc_id": 973, "sc_name": "尼克斯级", "sc_alias": "夜神", "sc_name_en": "Nyx", "name": "厄勒布洛斯级", "name_en": "Erebus", "color": Color(0.35, 1.0, 0.55), "sky_jpeg": "res://assets/skyboxes/races/gh1.jpg"},
@@ -17,48 +17,48 @@ const RACES := [
 ## Beat grid measured from the mix, 86.54 bpm · first beat 0.680s · period 0.6933s.
 ## Source of truth: cg-director-studio/projects/eveautochess-opening/_review/opening_audio/beat_grid.json
 ## (regenerate with tools/analyze_beats.py). Every cut below is a grid index — never a hand-picked second.
-const BEAT_T0 := 0.680
-const BEAT_PERIOD := 0.6933
+const BEAT_T0: float = 0.680
+const BEAT_PERIOD: float = 0.6933
 
 ## Cut points, all on-grid (comment = beat index).
-const T_SLIDE0_END := 2.07 ## 2
-const T_SLIDE1_END := 4.84 ## 6
-const T_SLIDE2_END := 6.92 ## 9
+const T_SLIDE0_END: float = 2.07 ## 2
+const T_SLIDE1_END: float = 4.84 ## 6
+const T_SLIDE2_END: float = 6.92 ## 9
 ## VO clause windows (mix wall-clock). Full sentences still own these spans;
 ## on-screen Chinese is further split at every comma for shorter lines.
-const T_VO_S1_END := 13.3
-const T_VO_S2_END := 19.3
-const T_VO_S3_END := 34.0
-const T_VO_NAIL := 19.76 ## S3 start / titan-only nail picture
-const T_VO_NAIL_END := 23.66
-const T_TITAN_DEPART_END := 23.56 ## 33 — first race cut on beat; nail picture may overlap 0.1s
+const T_VO_S1_END: float = 13.3
+const T_VO_S2_END: float = 19.3
+const T_VO_S3_END: float = 34.0
+const T_VO_NAIL: float = 19.76 ## S3 start / titan-only nail picture
+const T_VO_NAIL_END: float = 23.66
+const T_TITAN_DEPART_END: float = 23.56 ## 33 — first race cut on beat; nail picture may overlap 0.1s
 ## Four races × two camera rounds. The former three-round duration is redistributed across
 ## eight shots; every boundary remains on the measured beat grid.
-const T_SHOWCASE_CUTS := [
+const T_SHOWCASE_CUTS: Array[float] = [
 	23.56, 28.41, 33.27, 37.42, 42.28,
 	47.13, 51.98, 56.14, 61.00,
 ] ## beat indices 33,40,47,53,60,67,74,80,87
-const T_SHOWCASE_END := 61.00
-const T_ASSEMBLE_END := 63.08 ## 90
-const T_FINALE_LOCK := 65.16 ## 93
-const T_FINALE_HOLD_END := 68.63 ## 98
-const T_FADE_END := 71.40 ## 102
+const T_SHOWCASE_END: float = 61.00
+const T_ASSEMBLE_END: float = 63.08 ## 90
+const T_FINALE_LOCK: float = 65.16 ## 93
+const T_FINALE_HOLD_END: float = 68.63 ## 98
+const T_FADE_END: float = 71.40 ## 102
 
-const TITAN_DISPLAY := 14.0 ## legacy label only — live size comes from long-axis curve
-const CAPITAL_DISPLAY := 5.5
-const LIGHT_DISPLAY := 2.2
+const TITAN_DISPLAY: float = 14.0 ## legacy label only — live size comes from long-axis curve
+const CAPITAL_DISPLAY: float = 5.5
+const LIGHT_DISPLAY: float = 2.2
 ## Titans were only 12.6 wu against 10.73-wu supercarriers, so they read as the same
 ## tonnage. Keep the nonlinear curve, but give the titan dogma axis and clamp enough
 ## headroom to land near 20 wu. 大航 (supercarrier) dogmas are raised separately so they
 ## stay clearly between titan and freighter/carrier rather than vanishing into the midfleet.
-const CG_SCALE_MAX_MUL := 7.5
-const CG_TITAN_LONG_AXIS := 5000.0
-const CG_SC_LONG_AXIS := 3200.0
+const CG_SCALE_MAX_MUL: float = 7.5
+const CG_TITAN_LONG_AXIS: float = 5000.0
+const CG_SC_LONG_AXIS: float = 3200.0
 ## User pass: expand the current 1.14 cloud by another 1.5×.
-const CG_FLEET_SPREAD_MUL := 1.71
+const CG_FLEET_SPREAD_MUL: float = 1.71
 ## Hulls per ship type in a race fleet (大航 included). Kept at 1 so a missing
 ## class is countable on screen; raise for a denser parade once the roster is verified.
-const HULLS_PER_TYPE := 1
+const HULLS_PER_TYPE: int = 1
 ## Bow parsing (why titans used to fly sideways):
 ##   ShipUnit._apply_model_orientation lays the hull length onto local Z. visual.json keeps
 ##   `ship_model_auto_orient: false` because Echoes hulls are already length-on-Z; TQ hulls
@@ -67,56 +67,56 @@ const HULLS_PER_TYPE := 1
 ##   while a TQ hull comes out back-to-front and needs yaw PI — same convention as TitanBerth.
 ## _orient_bow_forward() re-measures the world AABB afterwards and adds 90° if a hull is still
 ## length-on-X, so a missing content flag can never put a hull broadside to its heading again.
-const BOW_YAW_ECHOES := 0.0
-const BOW_YAW_TQ := PI
+const BOW_YAW_ECHOES: float = 0.0
+const BOW_YAW_TQ: float = PI
 ## Each race cluster spans roughly 20 wu, so 18 wu arms let the four fleets interpenetrate.
-const CROSS_RADIUS := 51.0
+const CROSS_RADIUS: float = 51.0
 ## Capitals sit in a wider cloud so height layers read from side / high / low cameras.
-const FLEET_RING_MIN := 8.0
-const FLEET_RING_MAX := 18.0
-const FLEET_Y_CAPITAL := Vector2(-7.0, 9.0)
+const FLEET_RING_MIN: float = 8.0
+const FLEET_RING_MAX: float = 18.0
+const FLEET_Y_CAPITAL: Vector2 = Vector2(-7.0, 9.0)
 ## Guaranteed review seats. 大航 (supercarrier) gets the most readable slot — abeam the
 ## titan, elevated, clear of freighter/carrier. These are final positions:
 ## `_spread_fleets_after_titan_scale` leaves them untouched.
-const CAPITAL_REVIEW_POS := {
+const CAPITAL_REVIEW_POS: Dictionary = {
 	"supercarrier": Vector3(28.0, 5.0, 0.0),
 	"freighter": Vector3(-26.0, -5.0, -8.0),
 	"carrier": Vector3(-24.0, 4.0, 14.0),
 	"force_auxiliary": Vector3(24.0, -4.0, 14.0),
 	"dreadnought": Vector3(0.0, -9.0, 22.0),
 }
-const PARADE_DIRECTION := Vector3(0.0, 0.0, -1.0)
-const PARADE_SPEED := 4.2
+const PARADE_DIRECTION: Vector3 = Vector3(0.0, 0.0, -1.0)
+const PARADE_SPEED: float = 4.2
 ## Titan-only 目送: enter from below-diagonal off-screen, recede along −Z.
-const TITAN_DEPART_SPEED := 3.6
+const TITAN_DEPART_SPEED: float = 3.6
 ## Lane half-gap must exceed display titan size or the four hulls visually collide.
-const TITAN_LANE_X := [-30.0, -10.0, 10.0, 30.0]
-const TITAN_LANE_Y := [-0.6, 0.8, -0.4, 1.0]
+const TITAN_LANE_X: Array[float] = [-30.0, -10.0, 10.0, 30.0]
+const TITAN_LANE_Y: Array[float] = [-0.6, 0.8, -0.4, 1.0]
 ## Depart path: start past/below the locked camera so hulls rise into frame then shrink away.
-const TITAN_DEPART_START := Vector3(4.0, -16.0, 58.0)
-const TITAN_DEPART_CAM_POS := Vector3(10.0, 16.0, 40.0)
+const TITAN_DEPART_START: Vector3 = Vector3(4.0, -16.0, 58.0)
+const TITAN_DEPART_CAM_POS: Vector3 = Vector3(10.0, 16.0, 40.0)
 ## Ribbon trails are cheap; rebuild ~20 Hz so the head stays glued without SurfaceTool cost.
-const TRAIL_REBUILD_S := 0.05
-const TRAIL_REBUILD_WARM_S := 0.08
+const TRAIL_REBUILD_S: float = 0.05
+const TRAIL_REBUILD_WARM_S: float = 0.08
 ## Frigate/destroyer: tight on titan envelope sphere; revised speed = previous ×0.5.
-const LIGHT_ORBIT_MARGIN := 0.55
-const LIGHT_ORBIT_Z_FRAC := 0.22
-const LIGHT_SPEED_MULT_MAX := 0.5
-const LIGHT_ORBIT_RADIUS_MUL := 1.5
+const LIGHT_ORBIT_MARGIN: float = 0.55
+const LIGHT_ORBIT_Z_FRAC: float = 0.22
+const LIGHT_SPEED_MULT_MAX: float = 0.5
+const LIGHT_ORBIT_RADIUS_MUL: float = 1.5
 ## Keep the same composition after the user-requested 1.5× spatial expansion.
-const FINALE_ENTRY_RADIUS := 123.0
+const FINALE_ENTRY_RADIUS: float = 123.0
 ## Vertical framing must clear CROSS_RADIUS plus one cluster radius at fov 48°.
-const FINALE_TOP_HEIGHT := 183.0
-const RACE_ORBIT_RAD_PER_S := 0.22
-const RACE_ORBIT_RADIUS := 26.0
-const RACE_ORBIT_HEIGHT := 3.0
+const FINALE_TOP_HEIGHT: float = 183.0
+const RACE_ORBIT_RAD_PER_S: float = 0.22
+const RACE_ORBIT_RADIUS: float = 26.0
+const RACE_ORBIT_HEIGHT: float = 3.0
 ## Showcase only — four-titan 目送 keeps its tighter locked cam.
-const SHOWCASE_CAM_DISTANCE := 57.0
+const SHOWCASE_CAM_DISTANCE: float = 57.0
 ## Distance floor only; the live distance also has to fit the measured cluster sphere.
-const SHOWCASE_FRAME_MARGIN := 1.12
-const FINALE_ORBIT_RAD_PER_S := 0.055
-const FINALE_ORBIT_RADIUS := 46.0
-const FINALE_ORBIT_HEIGHT := 24.0
+const SHOWCASE_FRAME_MARGIN: float = 1.12
+const FINALE_ORBIT_RAD_PER_S: float = 0.055
+const FINALE_ORBIT_RADIUS: float = 46.0
+const FINALE_ORBIT_HEIGHT: float = 24.0
 
 @export var auto_play: bool = true
 ## Content clock vs wall clock. 1.0 = realtime. Keep at 1.0 unless debugging hitch budgets.
@@ -135,23 +135,23 @@ enum Beat {
 
 var _t: float = 0.0
 var _playing: bool = true
-var _cam: Camera3D
-var _cam_base_pos := Vector3(0, 10.0, 36.0)
-var _cam_base_pitch_deg := -14.0
-var _cam_base_yaw_deg := 0.0
-var _world: Node3D
-var _env_node: WorldEnvironment
-var _env: Environment
-var _hud: Label
-var _pause_btn: Button
-var _subtitle: Label
-var _slide_layer: CanvasLayer
-var _slide_root: Control
-var _audio: AudioStreamPlayer
-var _race_roots: Array = [] ## per-race Node3D holding titan+fleet
-var _tumblers: Array = [] ## {node, axis, speed}
-var _orbiters: Array = [] ## frigate/destroyer holders on bow-vertical rings
-var _trail_units: Array = [] ## {unit, race_i, group, trail}
+var _cam: Camera3D = null
+var _cam_base_pos: Vector3 = Vector3(0, 10.0, 36.0)
+var _cam_base_pitch_deg: float = -14.0
+var _cam_base_yaw_deg: float = 0.0
+var _world: Node3D = null
+var _env_node: WorldEnvironment = null
+var _env: Environment = null
+var _hud: Label = null
+var _pause_btn: Button = null
+var _subtitle: Label = null
+var _slide_layer: CanvasLayer = null
+var _slide_root: Control = null
+var _audio: AudioStreamPlayer = null
+var _race_roots: Array[Dictionary] = [] ## per-race Node3D holding titan+fleet
+var _tumblers: Array[Dictionary] = [] ## {node, axis, speed}
+var _orbiters: Array[Dictionary] = [] ## frigate/destroyer holders on bow-vertical rings
+var _trail_units: Array[Dictionary] = [] ## {unit, race_i, group, trail}
 var _cross_placed: bool = false
 var _last_beat: int = -1
 var _last_active_race: int = -1
@@ -159,8 +159,8 @@ var _cam_orbit_yaw: float = 0.0
 var _free_cam: bool = false
 var _ready_to_play: bool = false
 var _prepared_showcase_slot: int = -1
-var _titan_orbit_radius: Array = [8.0, 8.0, 8.0, 8.0]
-var _race_cluster_radius: Array = []
+var _titan_orbit_radius: Array[float] = [8.0, 8.0, 8.0, 8.0]
+var _race_cluster_radius: Array[float] = []
 ## Offline movie pass (`-- --cg-render` / CG_RENDER=1): content 1×, hide HUD, quit at end.
 var _offline_render: bool = false
 var _render_quit_armed: bool = false
@@ -183,7 +183,7 @@ func _ready() -> void:
 	_show_slide(Beat.SLIDE_GODOT)
 	_build_hud()
 	_build_audio()
-	for i in RACES.size():
+	for i: int in RACES.size():
 		_race_roots.append(_spawn_race_vignette(RACES[i], i))
 	await _normalize_all()
 	_align_trail_nozzles()
@@ -206,8 +206,8 @@ func _ready() -> void:
 
 func _detect_offline_render() -> void:
 	## User args after `--`: `Godot … scene.tscn -- --cg-render`
-	for a in OS.get_cmdline_user_args():
-		var s := str(a)
+	for a: String in OS.get_cmdline_user_args():
+		var s: String = str(a)
 		if s == "--cg-render" or s.begins_with("--cg-render="):
 			_offline_render = true
 	if OS.get_environment("CG_RENDER") == "1":
@@ -224,9 +224,9 @@ func _apply_cg_scale_profile() -> void:
 	if DataStore == null:
 		return
 	DataStore.visual["ship_scale_max_mul"] = CG_SCALE_MAX_MUL
-	DataStore.visual["ship_scale_curve_power"] = float(DataStore.visual.get("ship_scale_curve_power", 0.5))
+	DataStore.visual["ship_scale_curve_power"] = TypedVariant.as_float(DataStore.visual.get("ship_scale_curve_power", 0.5), 0.5)
 	print("[CgOpeningDirector] scale profile max_mul=%.1f power=%.2f (nonlinear long-axis)" % [
-		CG_SCALE_MAX_MUL, float(DataStore.visual.get("ship_scale_curve_power", 0.5))
+		CG_SCALE_MAX_MUL, TypedVariant.as_float(DataStore.visual.get("ship_scale_curve_power", 0.5), 0.5)
 	])
 
 
@@ -249,17 +249,22 @@ func _prerender_all() -> void:
 	## compilation and mesh upload — that hitch is what threw the engine wake off its path.
 	## Culled objects compile nothing, so the parade pose (all four fleets on one spot) is
 	## staged in front of a temporary wide vantage and every hull really is rasterised.
-	_apply_motion_at(float(T_SHOWCASE_CUTS[0]))
-	for i in _race_roots.size():
+	_apply_motion_at(T_SHOWCASE_CUTS[0])
+	for i: int in _race_roots.size():
 		var entry: Dictionary = _race_roots[i]
 		_set_entry_contents(entry, true, true, true, true)
-	var cam_pose := _cam.global_transform
-	var cluster: Vector3 = (_race_roots[0]["root"] as Node3D).global_position
+	var cam_pose: Transform3D = _cam.global_transform
+	var cluster: Vector3 = Vector3.ZERO
+	if _race_roots.size() > 0:
+		var entry0: Dictionary = _race_roots[0]
+		var root0_v: Variant = entry0.get("root")
+		if root0_v is Node3D:
+			cluster = root0_v.global_position
 	_cam.global_position = cluster + Vector3(0.0, 26.0, 62.0)
 	_cam.look_at(cluster, Vector3.UP)
-	for _i in range(6):
+	for _i: int in range(6):
 		await get_tree().process_frame
-	for i in _race_roots.size():
+	for i: int in _race_roots.size():
 		var entry: Dictionary = _race_roots[i]
 		_set_entry_contents(entry, false, false, false, false)
 	_cam.global_transform = cam_pose
@@ -273,10 +278,13 @@ func _prerender_all() -> void:
 func _report_wake_readiness(label: String) -> void:
 	## A cut that opens on stubby plumes is the "拖尾被重置" bug — surface it in the log
 	## instead of waiting to spot it in a render.
-	var grown := 0
-	var empty := 0
-	for item in _trail_units:
-		var trail: EngineBoosterTrail = item["trail"]
+	var grown: int = 0
+	var empty: int = 0
+	for item: Dictionary in _trail_units:
+		var trail_v: Variant = item.get("trail")
+		var trail: EngineBoosterTrail = null
+		if trail_v is EngineBoosterTrail:
+			trail = trail_v
 		if trail == null or not is_instance_valid(trail):
 			continue
 		if trail.wake_sample_count() >= 3:
@@ -287,8 +295,11 @@ func _report_wake_readiness(label: String) -> void:
 
 
 func _clear_wakes() -> void:
-	for item in _trail_units:
-		var trail: EngineBoosterTrail = item["trail"]
+	for item: Dictionary in _trail_units:
+		var trail_v: Variant = item.get("trail")
+		var trail: EngineBoosterTrail = null
+		if trail_v is EngineBoosterTrail:
+			trail = trail_v
 		if trail != null and is_instance_valid(trail):
 			trail.clear_wake()
 
@@ -296,7 +307,7 @@ func _clear_wakes() -> void:
 func _apply_draft_render_profile() -> void:
 	## GameSession forces 3× 3D supersample for the game; at 60 hulls that starves the
 	## frame budget and the picture lags the audio clock. The draft renders 1:1, no MSAA.
-	var root := get_tree().root
+	var root: Window = get_tree().root
 	if root == null:
 		return
 	root.scaling_3d_scale = 1.0
@@ -310,8 +321,8 @@ func total_duration() -> float:
 
 
 func _showcase_slot_at(t: float) -> int:
-	for i in range(T_SHOWCASE_CUTS.size() - 1):
-		if t < float(T_SHOWCASE_CUTS[i + 1]):
+	for i: int in range(T_SHOWCASE_CUTS.size() - 1):
+		if t < T_SHOWCASE_CUTS[i + 1]:
 			return i
 	return T_SHOWCASE_CUTS.size() - 2
 
@@ -351,7 +362,7 @@ func _process(delta: float) -> void:
 			_t = minf(_t + delta, total_duration())
 		elif _audio and _audio.stream and _audio.playing:
 			## get_playback_position is still content-seconds; pitch_scale slows how fast it advances.
-			var audio_clock := _audio.get_playback_position()
+			var audio_clock: float = _audio.get_playback_position()
 			audio_clock += AudioServer.get_time_since_last_mix()
 			audio_clock -= AudioServer.get_output_latency()
 			_t = clampf(audio_clock, 0.0, total_duration())
@@ -371,8 +382,11 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		var k: Key = event.keycode
+	if event is InputEventKey:
+		var key_ev: InputEventKey = event as InputEventKey
+		if not key_ev.pressed or key_ev.echo:
+			return
+		var k: Key = key_ev.keycode
 		if k == KEY_SPACE:
 			_toggle_play_pause()
 			get_viewport().set_input_as_handled()
@@ -399,12 +413,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_capture()
 			get_viewport().set_input_as_handled()
 		elif k >= KEY_1 and k <= KEY_9:
-			var jumps := [
+			var jumps: Array[float] = [
 				0.0, T_SLIDE0_END, T_SLIDE1_END, T_SLIDE2_END,
 				T_TITAN_DEPART_END, T_SHOWCASE_CUTS[4],
 				T_SHOWCASE_CUTS[6], T_SHOWCASE_END, T_FINALE_LOCK,
 			]
-			var idx := int(k - KEY_1)
+			var idx: int = int(k - KEY_1)
 			if idx < jumps.size():
 				_t = jumps[idx]
 				_sync_audio()
@@ -436,7 +450,7 @@ func _sync_audio() -> void:
 
 
 func _apply_timeline(t: float) -> void:
-	var beat := beat_at(t)
+	var beat: int = beat_at(t)
 	_show_slide(beat)
 	if beat != _last_beat:
 		_on_beat_enter(beat, t)
@@ -447,7 +461,7 @@ func _apply_timeline(t: float) -> void:
 	if _hud:
 		_hud.visible = not _offline_render
 		if not _offline_render:
-			var drift := t - (_audio.get_playback_position() if _audio and _audio.playing else t)
+			var drift: float = t - (_audio.get_playback_position() if _audio and _audio.playing else t)
 			_hud.text = "CG draft  t=%.1f/%.1f  ×%.2f  beat=%s  %d fps  a/v %+.2fs | Space R [] 1-9 F5 | Alt+WASD" % [
 				t, total_duration(), preview_speed, Beat.keys()[beat], Engine.get_frames_per_second(), drift
 			]
@@ -459,17 +473,24 @@ func _apply_timeline(t: float) -> void:
 func _show_slide(beat: int) -> void:
 	if _slide_root == null:
 		return
-	var show_ui := beat == Beat.SLIDE_GODOT or beat == Beat.SLIDE_JOINT or beat == Beat.SLIDE_FAN
+	var show_ui: bool = beat == Beat.SLIDE_GODOT or beat == Beat.SLIDE_JOINT or beat == Beat.SLIDE_FAN
 	_slide_root.visible = show_ui
-	for c in _slide_root.get_children():
-		c.visible = false
+	for c: Node in _slide_root.get_children():
+		if c is CanvasItem:
+			(c as CanvasItem).visible = false
 	match beat:
 		Beat.SLIDE_GODOT:
-			_slide_root.get_node("SlideGodot").visible = true
+			var slide_godot_v: Node = _slide_root.get_node("SlideGodot")
+			if slide_godot_v is CanvasItem:
+				(slide_godot_v as CanvasItem).visible = true
 		Beat.SLIDE_JOINT:
-			_slide_root.get_node("SlideJoint").visible = true
+			var slide_joint_v: Node = _slide_root.get_node("SlideJoint")
+			if slide_joint_v is CanvasItem:
+				(slide_joint_v as CanvasItem).visible = true
 		Beat.SLIDE_FAN:
-			_slide_root.get_node("SlideFan").visible = true
+			var slide_fan_v: Node = _slide_root.get_node("SlideFan")
+			if slide_fan_v is CanvasItem:
+				(slide_fan_v as CanvasItem).visible = true
 
 
 func _update_subtitle(_beat: int, t: float) -> void:
@@ -477,7 +498,7 @@ func _update_subtitle(_beat: int, t: float) -> void:
 		return
 	## One on-screen clause per comma; timing stays inside the original S1/S2/S3 windows
 	## and is weighted by character count so short clauses do not linger.
-	var line := _subtitle_clause_at(t)
+	var line: String = _subtitle_clause_at(t)
 	_subtitle.visible = line != ""
 	if _subtitle.visible:
 		_subtitle.text = line
@@ -486,9 +507,9 @@ func _update_subtitle(_beat: int, t: float) -> void:
 func _subtitle_clause_at(t: float) -> String:
 	if t < 0.0 or t >= T_VO_S3_END:
 		return ""
-	var text := ""
-	var t0 := 0.0
-	var t1 := T_VO_S1_END
+	var text: String = ""
+	var t0: float = 0.0
+	var t1: float = T_VO_S1_END
 	if t < T_VO_S1_END:
 		text = vo_s1
 	elif t < T_VO_S2_END:
@@ -499,18 +520,18 @@ func _subtitle_clause_at(t: float) -> String:
 		text = vo_s3
 		t0 = T_VO_S2_END
 		t1 = T_VO_S3_END
-	var clauses := _split_subtitle_clauses(text)
+	var clauses: PackedStringArray = _split_subtitle_clauses(text)
 	if clauses.is_empty():
 		return ""
 	var weights: Array[float] = []
-	var total_w := 0.0
-	for c in clauses:
-		var w := float(maxi(str(c).length(), 1))
+	var total_w: float = 0.0
+	for c: String in clauses:
+		var w: float = float(maxi(str(c).length(), 1))
 		weights.append(w)
 		total_w += w
-	var u := clampf((t - t0) / maxf(0.01, t1 - t0), 0.0, 0.9999)
-	var acc := 0.0
-	for i in clauses.size():
+	var u: float = clampf((t - t0) / maxf(0.01, t1 - t0), 0.0, 0.9999)
+	var acc: float = 0.0
+	for i: int in clauses.size():
 		acc += weights[i] / total_w
 		if u < acc:
 			return str(clauses[i])
@@ -519,10 +540,10 @@ func _subtitle_clause_at(t: float) -> String:
 
 func _split_subtitle_clauses(text: String) -> PackedStringArray:
 	## Strict comma split: each "，" / "," ends one on-screen line.
-	var raw := text.replace(",", "，").split("，", false)
+	var raw: PackedStringArray = text.replace(",", "，").split("，", false)
 	var out: PackedStringArray = PackedStringArray()
-	for part in raw:
-		var s := str(part).strip_edges()
+	for part: String in raw:
+		var s: String = str(part).strip_edges()
 		if s != "":
 			out.append(s)
 	return out
@@ -541,7 +562,7 @@ func _on_beat_enter(beat: int, _t_enter: float) -> void:
 			## No clear_wake here — capital wakes already warmed on the continuous parade path.
 			_set_sky_race(RACES[0])
 		Beat.RACE_C, Beat.RACE_G, Beat.RACE_M:
-			var ri := beat - Beat.RACE_A
+			var ri: int = beat - Beat.RACE_A
 			_set_sky_race(RACES[ri])
 		Beat.ASSEMBLE:
 			_ensure_cross_layout()
@@ -565,11 +586,11 @@ func _on_beat_enter(beat: int, _t_enter: float) -> void:
 
 func _update_world_for_beat(beat: int, t: float) -> void:
 	## Visibility + process gating. Motion and camera are absolute functions of audio time.
-	var showcase := t >= float(T_SHOWCASE_CUTS[0]) and t < T_SHOWCASE_END
-	var slot := _showcase_slot_at(t) if showcase else -1
-	var active_race := slot % RACES.size() if showcase else -1
-	var next_slot := slot + 1
-	var next_race := next_slot % RACES.size() if showcase and next_slot < T_SHOWCASE_CUTS.size() - 1 else -1
+	var showcase: bool = t >= T_SHOWCASE_CUTS[0] and t < T_SHOWCASE_END
+	var slot: int = _showcase_slot_at(t) if showcase else -1
+	var active_race: int = slot % RACES.size() if showcase else -1
+	var next_slot: int = slot + 1
+	var _next_race: int = next_slot % RACES.size() if showcase and next_slot < T_SHOWCASE_CUTS.size() - 1 else -1
 	_last_active_race = active_race
 	if showcase:
 		_prepared_showcase_slot = next_slot
@@ -578,17 +599,20 @@ func _update_world_for_beat(beat: int, t: float) -> void:
 	## second round therefore looks identical to the one that never left.
 	if beat != Beat.FADE and beat != Beat.DONE:
 		_set_trails_emitting_policy(-1, -1, true, true)
-	for i in _race_roots.size():
-		var entry: Variant = _race_roots[i]
-		if typeof(entry) != TYPE_DICTIONARY or not entry.has("root"):
+	for i: int in _race_roots.size():
+		var entry_v: Variant = _race_roots[i]
+		if typeof(entry_v) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = entry_v
+		if not entry.has("root"):
 			continue
 		match beat:
 			Beat.SLIDE_GODOT, Beat.SLIDE_JOINT, Beat.SLIDE_FAN, Beat.TITAN_DEPART:
 				## Hidden fleets still run so their wakes exist at the first race cut.
-				var titan_only := beat == Beat.TITAN_DEPART
+				var titan_only: bool = beat == Beat.TITAN_DEPART
 				_set_entry_contents(entry, titan_only, titan_only, false, true)
 			Beat.RACE_A, Beat.RACE_C, Beat.RACE_G, Beat.RACE_M:
-				var active := i == active_race
+				var active: bool = i == active_race
 				_set_entry_contents(entry, active, active, active, true)
 			Beat.ASSEMBLE, Beat.FINALE_LOCK, Beat.FINALE_HOLD, Beat.FADE, Beat.DONE:
 				_set_entry_contents(entry, true, true, true, false)
@@ -596,31 +620,46 @@ func _update_world_for_beat(beat: int, t: float) -> void:
 				_set_entry_contents(entry, false, false, false, true)
 	if beat == Beat.FADE or beat == Beat.DONE:
 		if _env:
-			var fade_u := clampf((t - T_FINALE_HOLD_END) / maxf(0.01, T_FADE_END - T_FINALE_HOLD_END), 0.0, 1.0)
+			var fade_u: float = clampf((t - T_FINALE_HOLD_END) / maxf(0.01, T_FADE_END - T_FINALE_HOLD_END), 0.0, 1.0)
 			_env.adjustment_enabled = true
 			_env.adjustment_brightness = lerpf(1.0, 0.05, fade_u)
 
 
 func _set_entry_contents(entry: Dictionary, root_visible: bool, titan_visible: bool, fleet_visible: bool, warming: bool) -> void:
-	_set_node_active(entry["root"] as Node3D, root_visible, root_visible or warming)
-	_set_node_active(entry["titan_holder"] as Node3D, titan_visible, titan_visible or warming)
-	for f in entry["fleet"]:
-		_set_node_active(f["holder"] as Node3D, fleet_visible, fleet_visible or warming)
+	var root_v: Variant = entry.get("root")
+	if root_v is Node3D:
+		var root: Node3D = root_v
+		_set_node_active(root, root_visible, root_visible or warming)
+	var titan_holder_v: Variant = entry.get("titan_holder")
+	if titan_holder_v is Node3D:
+		var titan_holder: Node3D = titan_holder_v
+		_set_node_active(titan_holder, titan_visible, titan_visible or warming)
+	var fleet_v: Variant = entry.get("fleet")
+	if fleet_v is Array:
+		for f_v: Variant in fleet_v:
+			if f_v is Dictionary:
+				var f: Dictionary = f_v
+				var holder_v: Variant = f.get("holder")
+				if holder_v is Node3D:
+					var escort_holder: Node3D = holder_v
+					_set_node_active(escort_holder, fleet_visible, fleet_visible or warming)
 
 
 func _set_node_active(node: Node3D, vis: bool, run: bool) -> void:
 	## Disabled subtrees skip ShipUnit and trail _process — the only way 60 hulls hold 60 fps.
 	node.visible = vis
-	var mode := Node.PROCESS_MODE_INHERIT if run else Node.PROCESS_MODE_DISABLED
+	var mode: Node.ProcessMode = Node.PROCESS_MODE_INHERIT if run else Node.PROCESS_MODE_DISABLED
 	if node.process_mode != mode:
 		node.process_mode = mode
 
 
 func _show_all_races(vis: bool) -> void:
-	for entry in _race_roots:
-		if typeof(entry) != TYPE_DICTIONARY or not entry.has("root"):
+	for entry: Dictionary in _race_roots:
+		if not entry.has("root"):
 			continue
-		(entry["root"] as Node3D).visible = vis
+		var root_v: Variant = entry.get("root")
+		if root_v is Node3D:
+			root_v.visible = vis
 
 
 func _apply_motion_at(t: float) -> void:
@@ -629,13 +668,17 @@ func _apply_motion_at(t: float) -> void:
 		## Each race keeps its own permanent lane offset — never collapse holders to the
 		## origin (that read as titans slamming into an invisible wall). Roots also never
 		## teleport between depart and showcase, so titan wakes stay continuous.
-		var base := _continuous_parade_pos(t)
-		for i in _race_roots.size():
+		var base: Vector3 = _continuous_parade_pos(t)
+		for i: int in _race_roots.size():
 			var entry: Dictionary = _race_roots[i]
-			var root: Node3D = entry["root"]
-			root.position = base + Vector3(float(TITAN_LANE_X[i]), float(TITAN_LANE_Y[i]), 0.0)
-			root.rotation = Vector3.ZERO
-			(entry["titan_holder"] as Node3D).position = Vector3.ZERO
+			var root_v: Variant = entry.get("root")
+			if root_v is Node3D:
+				var root: Node3D = root_v
+				root.position = base + Vector3(TITAN_LANE_X[i], TITAN_LANE_Y[i], 0.0)
+				root.rotation = Vector3.ZERO
+			var titan_holder_v: Variant = entry.get("titan_holder")
+			if titan_holder_v is Node3D:
+				titan_holder_v.position = Vector3.ZERO
 	else:
 		_apply_finale_entry_at(t)
 
@@ -644,10 +687,10 @@ func _continuous_parade_pos(t: float) -> Vector3:
 	## Constant −Z velocity, running from t=0 so the hulls are already travelling while the
 	## slides cover them. A standing start at the 目送 cut gave the first shot a wake that
 	## visibly grew from zero; the pre-roll means it is already full length at cut-in.
-	var depart_t := clampf(t, 0.0, float(T_SHOWCASE_CUTS[0]))
-	var pos := _parade_origin() + PARADE_DIRECTION * TITAN_DEPART_SPEED * depart_t
-	if t > float(T_SHOWCASE_CUTS[0]):
-		pos += PARADE_DIRECTION * PARADE_SPEED * (t - float(T_SHOWCASE_CUTS[0]))
+	var depart_t: float = clampf(t, 0.0, T_SHOWCASE_CUTS[0])
+	var pos: Vector3 = _parade_origin() + PARADE_DIRECTION * TITAN_DEPART_SPEED * depart_t
+	if t > T_SHOWCASE_CUTS[0]:
+		pos += PARADE_DIRECTION * PARADE_SPEED * (t - T_SHOWCASE_CUTS[0])
 	return pos
 
 
@@ -662,22 +705,23 @@ func _apply_light_orbits(t: float) -> void:
 	## tangential speed is capped at LIGHT_SPEED_MULT_MAX × PARADE_SPEED.
 	if t >= T_SHOWCASE_END:
 		return
-	var clock := maxf(0.0, t - T_SLIDE2_END)
-	for item in _orbiters:
-		var holder: Node3D = item.get("holder")
+	var clock: float = maxf(0.0, t - T_SLIDE2_END)
+	for item: Dictionary in _orbiters:
+		var holder_v: Variant = item.get("holder")
+		var holder: Node3D = holder_v if holder_v is Node3D else null
 		if holder == null or not is_instance_valid(holder):
 			continue
-		var race_i := int(item["race_i"])
-		var base_r: float = float(_titan_orbit_radius[race_i]) if race_i < _titan_orbit_radius.size() else 8.0
-		var r: float = base_r * LIGHT_ORBIT_RADIUS_MUL + float(item["r_extra"]) * LIGHT_ORBIT_RADIUS_MUL
-		var v_cap := PARADE_SPEED * LIGHT_SPEED_MULT_MAX
-		var omega := minf(float(item["omega_want"]), v_cap / maxf(r, 0.5))
-		var ang: float = float(item["phase0"]) + omega * clock
-		holder.position = Vector3(cos(ang) * r, sin(ang) * r, float(item["z"]))
+		var race_i: int = TypedVariant.as_int(item.get("race_i", 0), 0)
+		var base_r: float = _titan_orbit_radius[race_i] if race_i < _titan_orbit_radius.size() else 8.0
+		var r: float = base_r * LIGHT_ORBIT_RADIUS_MUL + TypedVariant.as_float(item.get("r_extra", 0.0), 0.0) * LIGHT_ORBIT_RADIUS_MUL
+		var v_cap: float = PARADE_SPEED * LIGHT_SPEED_MULT_MAX
+		var omega: float = minf(TypedVariant.as_float(item.get("omega_want", 0.0), 0.0), v_cap / maxf(r, 0.5))
+		var ang: float = TypedVariant.as_float(item.get("phase0", 0.0), 0.0) + omega * clock
+		holder.position = Vector3(cos(ang) * r, sin(ang) * r, TypedVariant.as_float(item.get("z", 0.0), 0.0))
 		## Bow follows the real path: ring tangent plus the fleet's own −Z parade drift.
 		## Race roots are unrotated, so local and world axes coincide here.
-		var parade_v := TITAN_DEPART_SPEED if t < float(T_SHOWCASE_CUTS[0]) else PARADE_SPEED
-		var vel := Vector3(-sin(ang), cos(ang), 0.0) * (r * omega) + PARADE_DIRECTION * parade_v
+		var parade_v: float = TITAN_DEPART_SPEED if t < T_SHOWCASE_CUTS[0] else PARADE_SPEED
+		var vel: Vector3 = Vector3(-sin(ang), cos(ang), 0.0) * (r * omega) + PARADE_DIRECTION * parade_v
 		_aim_bow_along(holder, vel)
 
 
@@ -685,8 +729,8 @@ func _aim_bow_along(holder: Node3D, vel: Vector3) -> void:
 	## Hull bow is holder −Z (same convention as the titans), which is what look_at aims.
 	if vel.length_squared() < 0.0001:
 		return
-	var dir := vel.normalized()
-	var up := Vector3.UP
+	var dir: Vector3 = vel.normalized()
+	var up: Vector3 = Vector3.UP
 	if absf(dir.dot(up)) > 0.99:
 		up = Vector3.FORWARD
 	holder.look_at(holder.global_position + dir, up)
@@ -698,47 +742,50 @@ func _apply_camera_at(t: float) -> void:
 	if t >= T_SHOWCASE_END:
 		_apply_finale_top_down_cam()
 		return
-	var beat := beat_at(t)
+	var beat: int = beat_at(t)
 	match beat:
 		Beat.TITAN_DEPART:
 			## Locked vantage above-right; titans climb out of the lower-diagonal off-screen
 			## and recede along −Z — classic 目送, camera does not chase.
-			var look := _continuous_parade_pos(t) + Vector3(0.0, 2.0, 0.0)
+			var look: Vector3 = _continuous_parade_pos(t) + Vector3(0.0, 2.0, 0.0)
 			_cam.position = TITAN_DEPART_CAM_POS
 			_cam.look_at(look, Vector3.UP)
 			_cam_base_pos = _cam.position
 			_cam_base_pitch_deg = _cam.rotation_degrees.x
 			_cam_base_yaw_deg = _cam.rotation_degrees.y
 		Beat.RACE_A, Beat.RACE_C, Beat.RACE_G, Beat.RACE_M:
-			var phase_t := maxf(0.0, t - float(T_SHOWCASE_CUTS[0]))
+			var phase_t: float = maxf(0.0, t - T_SHOWCASE_CUTS[0])
 			_cam_orbit_yaw = 0.35 + phase_t * RACE_ORBIT_RAD_PER_S
-			var slot := _showcase_slot_at(t)
-			var active_i := slot % RACES.size()
-			var round_i := int(slot / RACES.size())
+			var slot: int = _showcase_slot_at(t)
+			var active_i: int = slot % RACES.size()
+			var round_i: int = floori(float(slot) / float(RACES.size()))
 			var e: Dictionary = _race_roots[active_i]
-			var center := (e["root"] as Node3D).global_position + Vector3(0, 1.5, 0)
+			var center: Vector3 = Vector3.ZERO
+			var race_root_v: Variant = e.get("root")
+			if race_root_v is Node3D:
+				center = race_root_v.global_position + Vector3(0, 1.5, 0)
 			if round_i == 0:
 				## First round genuinely descends on a sphere: high俯视 +58° → below-target
 				## 仰视 −18°, while yaw keeps orbiting continuously across race cuts.
-				var round_u := clampf(
-					(t - float(T_SHOWCASE_CUTS[0]))
-					/ maxf(0.01, float(T_SHOWCASE_CUTS[4]) - float(T_SHOWCASE_CUTS[0])),
+				var round_u: float = clampf(
+					(t - T_SHOWCASE_CUTS[0])
+					/ maxf(0.01, TypedVariant.as_float(T_SHOWCASE_CUTS[4], 0.0) - T_SHOWCASE_CUTS[0]),
 					0.0, 1.0
 				)
 				round_u = smoothstep(0.0, 1.0, round_u)
-				var elevation := lerpf(deg_to_rad(58.0), deg_to_rad(-18.0), round_u)
+				var elevation: float = lerpf(deg_to_rad(58.0), deg_to_rad(-18.0), round_u)
 				_apply_spherical_orbit_cam(center, _showcase_cam_distance(active_i), elevation)
 			else:
 				## One continuous spherical move, not three discrete angle presets:
 				## elevation −22° is physically below the target (仰视), crosses the
 				## target plane/斜上方, and ends at +68° (high 俯视).
-				var round_u := clampf(
-					(t - float(T_SHOWCASE_CUTS[4]))
-					/ maxf(0.01, T_SHOWCASE_END - float(T_SHOWCASE_CUTS[4])),
+				var round_u: float = clampf(
+					(t - TypedVariant.as_float(T_SHOWCASE_CUTS[4], 0.0))
+					/ maxf(0.01, T_SHOWCASE_END - TypedVariant.as_float(T_SHOWCASE_CUTS[4], 0.0)),
 					0.0, 1.0
 				)
 				round_u = smoothstep(0.0, 1.0, round_u)
-				var elevation := lerpf(deg_to_rad(-22.0), deg_to_rad(68.0), round_u)
+				var elevation: float = lerpf(deg_to_rad(-22.0), deg_to_rad(68.0), round_u)
 				_apply_spherical_orbit_cam(center, _showcase_cam_distance(active_i), elevation)
 		_:
 			pass
@@ -747,8 +794,8 @@ func _apply_camera_at(t: float) -> void:
 func _apply_orbit_cam(center: Vector3, radius: float, height: float) -> void:
 	if _cam == null:
 		return
-	var yaw := _cam_orbit_yaw
-	var pos := center + Vector3(sin(yaw) * radius, height, cos(yaw) * radius)
+	var yaw: float = _cam_orbit_yaw
+	var pos: Vector3 = center + Vector3(sin(yaw) * radius, height, cos(yaw) * radius)
 	_cam.position = pos
 	_cam.look_at(center, Vector3.UP)
 	_cam_base_pos = pos
@@ -757,8 +804,8 @@ func _apply_orbit_cam(center: Vector3, radius: float, height: float) -> void:
 
 
 func _apply_spherical_orbit_cam(center: Vector3, distance: float, elevation: float) -> void:
-	var horizontal := cos(elevation) * distance
-	var pos := center + Vector3(
+	var horizontal: float = cos(elevation) * distance
+	var pos: Vector3 = center + Vector3(
 		sin(_cam_orbit_yaw) * horizontal,
 		sin(elevation) * distance,
 		cos(_cam_orbit_yaw) * horizontal
@@ -780,7 +827,7 @@ func _apply_finale_top_down_cam() -> void:
 	_cam_base_yaw_deg = _cam.rotation_degrees.y
 
 
-func _finale_slots() -> Array:
+func _finale_slots() -> Array[Dictionary]:
 	return [
 		{"i": 3, "pos": Vector3(0, 0, -CROSS_RADIUS)},
 		{"i": 1, "pos": Vector3(CROSS_RADIUS, 0, 0)},
@@ -790,16 +837,22 @@ func _finale_slots() -> Array:
 
 
 func _apply_finale_entry_at(t: float) -> void:
-	var u := clampf(
+	var u: float = clampf(
 		(t - T_SHOWCASE_END) / maxf(0.01, T_FINALE_LOCK - T_SHOWCASE_END),
 		0.0, 1.0
 	)
 	## Ease-out bias: more of the travel happens early so the last third reads as a slow settle.
 	u = 1.0 - pow(1.0 - smoothstep(0.0, 1.0, u), 1.65)
-	for s in _finale_slots():
-		var root: Node3D = _race_roots[int(s["i"])]["root"]
-		var target: Vector3 = s["pos"]
-		var start := target.normalized() * FINALE_ENTRY_RADIUS
+	for s: Dictionary in _finale_slots():
+		var slot_i: int = TypedVariant.as_int(s.get("i", 0), 0)
+		var entry_finale: Dictionary = _race_roots[slot_i]
+		var root_v: Variant = entry_finale.get("root")
+		if not root_v is Node3D:
+			continue
+		var root: Node3D = root_v
+		var target_v: Variant = s.get("pos", Vector3.ZERO)
+		var target: Vector3 = target_v if target_v is Vector3 else Vector3.ZERO
+		var start: Vector3 = target.normalized() * FINALE_ENTRY_RADIUS
 		root.position = start.lerp(target, u)
 		root.look_at(Vector3.ZERO, Vector3.UP)
 
@@ -810,22 +863,28 @@ func _ensure_cross_layout() -> void:
 	_cross_placed = true
 	## The top-down cut begins with all four centers outside frame. _apply_finale_entry_at()
 	## eases them into these same N/E/S/W targets and stops exactly there.
-	for s in _finale_slots():
-		var entry: Dictionary = _race_roots[int(s["i"])]
-		var root: Node3D = entry["root"]
-		var target: Vector3 = s["pos"]
+	for s: Dictionary in _finale_slots():
+		var slot_i: int = TypedVariant.as_int(s.get("i", 0), 0)
+		var entry: Dictionary = _race_roots[slot_i]
+		var root_v: Variant = entry.get("root")
+		if not root_v is Node3D:
+			continue
+		var root: Node3D = root_v
+		var target_v: Variant = s.get("pos", Vector3.ZERO)
+		var target: Vector3 = target_v if target_v is Vector3 else Vector3.ZERO
 		root.position = target.normalized() * FINALE_ENTRY_RADIUS
 		root.look_at(Vector3.ZERO, Vector3.UP)
 	## Escort bows tracked their orbit tangent during the parade; the tableau is a formation
 	## hold, so drop that heading and let every hull share the race root's facing.
-	for item in _orbiters:
-		var holder: Node3D = item.get("holder")
+	for item: Dictionary in _orbiters:
+		var holder_v: Variant = item.get("holder")
+		var holder: Node3D = holder_v if holder_v is Node3D else null
 		if holder != null and is_instance_valid(holder):
 			holder.rotation = Vector3.ZERO
 
 
 func _set_sky_race(def: Dictionary) -> void:
-	var path := str(def.get("sky_jpeg", "res://assets/skyboxes/races/ah1.jpg"))
+	var path: String = str(def.get("sky_jpeg", "res://assets/skyboxes/races/ah1.jpg"))
 	_apply_panorama(path)
 
 
@@ -845,21 +904,21 @@ func _apply_panorama(path: String) -> void:
 		_env.background_mode = Environment.BG_COLOR
 		_env.background_color = Color(0.02, 0.03, 0.06)
 		return
-	var mat := PanoramaSkyMaterial.new()
+	var mat: PanoramaSkyMaterial = PanoramaSkyMaterial.new()
 	mat.panorama = tex
-	var sky := Sky.new()
+	var sky: Sky = Sky.new()
 	sky.sky_material = mat
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
 
 
 func _build_env() -> void:
-	var light := DirectionalLight3D.new()
+	var light: DirectionalLight3D = DirectionalLight3D.new()
 	light.light_energy = 1.45
 	light.shadow_enabled = false
 	light.rotation_degrees = Vector3(-42, 35, 0)
 	add_child(light)
-	var rim := DirectionalLight3D.new()
+	var rim: DirectionalLight3D = DirectionalLight3D.new()
 	rim.light_energy = 1.05
 	rim.light_color = Color(0.55, 0.7, 1.0)
 	rim.rotation_degrees = Vector3(-18, -140, 0)
@@ -897,8 +956,8 @@ func _build_slides() -> void:
 	_slide_layer.add_child(_slide_root)
 
 	## 01 Made with Godot
-	var g := _make_slide_panel("SlideGodot")
-	var gtitle := Label.new()
+	var g: ColorRect = _make_slide_panel("SlideGodot")
+	var gtitle: Label = Label.new()
 	gtitle.text = "MADE WITH GODOT"
 	gtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	gtitle.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -908,21 +967,21 @@ func _build_slides() -> void:
 	g.add_child(gtitle)
 
 	## 02 Joint producers
-	var j := _make_slide_panel("SlideJoint")
-	var row := HBoxContainer.new()
+	var j: ColorRect = _make_slide_panel("SlideJoint")
+	var row: HBoxContainer = HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.set_anchors_preset(Control.PRESET_FULL_RECT)
 	row.add_theme_constant_override("separation", 36)
 	j.add_child(row)
 	row.add_child(_make_logo_tex("res://assets/ui/cg_slides/xingshi_huanyu.jpg", 220))
-	var times := Label.new()
+	var times: Label = Label.new()
 	times.text = "×"
 	times.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	times.add_theme_font_size_override("font_size", 96)
 	times.add_theme_color_override("font_color", Color(0.95, 0.88, 0.55))
 	row.add_child(times)
 	row.add_child(_make_logo_tex("res://assets/ui/cg_slides/jiuxing_duxing_team.png", 220))
-	var joint := Label.new()
+	var joint: Label = Label.new()
 	joint.text = "联合出品"
 	joint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	## CENTER_BOTTOM has zero width, so horizontal_alignment cannot center the glyphs.
@@ -937,8 +996,8 @@ func _build_slides() -> void:
 	j.add_child(joint)
 
 	## 03 Fan disclaimer
-	var f := _make_slide_panel("SlideFan")
-	var fbody := Label.new()
+	var f: ColorRect = _make_slide_panel("SlideFan")
+	var fbody: Label = Label.new()
 	fbody.text = "EVE非商业同人"
 	fbody.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	fbody.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -949,7 +1008,7 @@ func _build_slides() -> void:
 
 
 func _make_slide_panel(node_name: String) -> ColorRect:
-	var p := ColorRect.new()
+	var p: ColorRect = ColorRect.new()
 	p.name = node_name
 	p.color = Color(0, 0, 0, 1)
 	p.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -959,7 +1018,7 @@ func _make_slide_panel(node_name: String) -> ColorRect:
 
 
 func _make_logo_tex(path: String, side: int) -> TextureRect:
-	var rect := TextureRect.new()
+	var rect: TextureRect = TextureRect.new()
 	rect.custom_minimum_size = Vector2(side, side)
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -969,7 +1028,7 @@ func _make_logo_tex(path: String, side: int) -> TextureRect:
 
 
 func _build_hud() -> void:
-	var layer := CanvasLayer.new()
+	var layer: CanvasLayer = CanvasLayer.new()
 	layer.layer = 30
 	add_child(layer)
 	_hud = Label.new()
@@ -1016,12 +1075,12 @@ func _build_audio() -> void:
 	_audio = AudioStreamPlayer.new()
 	add_child(_audio)
 	_apply_preview_speed()
-	var candidates := [
+	var candidates: Array[String] = [
 		audio_path,
 		"res://assets/audio/cg/opening_mix.mp3",
 	]
 	## Also try external精校 path via user copy note — skip if missing
-	for p in candidates:
+	for p: String in candidates:
 		if ResourceLoader.exists(p) or FileAccess.file_exists(p):
 			var stream: AudioStream = load(p) as AudioStream
 			if stream:
@@ -1035,7 +1094,7 @@ func _apply_preview_speed() -> void:
 	## pitch_scale drives both rate and pitch; content clock stays the audio position.
 	if _audio == null:
 		return
-	var s := maxf(preview_speed, 0.05)
+	var s: float = maxf(preview_speed, 0.05)
 	if not is_equal_approx(_audio.pitch_scale, s):
 		_audio.pitch_scale = s
 
@@ -1044,13 +1103,13 @@ func _inject_capital_defs() -> void:
 	if DataStore == null:
 		push_error("CgOpeningDirector: DataStore missing")
 		return
-	for def in RACES:
+	for def: Dictionary in RACES:
 		## Content titans (201–204) often omit model_long_axis → ShipUnit falls back to raw
 		## mesh AABB and then the game clamp flattens them. Patch the dogma axis first.
-		_patch_titan_long_axis(int(def["id"]))
+		_patch_titan_long_axis(TypedVariant.as_int(def.get("id", 0), 0))
 		## 大航 = supercarrier. Name the def with CCP 中文 + colloquial alias for roll-call logs.
 		_ensure_ship_def(
-			int(def["sc_id"]),
+			TypedVariant.as_int(def.get("sc_id", 0), 0),
 			"%s（%s）" % [str(def["sc_name"]), str(def["sc_alias"])],
 			str(def["sc_name_en"]),
 			str(def["sc_key"]),
@@ -1064,7 +1123,7 @@ func _patch_titan_long_axis(sid: int) -> void:
 	if DataStore == null or not DataStore.ships.has(sid):
 		return
 	var s: Dictionary = DataStore.ships[sid]
-	if float(s.get("model_long_axis", 0.0)) <= 0.0:
+	if TypedVariant.as_float(s.get("model_long_axis", 0.0), 0.0) <= 0.0:
 		s["model_long_axis"] = CG_TITAN_LONG_AXIS
 		print("[CgOpeningDirector] patched %s model_long_axis=%.0f" % [str(s.get("name", sid)), CG_TITAN_LONG_AXIS])
 
@@ -1110,34 +1169,34 @@ func _ensure_ship_def(sid: int, ship_name: String, name_en: String, model_key: S
 
 
 func _spawn_race_vignette(def: Dictionary, race_i: int) -> Dictionary:
-	var root := Node3D.new()
+	var root: Node3D = Node3D.new()
 	root.name = "Race_%s" % str(def["race"])
 	root.visible = false
 	_world.add_child(root)
 
-	var titan_holder := Node3D.new()
+	var titan_holder: Node3D = Node3D.new()
 	titan_holder.name = "Titan"
 	root.add_child(titan_holder)
-	var titan := ShipUnit.new()
+	var titan: ShipUnit = ShipUnit.new()
 	titan_holder.add_child(titan)
-	titan.setup(int(def["id"]), 1, ShipUnit.TEAM_PLAYER)
+	titan.setup(TypedVariant.as_int(def.get("id", 0), 0), 1, ShipUnit.TEAM_PLAYER)
 	if titan.has_method("clear_health_bar"):
 		titan.clear_health_bar()
 	titan.slot_type = ""
 	titan.rotation.y = _bow_yaw_for(titan, str(def["model_key"]))
 	_attach_trail(titan, "titan", race_i, str(def["model_key"]))
 
-	var fleet_nodes: Array = []
-	var ei := 0
+	var fleet_nodes: Array[Dictionary] = []
+	var ei: int = 0
 	## 大航 (supercarrier) ships even when it is not in the playable roster.
 	if ResourceLoader.exists("res://assets/models/ships/%s/model.glb" % str(def["sc_key"])):
-		var sc_def := {
-			"id": int(def["sc_id"]),
+		var sc_def: Dictionary = {
+			"id": TypedVariant.as_int(def.get("sc_id", 0), 0),
 			"model_key": str(def["sc_key"]),
 			"ship_group": "supercarrier",
 			"name": "%s（%s）" % [str(def["sc_name"]), str(def["sc_alias"])],
 		}
-		for _i in HULLS_PER_TYPE:
+		for _i: int in HULLS_PER_TYPE:
 			fleet_nodes.append(_spawn_escort(root, sc_def, race_i, ei))
 			ei += 1
 		print("[CgOpeningDirector] 大航上场 %s/%s key=%s" % [
@@ -1155,9 +1214,9 @@ func _spawn_race_vignette(def: Dictionary, race_i: int) -> Dictionary:
 
 	## Every modeled non-titan hull, no type budget — capitals used to vanish when the
 	## DataStore file-order list was capped at 14.
-	var escorts := _list_race_ships(str(def["race_id"]))
-	for ship in escorts:
-		for _i in HULLS_PER_TYPE:
+	var escorts: Array[Dictionary] = _list_race_ships(str(def["race_id"]))
+	for ship: Dictionary in escorts:
+		for _i: int in HULLS_PER_TYPE:
 			fleet_nodes.append(_spawn_escort(root, ship, race_i, ei))
 			ei += 1
 
@@ -1168,56 +1227,56 @@ func _spawn_race_vignette(def: Dictionary, race_i: int) -> Dictionary:
 
 
 ## Stable parade order only — does not cull. Capitals first so they sit near the titan.
-const FLEET_CLASS_ORDER := [
+const FLEET_CLASS_ORDER: Array[String] = [
 	"freighter", "carrier", "force_auxiliary", "dreadnought", "battleship",
 	"battlecruiser", "cruiser", "destroyer", "frigate",
 ]
 
 
-func _list_race_ships(race_id: String) -> Array:
+func _list_race_ships(race_id: String) -> Array[Dictionary]:
 	var by_group: Dictionary = {}
-	var discovered: Array = []
+	var discovered: Array[String] = []
 	if DataStore == null:
 		return []
-	for sid in DataStore.ships.keys():
+	for sid: Variant in DataStore.ships.keys():
 		var s: Variant = DataStore.ships[sid]
 		if typeof(s) != TYPE_DICTIONARY:
 			continue
 		var d: Dictionary = s
 		if str(d.get("race", "")) != race_id:
 			continue
-		var group := str(d.get("ship_group", ""))
+		var group: String = str(d.get("ship_group", ""))
 		## Titans / supercarriers are injected separately; wrecks and unmanned craft
 		## (fighters, light/heavy drones, repair drones) stay out of the parade.
 		if group in ["titan", "supercarrier", "wreck"]:
 			continue
-		if bool(d.get("is_unmanned", false)):
+		if TypedVariant.as_bool(d.get("is_unmanned", false), false):
 			continue
 		if group.begins_with("drone") or group in ["fighter", "repair_drone"]:
 			continue
-		var mk := str(d.get("model_key", ""))
+		var mk: String = str(d.get("model_key", ""))
 		if mk == "" or not ResourceLoader.exists("res://assets/models/ships/%s/model.glb" % mk):
 			continue
 		if not by_group.has(group):
 			by_group[group] = []
 			discovered.append(group)
-		(by_group[group] as Array).append(d)
+		(TypedVariant.as_array(by_group.get(group, [])) as Array).append(d)
 
-	var groups: Array = []
-	for g in FLEET_CLASS_ORDER:
+	var groups: Array[String] = []
+	for g: String in FLEET_CLASS_ORDER:
 		if by_group.has(g):
 			groups.append(g)
-	for g in discovered:
+	for g: String in discovered:
 		if not groups.has(g):
 			groups.append(g)
 
-	var out: Array = []
-	for g in groups:
-		var pool: Array = by_group[g]
-		var names: Array = []
-		for d in pool:
+	var out: Array[Dictionary] = []
+	for g: String in groups:
+		var pool: Array[Dictionary] = by_group[g]
+		var names: Array[String] = []
+		for d: Dictionary in pool:
 			out.append(d)
-			names.append(str((d as Dictionary).get("name", "?")))
+			names.append(str(d.get("name", "?")))
 		## Roll-call so "this race lost a ship" can be checked against the screen by name.
 		print("[CgOpeningDirector]   %s %-16s ×%d: %s" % [race_id, g, pool.size(), ", ".join(names)])
 	print("[CgOpeningDirector] %s types=%d" % [race_id, out.size()])
@@ -1225,25 +1284,25 @@ func _list_race_ships(race_id: String) -> Array:
 
 
 func _spawn_escort(parent: Node3D, ship: Dictionary, race_i: int, slot_i: int) -> Dictionary:
-	var sid := int(ship["id"])
-	var model_key := str(ship.get("model_key", ""))
-	var group := str(ship.get("ship_group", ""))
-	var holder := Node3D.new()
+	var sid: int = TypedVariant.as_int(ship.get("id", 0), 0)
+	var model_key: String = str(ship.get("model_key", ""))
+	var group: String = str(ship.get("ship_group", ""))
+	var holder: Node3D = Node3D.new()
 	holder.name = "Escort_%s_%d" % [model_key, slot_i]
 	parent.add_child(holder)
-	var rng := RandomNumberGenerator.new()
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = hash("%s_%d_%d" % [model_key, race_i, slot_i])
-	var capital := group in [
+	var capital: bool = group in [
 		"battleship", "battlecruiser", "cruiser", "carrier", "force_auxiliary", "fax",
 		"supercarrier", "freighter", "industrial", "dreadnought",
 	]
-	var review_capital := CAPITAL_REVIEW_POS.has(group)
-	var light_orbit := group in ["frigate", "destroyer"]
+	var review_capital: bool = CAPITAL_REVIEW_POS.has(group)
+	var light_orbit: bool = group in ["frigate", "destroyer"]
 	## Escorts fly bow-first along their own path (orbit tangent + parade), never tumble.
-	var tumble := false
+	var tumble: bool = false
 	if light_orbit:
 		## Radius filled in after titan AABB measure; until then use a safe stand-in.
-		var orb := {
+		var orb: Dictionary = {
 			"holder": holder,
 			"race_i": race_i,
 			"phase0": rng.randf() * TAU,
@@ -1257,24 +1316,25 @@ func _spawn_escort(parent: Node3D, ship: Dictionary, race_i: int, slot_i: int) -
 	elif review_capital:
 		## One unmistakable seat per capital class. Race-dependent sign changes prevent
 		## four finale fleets from becoming identical stamps while preserving separation.
-		var seat: Vector3 = CAPITAL_REVIEW_POS[group]
+		var seat_v: Variant = CAPITAL_REVIEW_POS.get(group, Vector3.ZERO)
+		var seat: Vector3 = seat_v if seat_v is Vector3 else Vector3.ZERO
 		if race_i % 2 == 1:
 			seat.x *= -1.0
 		holder.position = seat
 	else:
 		## Deterministic golden-angle scatter + wide height so capitals don't pancake.
-		var ang := float(slot_i) * 2.399963 + rng.randf_range(-0.35, 0.35)
-		var rad := lerpf(FLEET_RING_MIN, FLEET_RING_MAX, rng.randf())
-		var y := rng.randf_range(FLEET_Y_CAPITAL.x, FLEET_Y_CAPITAL.y)
+		var ang: float = float(slot_i) * 2.399963 + rng.randf_range(-0.35, 0.35)
+		var rad: float = lerpf(FLEET_RING_MIN, FLEET_RING_MAX, rng.randf())
+		var y: float = rng.randf_range(FLEET_Y_CAPITAL.x, FLEET_Y_CAPITAL.y)
 		holder.position = Vector3(cos(ang) * rad, y, sin(ang) * rad)
 	## All bows share parade heading (parent +Z after unit BOW_YAW)
 	holder.rotation = Vector3.ZERO
 
-	var tumble_node := Node3D.new()
+	var tumble_node: Node3D = Node3D.new()
 	tumble_node.name = "Tumble"
 	holder.add_child(tumble_node)
 
-	var unit := ShipUnit.new()
+	var unit: ShipUnit = ShipUnit.new()
 	tumble_node.add_child(unit)
 	unit.setup(sid, 1, ShipUnit.TEAM_PLAYER)
 	if unit.has_method("clear_health_bar"):
@@ -1302,12 +1362,14 @@ func _spawn_escort(parent: Node3D, ship: Dictionary, race_i: int, slot_i: int) -
 func _attach_trail(unit: Node3D, group: String, race_i: int, model_key: String) -> void:
 	if unit == null:
 		return
-	var trail := EngineBoosterTrail.ensure_on(unit, true)
+	var trail: EngineBoosterTrail = EngineBoosterTrail.ensure_on(unit, true)
+	if trail == null:
+		return
 	## Ribbon is the match/CG default (`booster_trail_mesh_style`); keep explicit for CG fleets.
 	trail.set_mesh_style(EngineBoosterTrail.STYLE_RIBBON)
-	var profile := _trail_profile(group)
+	var profile: Dictionary = _trail_profile(group)
 	trail.configure_profile(
-		float(profile["lifetime"]), int(profile["segments"]), float(profile["idle"]), float(profile["stamp"])
+		TypedVariant.as_float(profile.get("lifetime", 0.0), 0.0), TypedVariant.as_int(profile.get("segments", 0), 0), TypedVariant.as_float(profile.get("idle", 0.0), 0.0), TypedVariant.as_float(profile.get("stamp", 0.0), 0.0)
 	)
 	EngineBoosterTrail.set_emitting_on(unit, false)
 	_trail_units.append({
@@ -1319,9 +1381,15 @@ func _align_trail_nozzles() -> void:
 	## Nozzle positions stay what ShipUnit resolved from engine_boosters.json (SOF).
 	## TQ hulls are modelled back-to-front, so their booster cloud maps onto the bow and
 	## has to be Z-mirrored. Ribbon style only needs centers + SOF radii from the outlines.
-	for item in _trail_units:
-		var unit: Node3D = item["unit"]
-		var trail: EngineBoosterTrail = item["trail"]
+	for item: Dictionary in _trail_units:
+		var unit_v: Variant = item.get("unit")
+		var unit: Node3D = null
+		if unit_v is Node3D:
+			unit = unit_v
+		var trail_v: Variant = item.get("trail")
+		var trail: EngineBoosterTrail = null
+		if trail_v is EngineBoosterTrail:
+			trail = trail_v
 		if unit == null or not is_instance_valid(unit) or trail == null:
 			continue
 		trail.set_rebuild_interval(TRAIL_REBUILD_S)
@@ -1331,12 +1399,12 @@ func _align_trail_nozzles() -> void:
 		var outlines: Array = unit.call("get_engine_outlines")
 		if locals.is_empty() or outlines.size() < locals.size():
 			continue
-		var hull := _approx_aabb(unit)
+		var hull: AABB = _approx_aabb(unit)
 		if hull.size.z < 0.05:
 			continue
 		var hull_center_local: Vector3 = unit.to_local(hull.get_center())
-		var mean_world := Vector3.ZERO
-		for p in locals:
+		var mean_world: Vector3 = Vector3.ZERO
+		for p: Vector3 in locals:
 			mean_world += unit.to_global(p)
 		mean_world /= float(locals.size())
 		## Baked packs solved their nozzles against the mesh itself, so the cloud is already
@@ -1346,8 +1414,10 @@ func _align_trail_nozzles() -> void:
 		if not baked and mean_world.z < hull.get_center().z:
 			locals = _mirror_z(locals, hull_center_local.z)
 			var flipped: Array = []
-			for ring in outlines:
-				flipped.append(_mirror_z_ring(ring as PackedVector3Array, hull_center_local.z))
+			for ring_v: Variant in outlines:
+				if ring_v is PackedVector3Array:
+					var ring: PackedVector3Array = ring_v
+					flipped.append(_mirror_z_ring(ring, hull_center_local.z))
 			outlines = flipped
 		var astern_local: Vector3 = unit.global_transform.basis.inverse() * Vector3(0, 0, 1)
 		trail.configure_nozzles(locals, outlines, astern_local)
@@ -1360,14 +1430,14 @@ func _align_trail_nozzles() -> void:
 
 func _mirror_z(points: Array[Vector3], pivot_z: float) -> Array[Vector3]:
 	var out: Array[Vector3] = []
-	for p in points:
+	for p: Vector3 in points:
 		out.append(Vector3(p.x, p.y, 2.0 * pivot_z - p.z))
 	return out
 
 
 func _mirror_z_ring(ring: PackedVector3Array, pivot_z: float) -> PackedVector3Array:
-	var out := PackedVector3Array()
-	for p in ring:
+	var out: PackedVector3Array = PackedVector3Array()
+	for p: Vector3 in ring:
 		out.append(Vector3(p.x, p.y, 2.0 * pivot_z - p.z))
 	return out
 
@@ -1386,22 +1456,26 @@ func _set_trails_emitting_policy(
 	## Lights emit only while on-screen (or when include_lights forces a full tableau).
 	## Capitals/titans may pre-warm on the next race.
 	## GDScript hollow-tube rebuilds are the showcase hitch — keep warm load to capitals.
-	for item in _trail_units:
-		var u: Node3D = item["unit"]
-		var trail: EngineBoosterTrail = item["trail"]
+	for item: Dictionary in _trail_units:
+		var u_v: Variant = item.get("unit")
+		var u: Node3D = u_v if u_v is Node3D else null
+		var trail_v: Variant = item.get("trail")
+		var trail: EngineBoosterTrail = null
+		if trail_v is EngineBoosterTrail:
+			trail = trail_v
 		if u == null or not is_instance_valid(u):
 			continue
-		var group := str(item["group"])
-		var light := group in ["frigate", "destroyer"]
-		var race_i := int(item["race_i"])
-		var on := false
+		var group: String = str(item["group"])
+		var light: bool = group in ["frigate", "destroyer"]
+		var race_i: int = TypedVariant.as_int(item.get("race_i", 0), 0)
+		var on: bool = false
 		if light:
 			on = include_lights or (race_i == active_race and active_race >= 0)
 		else:
 			on = capitals_default_on or race_i == active_race or race_i == warming_race
 		EngineBoosterTrail.set_emitting_on(u, on)
 		if trail != null:
-			var rebuild := TRAIL_REBUILD_S if race_i == active_race or include_lights else TRAIL_REBUILD_WARM_S
+			var rebuild: float = TRAIL_REBUILD_S if race_i == active_race or include_lights else TRAIL_REBUILD_WARM_S
 			trail.set_rebuild_interval(rebuild)
 
 
@@ -1439,12 +1513,15 @@ func _orient_bow_forward() -> void:
 	## Last-resort guard for TQ hulls only: if one still measures clearly longer on X than on
 	## Z, auto-orient never laid it onto Z and it would travel broadside — quarter-turn it like
 	## TitanBerth does. Echoes hulls are excluded: wide wings legitimately beat hull length.
-	for item in _trail_units:
-		var unit: Node3D = item["unit"]
-		var model_key := str(item["model_key"])
+	for item: Dictionary in _trail_units:
+		var unit_v: Variant = item.get("unit")
+		var unit: Node3D = null
+		if unit_v is Node3D:
+			unit = unit_v
+		var model_key: String = str(item["model_key"])
 		if unit == null or not is_instance_valid(unit) or not model_key.begins_with("tq_"):
 			continue
-		var box := _approx_aabb(unit)
+		var box: AABB = _approx_aabb(unit)
 		if box.size.x > box.size.z * 1.25:
 			unit.rotation.y += PI * 0.5
 			push_warning("CgOpeningDirector: %s was length-on-X, forced quarter turn" % model_key)
@@ -1467,18 +1544,25 @@ func _measure_race_cluster_radii() -> void:
 	## Showcase framing has to follow the real fleet extent. After the spread passes the
 	## authored constant no longer covers the cloud and the outer hulls fall off frame.
 	_race_cluster_radius.clear()
-	for i in _race_roots.size():
+	for i: int in _race_roots.size():
 		var entry: Dictionary = _race_roots[i]
-		var radius: float = float(_titan_orbit_radius[i]) if i < _titan_orbit_radius.size() else 8.0
+		var radius: float = _titan_orbit_radius[i] if i < _titan_orbit_radius.size() else 8.0
 		radius = maxf(radius, _light_orbit_reach(i))
-		for f in entry["fleet"]:
-			if bool(f.get("light_orbit", false)):
+		for f_v: Variant in TypedVariant.as_array(entry.get("fleet", [])):
+			if not f_v is Dictionary:
 				continue
-			var holder: Node3D = f.get("holder")
+			var f: Dictionary = f_v
+			if TypedVariant.as_bool(f.get("light_orbit", false), false):
+				continue
+			var holder_v: Variant = f.get("holder")
+			var holder: Node3D = holder_v if holder_v is Node3D else null
 			if holder == null or not is_instance_valid(holder):
 				continue
-			var unit: Node3D = f.get("unit")
-			var hull_half := 0.0
+			var unit_v: Variant = f.get("unit")
+			var unit: Node3D = null
+			if unit_v is Node3D:
+				unit = unit_v
+			var hull_half: float = 0.0
 			if unit != null and is_instance_valid(unit):
 				hull_half = _approx_longest_world(unit) * 0.5
 			radius = maxf(radius, holder.position.length() + hull_half)
@@ -1489,12 +1573,12 @@ func _measure_race_cluster_radii() -> void:
 
 
 func _light_orbit_reach(race_i: int) -> float:
-	var base_r: float = float(_titan_orbit_radius[race_i]) if race_i < _titan_orbit_radius.size() else 8.0
-	var reach := 0.0
-	for item in _orbiters:
-		if int(item["race_i"]) != race_i:
+	var base_r: float = _titan_orbit_radius[race_i] if race_i < _titan_orbit_radius.size() else 8.0
+	var reach: float = 0.0
+	for item: Dictionary in _orbiters:
+		if TypedVariant.as_int(item.get("race_i", 0), 0) != race_i:
 			continue
-		reach = maxf(reach, (base_r + float(item["r_extra"])) * LIGHT_ORBIT_RADIUS_MUL)
+		reach = maxf(reach, (base_r + TypedVariant.as_float(item.get("r_extra", 0.0), 0.0)) * LIGHT_ORBIT_RADIUS_MUL)
 	return reach
 
 
@@ -1502,8 +1586,8 @@ func _showcase_cam_distance(race_i: int) -> float:
 	## Godot fov is vertical, so the cluster sphere must fit inside tan(fov/2) * distance.
 	if _cam == null or race_i < 0 or race_i >= _race_cluster_radius.size():
 		return SHOWCASE_CAM_DISTANCE
-	var half_fov_tan := tan(deg_to_rad(_cam.fov) * 0.5)
-	var needed := float(_race_cluster_radius[race_i]) / maxf(half_fov_tan, 0.01) * SHOWCASE_FRAME_MARGIN
+	var half_fov_tan: float = tan(deg_to_rad(_cam.fov) * 0.5)
+	var needed: float = TypedVariant.as_float(_race_cluster_radius[race_i], 0.0) / maxf(half_fov_tan, 0.01) * SHOWCASE_FRAME_MARGIN
 	return maxf(SHOWCASE_CAM_DISTANCE, needed)
 
 
@@ -1511,31 +1595,39 @@ func _enforce_titan_curve_sizes() -> void:
 	## ShipUnit owns the curve calculation. Verify it against the rendered AABB and apply any
 	## missing ratio to the complete unit (mesh + nozzles) so a later model transform cannot
 	## visually cancel the titan's long-axis scale.
-	for entry in _race_roots:
-		var titan: Node3D = entry.get("titan")
+	for entry: Dictionary in _race_roots:
+		var titan_v: Variant = entry.get("titan")
+		var titan: Node3D = titan_v if titan_v is Node3D else null
 		if titan == null or not is_instance_valid(titan) or not titan.has_method("get_model_display_size"):
 			continue
-		var wanted := float(titan.call("get_model_display_size"))
-		var before := _approx_longest_world(titan)
+		var wanted: float = TypedVariant.as_float(titan.call("get_model_display_size"), 0.0)
+		var before: float = _approx_longest_world(titan)
 		if wanted <= 0.0 or before <= 0.05:
 			continue
-		var correction := clampf(wanted / before, 0.25, 4.0)
+		var correction: float = clampf(wanted / before, 0.25, 4.0)
 		titan.scale *= correction
-		var after := _approx_longest_world(titan)
+		var after: float = _approx_longest_world(titan)
 		print("[CgOpeningDirector] titan curve enforced %s axis=%.0f wanted=%.2f actual %.2f→%.2f" % [
-			str(entry["def"].get("model_key", "?")),
-			float(DataStore.get_ship(int(entry["def"]["id"])).get("model_long_axis", 0.0)),
+			str(TypedVariant.as_dict(entry.get("def", {})).get("model_key", "?")),
+			TypedVariant.as_float(
+				DataStore.get_ship(TypedVariant.as_int(TypedVariant.as_dict(entry.get("def", {})).get("id", 0), 0)).get("model_long_axis", 0.0),
+				0.0
+			),
 			wanted, before, after
 		])
 
 
 func _spread_fleets_after_titan_scale() -> void:
 	## Preserve the authored arrangement, only loosen it enough to clear the enlarged hull.
-	for entry in _race_roots:
-		for f in entry["fleet"]:
-			if bool(f.get("light_orbit", false)) or bool(f.get("review_capital", false)):
+	for entry: Dictionary in _race_roots:
+		for f_v: Variant in TypedVariant.as_array(entry.get("fleet", [])):
+			if not f_v is Dictionary:
 				continue
-			var holder: Node3D = f.get("holder")
+			var f: Dictionary = f_v
+			if TypedVariant.as_bool(f.get("light_orbit", false), false) or TypedVariant.as_bool(f.get("review_capital", false), false):
+				continue
+			var holder_v: Variant = f.get("holder")
+			var holder: Node3D = holder_v if holder_v is Node3D else null
 			if holder == null or not is_instance_valid(holder):
 				continue
 			holder.position = Vector3(
@@ -1546,26 +1638,34 @@ func _spread_fleets_after_titan_scale() -> void:
 
 
 func _log_display_sizes() -> void:
-	for entry in _race_roots:
-		var titan: Node3D = entry.get("titan")
+	for entry: Dictionary in _race_roots:
+		var titan_v: Variant = entry.get("titan")
+		var titan: Node3D = null
+		if titan_v is Node3D:
+			titan = titan_v
 		if titan != null and titan.has_method("get_model_display_size"):
 			print("[CgOpeningDirector] %s display=%.2f actual=%.2f wu (curve)" % [
-				str(entry["def"].get("model_key", "?")),
-				float(titan.call("get_model_display_size")),
+				str(TypedVariant.as_dict(entry.get("def", {})).get("model_key", "?")),
+				TypedVariant.as_float(titan.call("get_model_display_size"), 0.0),
 				_approx_longest_world(titan)
 			])
-		for f in entry["fleet"]:
-			var u: Node3D = f.get("unit")
+		for f_v: Variant in TypedVariant.as_array(entry.get("fleet", [])):
+			if not f_v is Dictionary:
+				continue
+			var f: Dictionary = f_v
+			var u_v: Variant = f.get("unit")
+			var u: Node3D = u_v if u_v is Node3D else null
 			if (
 				u != null
 				and u.has_method("get_model_display_size")
-				and bool(f.get("review_capital", false))
+				and TypedVariant.as_bool(f.get("review_capital", false), false)
 			):
-				var holder: Node3D = f.get("holder")
-				var label := "大航" if str(f.get("group")) == "supercarrier" else str(f.get("group"))
+				var holder_v: Variant = f.get("holder")
+				var holder: Node3D = holder_v if holder_v is Node3D else null
+				var label: String = "大航" if str(f.get("group")) == "supercarrier" else str(f.get("group"))
 				print("[CgOpeningDirector] capital %s/%s display=%.2f actual=%.2f pos=%s" % [
 					label, str(f.get("model_key")),
-					float(u.call("get_model_display_size")), _approx_longest_world(u),
+					TypedVariant.as_float(u.call("get_model_display_size"), 0.0), _approx_longest_world(u),
 					str(holder.position if holder != null else Vector3.ZERO),
 				])
 
@@ -1573,18 +1673,22 @@ func _log_display_sizes() -> void:
 func _measure_titan_orbit_radii() -> void:
 	## Bounding sphere of the display-scaled titan; light craft hug this shell.
 	_titan_orbit_radius.clear()
-	for i in _race_roots.size():
+	for i: int in _race_roots.size():
 		var entry: Dictionary = _race_roots[i]
-		var box := _approx_aabb(entry["titan_holder"])
-		var half := box.size * 0.5
-		var radius := maxf(0.75, half.length())
+		var titan_holder_v: Variant = entry.get("titan_holder")
+		if not titan_holder_v is Node3D:
+			continue
+		var titan_holder: Node3D = titan_holder_v
+		var box: AABB = _approx_aabb(titan_holder)
+		var half: Vector3 = box.size * 0.5
+		var radius: float = maxf(0.75, half.length())
 		_titan_orbit_radius.append(radius)
-		var half_z := maxf(box.size.z * 0.5 * LIGHT_ORBIT_Z_FRAC, 0.4)
-		for item in _orbiters:
-			if int(item["race_i"]) != i:
+		var half_z: float = maxf(box.size.z * 0.5 * LIGHT_ORBIT_Z_FRAC, 0.4)
+		for item: Dictionary in _orbiters:
+			if TypedVariant.as_int(item.get("race_i", 0), 0) != i:
 				continue
 			## Keep Z near the midship so the ring reads as "around the hull", not a long tube.
-			var rng_z := RandomNumberGenerator.new()
+			var rng_z: RandomNumberGenerator = RandomNumberGenerator.new()
 			rng_z.seed = hash("orbz_%d_%s" % [i, str(item.get("holder"))])
 			item["z"] = rng_z.randf_range(-half_z, half_z)
 		print("[CgOpeningDirector] race %d titan orbit radius=%.2f" % [i, radius])
@@ -1593,16 +1697,17 @@ func _measure_titan_orbit_radii() -> void:
 func _normalize_node(node: Node3D, display_longest: float) -> void:
 	if node == null or not is_instance_valid(node):
 		return
-	var longest := _approx_longest_world(node)
+	var longest: float = _approx_longest_world(node)
 	if longest < 0.05:
 		return
-	var mul := clampf(display_longest / longest, 0.02, 6.0)
+	var mul: float = clampf(display_longest / longest, 0.02, 6.0)
 	node.scale = node.scale * mul
 
 
 func _spin_tumblers(delta: float) -> void:
-	for item in _tumblers:
-		var n: Node3D = item.get("node")
+	for item: Dictionary in _tumblers:
+		var n_v: Variant = item.get("node")
+		var n: Node3D = n_v if n_v is Node3D else null
 		if n == null or not is_instance_valid(n):
 			continue
 		if not n.is_visible_in_tree():
@@ -1613,26 +1718,26 @@ func _spin_tumblers(delta: float) -> void:
 
 
 func _approx_longest_world(node: Node3D) -> float:
-	var box := _approx_aabb(node)
+	var box: AABB = _approx_aabb(node)
 	return maxf(box.size.x, maxf(box.size.y, box.size.z))
 
 
 func _approx_aabb(node: Node3D) -> AABB:
-	var acc := AABB()
-	var first := true
-	for child in node.find_children("*", "VisualInstance3D", true, false):
+	var acc: AABB = AABB()
+	var first: bool = true
+	for child: Node in node.find_children("*", "VisualInstance3D", true, false):
 		if child is VisualInstance3D:
-			var vi := child as VisualInstance3D
-			var ab := vi.get_aabb()
-			var xf := vi.global_transform
-			var corners := [
+			var vi: VisualInstance3D = child
+			var ab: AABB = vi.get_aabb()
+			var xf: Transform3D = vi.global_transform
+			var corners: Array[Vector3] = [
 				xf * ab.position,
 				xf * (ab.position + Vector3(ab.size.x, 0, 0)),
 				xf * (ab.position + Vector3(0, ab.size.y, 0)),
 				xf * (ab.position + Vector3(0, 0, ab.size.z)),
 				xf * (ab.position + ab.size),
 			]
-			for c in corners:
+			for c: Vector3 in corners:
 				if first:
 					acc = AABB(c, Vector3.ZERO)
 					first = false
@@ -1644,13 +1749,13 @@ func _approx_aabb(node: Node3D) -> AABB:
 func _update_camera_free(delta: float) -> void:
 	if _cam == null:
 		return
-	var speed := 28.0
+	var speed: float = 28.0
 	if Input.is_physical_key_pressed(KEY_SHIFT):
 		speed *= 2.5
-	var cam_basis := _cam.global_transform.basis
-	var forward := -cam_basis.z
-	var right := cam_basis.x
-	var move := Vector3.ZERO
+	var cam_basis: Basis = _cam.global_transform.basis
+	var forward: Vector3 = -cam_basis.z
+	var right: Vector3 = cam_basis.x
+	var move: Vector3 = Vector3.ZERO
 	if Input.is_physical_key_pressed(KEY_W):
 		move += forward
 	if Input.is_physical_key_pressed(KEY_S):
@@ -1678,11 +1783,11 @@ func _update_camera_free(delta: float) -> void:
 
 func _capture() -> void:
 	await get_tree().process_frame
-	var img := get_viewport().get_texture().get_image()
+	var img: Image = get_viewport().get_texture().get_image()
 	if img == null:
 		return
-	var dir := "user://cg_captures"
+	var dir: String = "user://cg_captures"
 	DirAccess.make_dir_recursive_absolute(dir)
-	var path := "%s/cg_%05d_t%.1f.png" % [dir, Time.get_ticks_msec() % 100000, _t]
+	var path: String = "%s/cg_%05d_t%.1f.png" % [dir, Time.get_ticks_msec() % 100000, _t]
 	img.save_png(path)
 	print("[CgOpeningDirector] captured ", path)

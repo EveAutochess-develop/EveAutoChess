@@ -3,16 +3,16 @@ class_name UiLayout
 ## Screen-relative UI metrics. Prefer anchors + fractions over fixed 1080p pixels.
 ## Design reference: 1920×1080; mobile uses denser chrome so HUD is not oversized.
 
-const DESIGN := Vector2(1920.0, 1080.0)
+const DESIGN: Vector2 = Vector2(1920.0, 1080.0)
 
 static func viewport_size(from: Node = null) -> Vector2:
 	if from != null and is_instance_valid(from) and from.is_inside_tree():
-		var vp := from.get_viewport()
+		var vp: Viewport = from.get_viewport()
 		if vp:
-			var r := vp.get_visible_rect().size
+			var r: Vector2 = vp.get_visible_rect().size
 			if r.x > 1.0 and r.y > 1.0:
 				return r
-	var w := DisplayServer.window_get_size()
+	var w: Vector2i = DisplayServer.window_get_size()
 	if w.x > 1 and w.y > 1:
 		return Vector2(w)
 	return DESIGN
@@ -21,8 +21,8 @@ static func is_mobile() -> bool:
 	return OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
 
 static func scale(from: Node = null) -> float:
-	var s := viewport_size(from)
-	var base := minf(s.x / DESIGN.x, s.y / DESIGN.y)
+	var s: Vector2 = viewport_size(from)
+	var base: float = minf(s.x / DESIGN.x, s.y / DESIGN.y)
 	# Stretch often already maps UI space ≈ design; treat near-1 as identity.
 	if base > 0.88 and base < 1.12:
 		base = 1.0
@@ -34,10 +34,12 @@ static func px(design_px: float, from: Node = null) -> float:
 	return design_px * scale(from)
 
 static func font_size(design: int, from: Node = null) -> int:
-	return maxi(10, int(round(float(design) * scale(from))))
+	var scaled: float = float(design) * scale(from)
+	return maxi(10, roundi(scaled))
 
 static func margin_px(design: float, from: Node = null) -> int:
-	return maxi(4, int(round(px(design, from))))
+	var scaled: float = px(design, from)
+	return maxi(4, roundi(scaled))
 
 ## Fraction of viewport (0..1). Keeps offsets zero so resize stays correct.
 static func set_rect_frac(c: Control, left: float, top: float, right: float, bottom: float) -> void:
@@ -68,8 +70,8 @@ static func set_bottom_strip(c: Control, height_frac: float, left_frac: float = 
 static func set_center_panel_frac(c: Control, width_frac: float, height_frac: float) -> void:
 	width_frac = clampf(width_frac, 0.35, 0.92)
 	height_frac = clampf(height_frac, 0.35, 0.92)
-	var l := 0.5 - width_frac * 0.5
-	var t := 0.5 - height_frac * 0.5
+	var l: float = 0.5 - width_frac * 0.5
+	var t: float = 0.5 - height_frac * 0.5
 	set_rect_frac(c, l, t, l + width_frac, t + height_frac)
 
 static func top_bar_height_frac() -> float:
@@ -91,10 +93,10 @@ static func collapse_strip_frac() -> float:
 
 ## Playfield open window as viewport fractions: left, top, right, bottom edges.
 static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, collapse_bottom: bool) -> Rect2:
-	var top := top_bar_height_frac() + 0.01
-	var left := collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
-	var right := (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
-	var bottom := (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac() - 0.012)
+	var top: float = top_bar_height_frac() + 0.01
+	var left: float = collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
+	var right: float = (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
+	var bottom: float = (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac() - 0.012)
 	return Rect2(left, top, maxf(0.2, right - left), maxf(0.2, bottom - top))
 
 ## Deprecated name kept for callers; prefer left_col_width_frac.

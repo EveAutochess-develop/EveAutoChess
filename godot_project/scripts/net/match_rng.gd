@@ -16,7 +16,7 @@ func configure(p_match_seed: int, p_rules_hash: String = "") -> void:
 
 static func compute_rules_hash() -> String:
 	## Content+shell version string; callers may override.
-	var ver := str(ProjectSettings.get_setting("application/config/version", "dev"))
+	var ver: String = str(ProjectSettings.get_setting("application/config/version", "dev"))
 	return ver
 
 func stream_randf(stream: String = "match") -> float:
@@ -35,22 +35,22 @@ func has_battle(battle_serial: int) -> bool:
 
 
 func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
-	var master := master_entropy
+	var master: int = master_entropy
 	if master == 0:
 		master = int(hash(str(match_seed) + ":" + str(battle_serial)))
-	var rng := RandomNumberGenerator.new()
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.seed = master if master != 0 else 1
-	var seeds := PackedInt64Array()
+	var seeds: PackedInt64Array = PackedInt64Array()
 	seeds.resize(10)
 	var seen: Dictionary = {}
-	for i in range(10):
+	for i: int in range(10):
 		var s: int = int(rng.randi())
 		while seen.has(s):
 			s = int(rng.randi())
 		seen[s] = true
 		seeds[i] = s
 	## SEMI_ASYNC §2.3 event kinds → slot indices (A = battle seeds[10]).
-	var apply_table := {
+	var apply_table: Dictionary = {
 		"turret_hit": 0,
 		"retarget_tiebreak": 1,
 		"orbit_dir": 2,
@@ -65,14 +65,14 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"isolation_debris_dmg": 9,
 	}
 	var keys: Array = apply_table.keys()
-	for i in range(keys.size()):
+	for i: int in range(keys.size()):
 		## Keep declared slots; only remap unassigned collisions via master entropy.
-		if int(apply_table[keys[i]]) < 0 or int(apply_table[keys[i]]) > 9:
+		if TypedVariant.as_int(apply_table[keys[i]]) < 0 or TypedVariant.as_int(apply_table[keys[i]]) > 9:
 			apply_table[keys[i]] = i % 10
-	var job := {"seeds": seeds, "apply_table": apply_table, "slots": []}
+	var job: Dictionary = {"seeds": seeds, "apply_table": apply_table, "slots": []}
 	var slots: Array = []
-	for i in range(10):
-		var slot_rng := RandomNumberGenerator.new()
+	for i: int in range(10):
+		var slot_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 		slot_rng.seed = seeds[i]
 		slots.append(slot_rng)
 	job["slots"] = slots
@@ -82,25 +82,33 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 func roll(battle_serial: int, event_kind: String) -> float:
 	if not _battles.has(battle_serial):
 		begin_battle(battle_serial)
-	var job: Dictionary = _battles[battle_serial]
-	var table: Dictionary = job.get("apply_table", {})
-	var slot_i := int(table.get(event_kind, 0))
-	var slots: Array = job.get("slots", [])
+	var job: Dictionary = TypedVariant.as_dict(_battles[battle_serial])
+	var table: Dictionary = TypedVariant.as_dict(job.get("apply_table", {}))
+	var slot_i: int = TypedVariant.as_int(table.get(event_kind, 0))
+	var slots: Array = TypedVariant.as_array(job.get("slots", []))
 	if slot_i < 0 or slot_i >= slots.size():
 		slot_i = 0
-	var slot: RandomNumberGenerator = slots[slot_i]
+	var slot_v: Variant = slots[slot_i]
+	if not (slot_v is RandomNumberGenerator):
+		return 0.0
+	@warning_ignore("unsafe_cast")
+	var slot: RandomNumberGenerator = slot_v as RandomNumberGenerator
 	return slot.randf()
 
 func roll_int(battle_serial: int, event_kind: String, from_v: int, to_v: int) -> int:
 	if not _battles.has(battle_serial):
 		begin_battle(battle_serial)
-	var job: Dictionary = _battles[battle_serial]
-	var table: Dictionary = job.get("apply_table", {})
-	var slot_i := int(table.get(event_kind, 0))
-	var slots: Array = job.get("slots", [])
+	var job: Dictionary = TypedVariant.as_dict(_battles[battle_serial])
+	var table: Dictionary = TypedVariant.as_dict(job.get("apply_table", {}))
+	var slot_i: int = TypedVariant.as_int(table.get(event_kind, 0))
+	var slots: Array = TypedVariant.as_array(job.get("slots", []))
 	if slot_i < 0 or slot_i >= slots.size():
 		slot_i = 0
-	var slot: RandomNumberGenerator = slots[slot_i]
+	var slot_v: Variant = slots[slot_i]
+	if not (slot_v is RandomNumberGenerator):
+		return from_v
+	@warning_ignore("unsafe_cast")
+	var slot: RandomNumberGenerator = slot_v as RandomNumberGenerator
 	return slot.randi_range(from_v, to_v)
 
 func pick_index(battle_serial: int, event_kind: String, count: int) -> int:

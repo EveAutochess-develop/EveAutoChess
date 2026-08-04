@@ -6,7 +6,7 @@ var _pool: Array[Label3D] = []
 var _active: Array = []  # {label, age, ttl}
 
 func spawn(world_pos: Vector3, text: String, color: Color) -> void:
-	var lab := _acquire()
+	var lab: Label3D = _acquire()
 	lab.text = text
 	lab.modulate = color
 	lab.global_position = world_pos + Vector3(0, 1.2, 0)
@@ -16,7 +16,7 @@ func spawn(world_pos: Vector3, text: String, color: Color) -> void:
 func _acquire() -> Label3D:
 	if not _pool.is_empty():
 		return _pool.pop_back()
-	var lab := Label3D.new()
+	var lab: Label3D = Label3D.new()
 	lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lab.font_size = 48
 	lab.outline_size = 8
@@ -27,15 +27,20 @@ func _acquire() -> Label3D:
 	return lab
 
 func _process(delta: float) -> void:
-	var i := 0
+	var i: int = 0
 	while i < _active.size():
-		var e: Dictionary = _active[i]
-		e["age"] = float(e["age"]) + delta
-		var lab: Label3D = e["label"]
-		var t := float(e["age"]) / float(e["ttl"])
-		lab.global_position.y = float(e["start_y"]) + t * 1.2
+		var e: Dictionary = TypedVariant.as_dict(_active[i])
+		e["age"] = TypedVariant.as_float(e.get("age", 0.0)) + delta
+		var lab_v: Variant = e.get("label")
+		if not (lab_v is Label3D):
+			_active.remove_at(i)
+			continue
+		@warning_ignore("unsafe_cast")
+		var lab: Label3D = lab_v as Label3D
+		var t: float = TypedVariant.as_float(e.get("age", 0.0)) / maxf(TypedVariant.as_float(e.get("ttl", 0.85), 0.85), 0.0001)
+		lab.global_position.y = TypedVariant.as_float(e.get("start_y", lab.global_position.y)) + t * 1.2
 		lab.modulate.a = 1.0 - t
-		if float(e["age"]) >= float(e["ttl"]):
+		if TypedVariant.as_float(e.get("age", 0.0)) >= TypedVariant.as_float(e.get("ttl", 0.85), 0.85):
 			lab.visible = false
 			_pool.append(lab)
 			_active.remove_at(i)

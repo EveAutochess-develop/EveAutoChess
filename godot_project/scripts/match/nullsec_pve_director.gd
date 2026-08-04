@@ -2,9 +2,9 @@ extends RefCounted
 class_name NullsecPveDirector
 ## Full pve_eliminate + pve_salvage orchestration helpers.
 
-const TASK_ELIMINATE := "pve_eliminate"
-const TASK_SALVAGE := "pve_salvage"
-const TASK_PVP := "pvp"
+const TASK_ELIMINATE: String = "pve_eliminate"
+const TASK_SALVAGE: String = "pve_salvage"
+const TASK_PVP: String = "pvp"
 
 var creep_ai: PveCreepAi = PveCreepAi.new()
 var match_rng: MatchRng
@@ -49,20 +49,22 @@ func lock_creeps(gold: int, level: int, pop_limit: int) -> Array:
 ## (FREIGHTER_AND_TITAN §1.2 异族硬门). Empty = no filter (tests / fallback).
 func pick_freighter_id(exclude_race: String = "") -> int:
 	var pool: Array = []
-	var exclude := exclude_race.strip_edges().to_lower()
-	for sid in DataStore.ship_ids():
-		var ship: Dictionary = DataStore.get_ship(int(sid))
-		var tags: Array = ship.get("tags", []) as Array
-		var ok := false
-		for t in tags:
-			if str(t) == "freighter" or str(t) == "pve_salvage":
+	var exclude: String = exclude_race.strip_edges().to_lower()
+	for sid_v: Variant in DataStore.ship_ids():
+		var sid: int = TypedVariant.as_int(sid_v, 0)
+		var ship: Dictionary = DataStore.get_ship(sid)
+		var tags: Array = TypedVariant.as_array(ship.get("tags", []))
+		var ok: bool = false
+		for t_v: Variant in tags:
+			var t: String = str(t_v)
+			if t == "freighter" or t == "pve_salvage":
 				ok = true
 				break
 		if not (ok or str(ship.get("ship_group", "")) == "freighter"):
 			continue
 		if exclude != "" and _ship_race_key(ship) == exclude:
 			continue
-		pool.append(int(sid))
+		pool.append(sid)
 	## Data hole: prefer a wrong-race freighter over spawning nothing.
 	if pool.is_empty() and exclude != "":
 		return pick_freighter_id("")
@@ -70,24 +72,24 @@ func pick_freighter_id(exclude_race: String = "") -> int:
 		freighter_ship_id = 211
 		freighter_alive = true
 		return freighter_ship_id
-	var idx := 0
+	var idx: int = 0
 	if match_rng:
 		idx = match_rng.pick_index(battle_serial, "creep_buy", pool.size())
-	freighter_ship_id = int(pool[idx])
+	freighter_ship_id = TypedVariant.as_int(pool[idx], 211)
 	freighter_alive = true
 	return freighter_ship_id
 
 
 static func _ship_race_key(ship: Dictionary) -> String:
-	var race := str(ship.get("race", "")).strip_edges().to_lower()
+	var race: String = str(ship.get("race", "")).strip_edges().to_lower()
 	if race != "":
 		return race
-	for t in (ship.get("fetter_ids", []) as Array):
-		var k := str(t).to_lower()
+	for t_v: Variant in TypedVariant.as_array(ship.get("fetter_ids", [])):
+		var k: String = str(t_v).to_lower()
 		if k in ["amarr", "caldari", "gallente", "minmatar"]:
 			return k
-	for t in (ship.get("tags", []) as Array):
-		var k2 := str(t).to_lower()
+	for t_v: Variant in TypedVariant.as_array(ship.get("tags", [])):
+		var k2: String = str(t_v).to_lower()
 		if k2 in ["amarr", "caldari", "gallente", "minmatar"]:
 			return k2
 	return ""
@@ -99,14 +101,14 @@ func salvage_center_cell(cols: int = 8, rows: int = 8) -> Vector2i:
 func evaluate_battle_end(enemy_ships_alive: int) -> Dictionary:
 	## Returns {success:bool, task:String, reason:String}
 	if current_task == TASK_SALVAGE:
-		var ok := freighter_alive
+		var ok: bool = freighter_alive
 		return {
 			"success": ok,
 			"task": current_task,
 			"reason": "freighter_survived" if ok else "freighter_destroyed",
 			"deduct_titan": false,
 		}
-	var ok2 := enemy_ships_alive <= 0
+	var ok2: bool = enemy_ships_alive <= 0
 	return {
 		"success": ok2,
 		"task": current_task,

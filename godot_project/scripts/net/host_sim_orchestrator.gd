@@ -22,7 +22,7 @@ func pending_count() -> int:
 
 func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int) -> int:
 	_serial += 1
-	var seeds := match_rng.begin_battle(_serial) if match_rng else {}
+	var seeds: Dictionary = match_rng.begin_battle(_serial) if match_rng else {}
 	_pending.append({
 		"serial": _serial,
 		"kind": "pvp",
@@ -36,7 +36,7 @@ func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int) -> int:
 
 func enqueue_pve(seat: int, task: String) -> int:
 	_serial += 1
-	var seeds := match_rng.begin_battle(_serial) if match_rng else {}
+	var seeds: Dictionary = match_rng.begin_battle(_serial) if match_rng else {}
 	_pending.append({
 		"serial": _serial,
 		"kind": "pve",
@@ -49,25 +49,25 @@ func enqueue_pve(seat: int, task: String) -> int:
 
 func tick_authority(_logic_dt: float) -> void:
 	## Resolve up to budget jobs per authority tick (deterministic report from MatchRng).
-	var n := 0
+	var n: int = 0
 	while not _pending.is_empty() and n < _sim_budget:
 		var job: Dictionary = _pending.pop_front()
-		var report := _simulate_job(job)
+		var report: Dictionary = _simulate_job(job)
 		_finished.append(report)
-		battle_job_finished.emit(int(job.get("serial", 0)), report)
+		battle_job_finished.emit(TypedVariant.as_int(job.get("serial", 0), 0), report)
 		n += 1
 
 
 func _simulate_job(job: Dictionary) -> Dictionary:
-	var serial := int(job.get("serial", 0))
-	var kind := str(job.get("kind", ""))
+	var serial: int = TypedVariant.as_int(job.get("serial", 0), 0)
+	var kind: String = str(job.get("kind", ""))
 	## Lightweight authority outcome from battle seeds (full board sim shares CombatResolver on host client).
-	var roll_a := 0.5
-	var roll_b := 0.5
+	var roll_a: float = 0.5
+	var roll_b: float = 0.5
 	if match_rng:
 		roll_a = match_rng.roll(serial, "turret_hit")
 		roll_b = match_rng.roll(serial, "retarget_tiebreak")
-	var result := "draw"
+	var result: String = "draw"
 	if kind == "pvp":
 		if roll_a > roll_b + 0.05:
 			result = "seat_a"
@@ -88,7 +88,7 @@ func _simulate_job(job: Dictionary) -> Dictionary:
 
 
 func flush_round() -> Array:
-	var out := _finished.duplicate(true)
+	var out: Array = _finished.duplicate(true)
 	_finished.clear()
 	round_finished.emit(out)
 	return out

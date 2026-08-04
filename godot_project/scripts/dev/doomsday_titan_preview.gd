@@ -2,7 +2,7 @@ extends Node3D
 ## Dev preview: four racial titans fire doomsday at one asteroid in sequence (A→C→G→M).
 ## Hulls use in-game ShipUnit pipeline (visual.json scale/orient + §0 unity shader).
 
-const PREVIEW_SHIPS := [
+const PREVIEW_SHIPS: Array = [
 	{
 		"id": 901,
 		"race_code": "A",
@@ -65,17 +65,17 @@ const PREVIEW_SHIPS := [
 	},
 ]
 
-const ASTEROID_PATH := "res://assets/models/env/asteroids/rock_02_l_v1.glb"
+const ASTEROID_PATH: String = "res://assets/models/env/asteroids/rock_02_l_v1.glb"
 ## Sequential fire: one race finishes, then the next (A→C→G→M).
-const FIRE_S := 1.55
-const GAP_S := 0.55
-const SLOT_S := FIRE_S + GAP_S
-const SHOT_PATH := "H:/game_dev/eveautochess-design/docs/_review/20260731_confirm/doomsday_preview/preview_fire.png"
-const SHOT_PATH_B := "H:/game_dev/eveautochess-design/docs/_review/20260731_confirm/doomsday_preview/preview_hulls.png"
+const FIRE_S: float = 1.55
+const GAP_S: float = 0.55
+const SLOT_S: float = FIRE_S + GAP_S
+const SHOT_PATH: String = "H:/game_dev/eveautochess-design/docs/_review/20260731_confirm/doomsday_preview/preview_fire.png"
+const SHOT_PATH_B: String = "H:/game_dev/eveautochess-design/docs/_review/20260731_confirm/doomsday_preview/preview_hulls.png"
 ## Same free-fly keys as match_root: WASD move, QE up/down, RF pitch, TG yaw.
-const _CAM_MOVE_SPEED := 22.0
-const _CAM_PITCH_SPEED := 55.0
-const _CAM_YAW_SPEED := 70.0
+const _CAM_MOVE_SPEED: float = 22.0
+const _CAM_PITCH_SPEED: float = 55.0
+const _CAM_YAW_SPEED: float = 70.0
 
 var _asteroid: Node3D
 var _entries: Array = []
@@ -93,8 +93,12 @@ func _ready() -> void:
 	_inject_preview_ships()
 	_build_env()
 	_build_asteroid()
-	for i in PREVIEW_SHIPS.size():
-		_entries.append(_spawn_titan(i, PREVIEW_SHIPS[i]))
+	for i: int in PREVIEW_SHIPS.size():
+		var def_v: Variant = PREVIEW_SHIPS[i]
+		if not (def_v is Dictionary):
+			continue
+		var def: Dictionary = def_v
+		_entries.append(_spawn_titan(i, def))
 	_cycle_s = SLOT_S * float(_entries.size())
 	_build_hud()
 	_t = 0.0
@@ -105,19 +109,22 @@ func _inject_preview_ships() -> void:
 	if DataStore == null:
 		push_error("DoomsdayPreview: DataStore missing")
 		return
-	for def in PREVIEW_SHIPS:
-		var sid := int(def["id"])
+	for def_v: Variant in PREVIEW_SHIPS:
+		if not (def_v is Dictionary):
+			continue
+		var def: Dictionary = def_v
+		var sid: int = TypedVariant.as_int(def.get("id", 0), 0)
 		DataStore.ships[sid] = {
 			"id": sid,
-			"name": str(def["name"]),
-			"name_en": str(def["name_en"]),
-			"model_key": str(def["model_key"]),
-			"model_long_axis": float(def["model_long_axis"]),
-			"race": str(def["race"]),
+			"name": str(def.get("name", "")),
+			"name_en": str(def.get("name_en", "")),
+			"model_key": str(def.get("model_key", "")),
+			"model_long_axis": TypedVariant.as_float(def.get("model_long_axis", 0.0), 0.0),
+			"race": str(def.get("race", "")),
 			"ship_group": "titan",
 			"cost": 0,
 			"fetter_ids": [],
-			"tags": [str(def["race"]), "titan"],
+			"tags": [str(def.get("race", "")), "titan"],
 			"is_logistic": false,
 			"weapon_fx": "laser",
 			"function_slots": {"slots": []},
@@ -142,7 +149,7 @@ func _fire_envelope(local_t: float) -> float:
 	## local_t in [0, FIRE_S): ramp → hold → fade. Else 0.
 	if local_t < 0.0 or local_t >= FIRE_S:
 		return 0.0
-	var amt := 0.0
+	var amt: float = 0.0
 	if local_t < 0.35:
 		amt = local_t / 0.35 * 0.35
 	else:
@@ -155,19 +162,25 @@ func _fire_envelope(local_t: float) -> float:
 func _process(delta: float) -> void:
 	_update_camera_free(delta)
 	_t += delta
-	var cycle_pos := fmod(_t, _cycle_s)
-	var active_idx := int(cycle_pos / SLOT_S)
+	var cycle_pos: float = fmod(_t, _cycle_s)
+	var active_idx: int = int(cycle_pos / SLOT_S)
 	active_idx = clampi(active_idx, 0, maxi(_entries.size() - 1, 0))
-	var local_t := cycle_pos - float(active_idx) * SLOT_S
-	var peak_amt := 0.0
-	var active_label := ""
-	for i in _entries.size():
-		var amt := _fire_envelope(local_t) if i == active_idx else 0.0
+	var local_t: float = cycle_pos - float(active_idx) * SLOT_S
+	var peak_amt: float = 0.0
+	var active_label: String = ""
+	for i: int in _entries.size():
+		var amt: float = _fire_envelope(local_t) if i == active_idx else 0.0
 		if amt > peak_amt:
 			peak_amt = amt
 		if i == active_idx and i < PREVIEW_SHIPS.size():
-			active_label = str(PREVIEW_SHIPS[i].get("label", ""))
-		_tick_fx(_entries[i], amt, delta)
+			var ship_v: Variant = PREVIEW_SHIPS[i]
+			if ship_v is Dictionary:
+				var ship_def: Dictionary = ship_v
+				active_label = str(ship_def.get("label", ""))
+		var entry_v: Variant = _entries[i]
+		if entry_v is Dictionary:
+			var entry: Dictionary = entry_v
+			_tick_fx(entry, amt, delta)
 	if _hud:
 		_hud.text = (
 			"依次末日  [%d/%d] %s  fire=%.0f%%  | WASD移动 QE升降 RF俯仰 TG偏航 Shift加速"
@@ -181,14 +194,14 @@ func _process(delta: float) -> void:
 func _update_camera_free(delta: float) -> void:
 	if _cam == null:
 		return
-	var speed := _CAM_MOVE_SPEED
+	var speed: float = _CAM_MOVE_SPEED
 	if Input.is_physical_key_pressed(KEY_SHIFT):
 		speed *= 2.5
-	var basis := _cam.global_transform.basis
-	var forward := -basis.z
-	var right := basis.x
-	var up := Vector3.UP
-	var move := Vector3.ZERO
+	var cam_basis: Basis = _cam.global_transform.basis
+	var forward: Vector3 = -cam_basis.z
+	var right: Vector3 = cam_basis.x
+	var up: Vector3 = Vector3.UP
+	var move: Vector3 = Vector3.ZERO
 	if Input.is_physical_key_pressed(KEY_W):
 		move += forward
 	if Input.is_physical_key_pressed(KEY_S):
@@ -203,14 +216,14 @@ func _update_camera_free(delta: float) -> void:
 		move += up
 	if move != Vector3.ZERO:
 		_cam_base_pos += move.normalized() * speed * delta
-	var pitch_delta := 0.0
+	var pitch_delta: float = 0.0
 	if Input.is_physical_key_pressed(KEY_R):
 		pitch_delta += _CAM_PITCH_SPEED * delta
 	if Input.is_physical_key_pressed(KEY_F):
 		pitch_delta -= _CAM_PITCH_SPEED * delta
 	if pitch_delta != 0.0:
 		_cam_base_pitch_deg = clampf(_cam_base_pitch_deg + pitch_delta, -89.0, 89.0)
-	var yaw_delta := 0.0
+	var yaw_delta: float = 0.0
 	if Input.is_physical_key_pressed(KEY_T):
 		yaw_delta -= _CAM_YAW_SPEED * delta
 	if Input.is_physical_key_pressed(KEY_G):
@@ -224,7 +237,7 @@ func _update_camera_free(delta: float) -> void:
 func _save_preview_shot() -> void:
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	var img := get_viewport().get_texture().get_image()
+	var img: Image = get_viewport().get_texture().get_image()
 	if img:
 		img.save_png(SHOT_PATH)
 		img.save_png(SHOT_PATH_B)
@@ -235,30 +248,30 @@ func _build_env() -> void:
 	## Match ShipLook key light defaults when present.
 	var look: Dictionary = {}
 	if DataStore and DataStore.visual is Dictionary:
-		var sl = DataStore.visual.get("ship_look", {})
-		if sl is Dictionary:
-			look = sl
-	var light := DirectionalLight3D.new()
-	light.light_energy = float(look.get("key_energy", 1.0))
+		var sl_v: Variant = DataStore.visual.get("ship_look", {})
+		if sl_v is Dictionary:
+			look = sl_v
+	var light: DirectionalLight3D = DirectionalLight3D.new()
+	light.light_energy = TypedVariant.as_float(look.get("key_energy", 1.0), 1.0)
 	light.shadow_enabled = false
 	light.rotation_degrees = Vector3(
-		float(look.get("key_pitch_deg", -57.3)),
-		float(look.get("key_yaw_deg", 107.7)),
-		float(look.get("key_roll_deg", 0.0))
+		TypedVariant.as_float(look.get("key_pitch_deg", -57.3), -57.3),
+		TypedVariant.as_float(look.get("key_yaw_deg", 107.7), 107.7),
+		TypedVariant.as_float(look.get("key_roll_deg", 0.0), 0.0)
 	)
 	if look.has("key_color_r"):
 		light.light_color = Color(
-			float(look.get("key_color_r", 1.0)),
-			float(look.get("key_color_g", 1.0)),
-			float(look.get("key_color_b", 1.0))
+			TypedVariant.as_float(look.get("key_color_r", 1.0), 1.0),
+			TypedVariant.as_float(look.get("key_color_g", 1.0), 1.0),
+			TypedVariant.as_float(look.get("key_color_b", 1.0), 1.0)
 		)
 	add_child(light)
-	var top := DirectionalLight3D.new()
+	var top: DirectionalLight3D = DirectionalLight3D.new()
 	top.light_energy = 1.55
 	top.shadow_enabled = false
 	top.rotation_degrees = Vector3(-90, 0, 0)
 	add_child(top)
-	var fill := OmniLight3D.new()
+	var fill: OmniLight3D = OmniLight3D.new()
 	fill.light_energy = 4.5
 	fill.omni_range = 120.0
 	fill.position = Vector3(0, 50, 0)
@@ -276,20 +289,20 @@ func _build_env() -> void:
 	_cam.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
 	add_child(_cam)
 
-	var bg := WorldEnvironment.new()
-	var env := Environment.new()
+	var bg: WorldEnvironment = WorldEnvironment.new()
+	var env: Environment = Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.02, 0.03, 0.05)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(
-		float(look.get("ambient_r", 0.212)),
-		float(look.get("ambient_g", 0.227)),
-		float(look.get("ambient_b", 0.259))
+		TypedVariant.as_float(look.get("ambient_r", 0.212), 0.212),
+		TypedVariant.as_float(look.get("ambient_g", 0.227), 0.227),
+		TypedVariant.as_float(look.get("ambient_b", 0.259), 0.259)
 	)
-	env.ambient_light_energy = maxf(float(look.get("ambient_energy", 1.15)), 1.8)
-	env.glow_enabled = bool(look.get("glow_enabled", true))
-	env.glow_intensity = float(look.get("glow_intensity", 0.55))
-	env.glow_bloom = float(look.get("glow_bloom", 0.35))
+	env.ambient_light_energy = maxf(TypedVariant.as_float(look.get("ambient_energy", 1.15), 1.15), 1.8)
+	env.glow_enabled = TypedVariant.as_bool(look.get("glow_enabled", true), true)
+	env.glow_intensity = TypedVariant.as_float(look.get("glow_intensity", 0.55), 0.55)
+	env.glow_bloom = TypedVariant.as_float(look.get("glow_bloom", 0.35), 0.35)
 	bg.environment = env
 	add_child(bg)
 
@@ -299,46 +312,49 @@ func _build_asteroid() -> void:
 	_asteroid.name = "AsteroidTarget"
 	_asteroid.position = Vector3(0, 0, -14)
 	add_child(_asteroid)
-	var packed := load(ASTEROID_PATH)
+	var packed: Variant = load(ASTEROID_PATH)
 	if packed is PackedScene:
-		var inst: Node3D = (packed as PackedScene).instantiate()
+		var scene: PackedScene = packed
+		var inst: Node3D = scene.instantiate()
 		inst.scale = Vector3.ONE * 2.6
 		_asteroid.add_child(inst)
 	else:
-		var mi := MeshInstance3D.new()
-		var sphere := SphereMesh.new()
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		var sphere: SphereMesh = SphereMesh.new()
 		sphere.radius = 2.0
 		mi.mesh = sphere
 		_asteroid.add_child(mi)
 
 
 func _spawn_titan(idx: int, def: Dictionary) -> Dictionary:
-	var unit := ShipUnit.new()
-	unit.name = "Titan_%s" % str(def["race_code"])
-	var x := (idx - 1.5) * 10.0
+	var unit: ShipUnit = ShipUnit.new()
+	unit.name = "Titan_%s" % str(def.get("race_code", ""))
+	var x: float = (float(idx) - 1.5) * 10.0
 	unit.position = Vector3(x, 0, 8)
 	add_child(unit)
-	unit.setup(int(def["id"]), 1, ShipUnit.TEAM_PLAYER)
+	unit.setup(TypedVariant.as_int(def.get("id", 0), 0), 1, ShipUnit.TEAM_PLAYER)
 	unit.clear_health_bar()
 	# Aim local -Z at asteroid (same as combat face).
-	var aim := _asteroid.global_position - unit.global_position
+	var aim: Vector3 = _asteroid.global_position - unit.global_position
 	unit.face_dir_xz(aim)
 	# Temporarily allow face even if immobile flags appear.
 	unit.immobile_in_combat = false
 
-	var label := Label3D.new()
-	label.text = str(def["label"])
+	var color_v: Variant = def.get("color", null)
+	var race_color: Color = color_v if color_v is Color else Color.WHITE
+	var label: Label3D = Label3D.new()
+	label.text = str(def.get("label", ""))
 	label.font_size = 64
-	label.modulate = def["color"]
+	label.modulate = race_color
 	label.position = Vector3(0, 0.15, 4.2)
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.pixel_size = 0.012
 	unit.add_child(label)
 
-	var muzzle := Marker3D.new()
+	var muzzle: Marker3D = Marker3D.new()
 	muzzle.name = "PreviewMuzzle"
 	# Prefer ShipUnit turret muzzle if available.
-	var tip := Vector3(0, 0.4, -2.8)
+	var tip: Vector3 = Vector3(0, 0.4, -2.8)
 	if unit.has_method("get_muzzle_global"):
 		# Approximate local from current muzzle once.
 		var g: Vector3 = unit.get_muzzle_global()
@@ -346,49 +362,66 @@ func _spawn_titan(idx: int, def: Dictionary) -> Dictionary:
 	muzzle.position = tip
 	unit.add_child(muzzle)
 
-	var fx := _make_fx(def, muzzle)
-	unit.add_child(fx["node"])
+	var fx: Dictionary = _make_fx(def, muzzle)
+	var fx_node_v: Variant = fx.get("node", null)
+	if fx_node_v is Node:
+		var fx_node: Node = fx_node_v
+		unit.add_child(fx_node)
 	return {
 		"unit": unit,
 		"muzzle": muzzle,
-		"color": def["color"],
-		"style": str(def["style"]),
-		"hit_flare_enabled": str(def["race_code"]) != "A",
-		"mats": fx["mats"],
-		"flare": fx["flare"],
-		"particles": fx["particles"],
-		"beams": fx["beams"],
+		"color": race_color,
+		"style": str(def.get("style", "")),
+		"hit_flare_enabled": str(def.get("race_code", "")) != "A",
+		"mats": fx.get("mats", []),
+		"flare": fx.get("flare", null),
+		"particles": fx.get("particles", null),
+		"beams": fx.get("beams", []),
 	}
 
 
 func _make_fx(def: Dictionary, muzzle: Marker3D) -> Dictionary:
-	var holder := Node3D.new()
+	var holder: Node3D = Node3D.new()
 	holder.name = "DoomsdayFx"
 	var mats: Array = []
 	var beams: Array = []
-	var color: Color = def["color"]
+	var color_v: Variant = def.get("color", null)
+	var color: Color = color_v if color_v is Color else Color.WHITE
 
-	var outer := _make_beam_mesh(def["beam"], color, 1.15, 0.55)
-	holder.add_child(outer["mi"])
-	mats.append(outer["mat"])
-	beams.append(outer["mi"])
-	var inner := _make_beam_mesh(def["detail"], Color.WHITE.lerp(color, 0.35), 0.4, 0.85)
-	holder.add_child(inner["mi"])
-	mats.append(inner["mat"])
-	beams.append(inner["mi"])
+	var outer: Dictionary = _make_beam_mesh(str(def.get("beam", "")), color, 1.15, 0.55)
+	var outer_mi_v: Variant = outer.get("mi", null)
+	if outer_mi_v is MeshInstance3D:
+		var outer_mi: MeshInstance3D = outer_mi_v
+		holder.add_child(outer_mi)
+	var outer_mat_v: Variant = outer.get("mat", null)
+	if outer_mat_v is StandardMaterial3D:
+		mats.append(outer_mat_v)
+	if outer_mi_v is MeshInstance3D:
+		beams.append(outer_mi_v)
+	var inner: Dictionary = _make_beam_mesh(str(def.get("detail", "")), Color.WHITE.lerp(color, 0.35), 0.4, 0.85)
+	var inner_mi_v: Variant = inner.get("mi", null)
+	if inner_mi_v is MeshInstance3D:
+		var inner_mi: MeshInstance3D = inner_mi_v
+		holder.add_child(inner_mi)
+	var inner_mat_v: Variant = inner.get("mat", null)
+	if inner_mat_v is StandardMaterial3D:
+		mats.append(inner_mat_v)
+	if inner_mi_v is MeshInstance3D:
+		beams.append(inner_mi_v)
 
-	var flare := MeshInstance3D.new()
-	var q := QuadMesh.new()
+	var flare: MeshInstance3D = MeshInstance3D.new()
+	var q: QuadMesh = QuadMesh.new()
 	q.size = Vector2(2.8, 2.8)
 	flare.mesh = q
-	var fmat := StandardMaterial3D.new()
+	var fmat: StandardMaterial3D = StandardMaterial3D.new()
 	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	fmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	fmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	fmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	if ResourceLoader.exists(str(def["flare"])):
-		fmat.albedo_texture = load(str(def["flare"]))
+	var flare_path: String = str(def.get("flare", ""))
+	if ResourceLoader.exists(flare_path):
+		fmat.albedo_texture = load(flare_path)
 	fmat.albedo_color = Color(color.r, color.g, color.b, 0.0)
 	fmat.emission_enabled = true
 	fmat.emission = color
@@ -398,16 +431,16 @@ func _make_fx(def: Dictionary, muzzle: Marker3D) -> Dictionary:
 	mats.append(fmat)
 
 	var particles: GPUParticles3D = null
-	var style := str(def["style"])
+	var style: String = str(def.get("style", ""))
 	if style == "particle_smoke" or style == "explosion_smoke":
 		## C/M：只收发散角；保留原始寿命、速度与粒子尺寸，不缩短射流。
-		var is_caldari := style == "particle_smoke"
+		var is_caldari: bool = style == "particle_smoke"
 		particles = GPUParticles3D.new()
 		particles.amount = 48 if is_caldari else 64
 		particles.lifetime = 0.9
 		particles.visibility_aabb = AABB(Vector3(-30, -30, -30), Vector3(60, 60, 60))
 		particles.local_coords = true
-		var pmat := ParticleProcessMaterial.new()
+		var pmat: ParticleProcessMaterial = ParticleProcessMaterial.new()
 		pmat.direction = Vector3(0, 0, -1)
 		pmat.spread = 2.5 if is_caldari else 4.0
 		pmat.initial_velocity_min = 8.0
@@ -419,15 +452,16 @@ func _make_fx(def: Dictionary, muzzle: Marker3D) -> Dictionary:
 		pmat.scale_max = 1.2
 		pmat.color = Color(color.r, color.g, color.b, 0.85)
 		particles.process_material = pmat
-		var draw := QuadMesh.new()
+		var draw: QuadMesh = QuadMesh.new()
 		draw.size = Vector2(0.65, 0.65)
-		var dmat := StandardMaterial3D.new()
+		var dmat: StandardMaterial3D = StandardMaterial3D.new()
 		dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		dmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		dmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-		if ResourceLoader.exists(str(def["detail"])):
-			dmat.albedo_texture = load(str(def["detail"]))
+		var detail_path: String = str(def.get("detail", ""))
+		if ResourceLoader.exists(detail_path):
+			dmat.albedo_texture = load(detail_path)
 		dmat.albedo_color = Color(color.r, color.g, color.b, 0.7)
 		draw.material = dmat
 		particles.draw_pass_1 = draw
@@ -439,11 +473,11 @@ func _make_fx(def: Dictionary, muzzle: Marker3D) -> Dictionary:
 
 
 func _make_beam_mesh(tex_path: String, color: Color, width: float, alpha: float) -> Dictionary:
-	var mi := MeshInstance3D.new()
-	var box := BoxMesh.new()
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var box: BoxMesh = BoxMesh.new()
 	box.size = Vector3.ONE
 	mi.mesh = box
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -463,61 +497,74 @@ func _make_beam_mesh(tex_path: String, color: Color, width: float, alpha: float)
 
 
 func _tick_fx(e: Dictionary, fire_amt: float, delta: float) -> void:
-	var muzzle: Marker3D = e["muzzle"]
-	var unit: ShipUnit = e["unit"]
-	var target := _asteroid.global_position + Vector3(0, 0.6, 0)
-	var from := muzzle.global_position
+	var muzzle_v: Variant = e.get("muzzle", null)
+	if not (muzzle_v is Marker3D):
+		return
+	var muzzle: Marker3D = muzzle_v
+	var unit_v: Variant = e.get("unit", null)
+	if not (unit_v is ShipUnit):
+		return
+	var unit: ShipUnit = unit_v
+	var target: Vector3 = _asteroid.global_position + Vector3(0, 0.6, 0)
+	var from: Vector3 = muzzle.global_position
 	if unit.has_method("get_muzzle_global"):
 		from = unit.get_muzzle_global()
 		muzzle.global_position = from
-	var mid := (from + target) * 0.5
-	var length := from.distance_to(target)
-	var dir := (target - from).normalized()
+	var mid: Vector3 = (from + target) * 0.5
+	var length: float = from.distance_to(target)
+	var dir: Vector3 = (target - from).normalized()
 
-	for mi in e["beams"]:
-		var mesh_i: MeshInstance3D = mi
-		var w: float = float(mesh_i.get_meta("beam_width", 0.6))
-		var a: float = float(mesh_i.get_meta("beam_alpha", 0.7))
+	var beams: Array = TypedVariant.as_array(e.get("beams", null))
+	for mi_v: Variant in beams:
+		if not (mi_v is MeshInstance3D):
+			continue
+		var mesh_i: MeshInstance3D = mi_v
+		var w: float = TypedVariant.as_float(mesh_i.get_meta("beam_width", 0.6), 0.6)
+		var a: float = TypedVariant.as_float(mesh_i.get_meta("beam_alpha", 0.7), 0.7)
 		mesh_i.visible = fire_amt > 0.02
 		if not mesh_i.visible:
 			continue
-		var right := dir.cross(Vector3.UP)
+		var right: Vector3 = dir.cross(Vector3.UP)
 		if right.length_squared() < 1e-6:
 			right = dir.cross(Vector3.RIGHT)
 		right = right.normalized()
-		var fwd := right.cross(dir).normalized()
-		var beam_basis := Basis(right, dir, fwd)
+		var fwd: Vector3 = right.cross(dir).normalized()
+		var beam_basis: Basis = Basis(right, dir, fwd)
 		mesh_i.global_transform = Transform3D(beam_basis, mid)
 		mesh_i.scale = Vector3(w * (0.55 + fire_amt), length, w * (0.55 + fire_amt))
 		var mat: StandardMaterial3D = mesh_i.material_override
-		var col := mat.albedo_color
+		var col: Color = mat.albedo_color
 		col.a = a * fire_amt
 		mat.albedo_color = col
 		mat.emission_energy_multiplier = 1.2 + fire_amt * 2.4
 		mat.uv1_offset.y = fmod(mat.uv1_offset.y - delta * (1.8 + fire_amt * 2.5), 1.0)
 
-	var flare: MeshInstance3D = e["flare"]
+	var flare_v: Variant = e.get("flare", null)
+	if not (flare_v is MeshInstance3D):
+		return
+	var flare: MeshInstance3D = flare_v
 	## Amarr whitesharp2_gradient renders as a broken gold square: discard it.
 	## C/G/M retain their race hit flare.
-	var flare_enabled := bool(e.get("hit_flare_enabled", true))
+	var flare_enabled: bool = TypedVariant.as_bool(e.get("hit_flare_enabled", true), true)
 	flare.visible = flare_enabled and fire_amt > 0.02
 	flare.global_position = target
 	var fmat: StandardMaterial3D = flare.material_override
-	var fc := fmat.albedo_color
+	var fc: Color = fmat.albedo_color
 	fc.a = fire_amt * fire_amt * 0.95 if flare_enabled else 0.0
 	fmat.albedo_color = fc
 	flare.scale = Vector3.ONE * (1.2 + fire_amt * 3.2)
 
-	var parts: GPUParticles3D = e.get("particles")
-	if parts:
+	var parts_v: Variant = e.get("particles", null)
+	if parts_v is GPUParticles3D:
+		var parts: GPUParticles3D = parts_v
 		parts.emitting = fire_amt > 0.4
 		# Emit along beam axis (local -Z = dir) so spread stays in-channel.
-		var p_basis := Basis.looking_at(dir, Vector3.UP)
+		var p_basis: Basis = Basis.looking_at(dir, Vector3.UP)
 		parts.global_transform = Transform3D(p_basis, from.lerp(target, 0.12))
 
 
 func _build_hud() -> void:
-	var layer := CanvasLayer.new()
+	var layer: CanvasLayer = CanvasLayer.new()
 	add_child(layer)
 	_hud = Label.new()
 	_hud.position = Vector2(24, 18)

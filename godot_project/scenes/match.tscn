@@ -85,11 +85,12 @@ text = "跳过"
 [node name="TopRight" type="HBoxContainer" parent="HUD/Root"]
 layout_mode = 1
 theme_override_constants/separation = 10
+alignment = 2
 mouse_filter = 0
 
 [node name="Version" type="Label" parent="HUD/Root/TopRight"]
 layout_mode = 2
-size_flags_horizontal = 3
+size_flags_horizontal = 0
 theme_override_font_sizes/font_size = 14
 text = "ver"
 horizontal_alignment = 2
@@ -127,18 +128,25 @@ layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="BonusContainer" type="VBoxContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
+[node name="BonusScroll" type="ScrollContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
 layout_mode = 2
 size_flags_vertical = 3
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 1
+
+[node name="BonusContainer" type="VBoxContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent/BonusScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 4
 
-[node name="Fetters" type="Label" parent="HUD/Root/LeftCol/LeftInner/LeftContent/BonusContainer"]
+[node name="Fetters" type="Label" parent="HUD/Root/LeftCol/LeftInner/LeftContent/BonusScroll/BonusContainer"]
 visible = false
 layout_mode = 2
 text = "羁绊"
 
 [node name="ReserveGrid" type="GridContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
 layout_mode = 2
+size_flags_vertical = 8
 columns = 4
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
@@ -166,50 +174,57 @@ visible = false
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="InfoBody" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel"]
+[node name="InfoScroll" type="ScrollContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel"]
 layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 1
+
+[node name="InfoBody" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="InfoTop" type="HBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoTop" type="HBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="InfoIcon" type="TextureRect" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop"]
+[node name="InfoIcon" type="TextureRect" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody/InfoTop"]
 custom_minimum_size = Vector2(72, 72)
 layout_mode = 2
 expand_mode = 1
 stretch_mode = 5
 
-[node name="InfoTitleCol" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop"]
+[node name="InfoTitleCol" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody/InfoTop"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="InfoTitle" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody/InfoTop/InfoTitleCol"]
+[node name="InfoTitle" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody/InfoTop/InfoTitleCol"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "舰名"
 
-[node name="InfoFetters" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoFetters" type="VBoxContainer" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="InfoShield" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoShield" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 text = "盾"
 
-[node name="InfoArmor" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoArmor" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 text = "甲"
 
-[node name="InfoStructure" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoStructure" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 text = "结构"
 
-[node name="InfoDmg" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoDmg" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 text = "伤害"
 
-[node name="InfoRange" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoBody"]
+[node name="InfoRange" type="Label" parent="HUD/Root/RightCol/RightInner/RightContent/InfoPanel/InfoScroll/InfoBody"]
 layout_mode = 2
 text = "射程"
 

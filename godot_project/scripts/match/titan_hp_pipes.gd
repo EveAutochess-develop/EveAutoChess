@@ -29,34 +29,34 @@ func alive() -> bool:
 	return structure > 0
 
 func _scaled_pvp_dmg(base: int) -> int:
-	return maxi(1, int(round(float(base) * pvp_loss_mul)))
+	return maxi(1, roundi(float(base) * pvp_loss_mul))
 
 func apply_pvp_loss() -> int:
 	## Returns damage applied (for VFX). Always doomsday presentation externally.
-	var dmg := _scaled_pvp_dmg(20)
+	var dmg: int = _scaled_pvp_dmg(20)
 	if race == "minmatar" and not flag_first_hp_hit:
 		dmg = _scaled_pvp_dmg(5)
 		flag_first_hp_hit = true
-		var take := mini(dmg, shield)
+		var take: int = mini(dmg, shield)
 		shield -= take
 		return take
 	return _apply_pipes(dmg)
 
 func _apply_pipes(dmg: int) -> int:
-	var remaining := dmg
-	var applied := 0
+	var remaining: int = dmg
+	var applied: int = 0
 	if remaining > 0 and shield > 0:
-		var take := mini(remaining, shield)
+		var take: int = mini(remaining, shield)
 		shield -= take
 		remaining -= take
 		applied += take
 		flag_first_hp_hit = true
 	if remaining > 0 and armor > 0:
-		var chunk := remaining
+		var chunk: int = remaining
 		if race == "gallente" and not flag_first_armor_hit:
 			chunk = _scaled_pvp_dmg(5)
 			flag_first_armor_hit = true
-		var take2 := mini(chunk, armor)
+		var take2: int = mini(chunk, armor)
 		armor -= take2
 		remaining -= take2
 		applied += take2
@@ -64,7 +64,7 @@ func _apply_pipes(dmg: int) -> int:
 		if race == "gallente" and flag_first_armor_hit and remaining > 0:
 			pass
 	if remaining > 0 and structure > 0:
-		var take3 := mini(remaining, structure)
+		var take3: int = mini(remaining, structure)
 		structure -= take3
 		applied += take3
 	return applied

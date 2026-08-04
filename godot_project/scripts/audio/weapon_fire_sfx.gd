@@ -2,9 +2,9 @@ extends Node
 class_name WeaponFireSfx
 ## Play TQ turret SFX on each FiringFx shot. Pools by family×size; voice-limited.
 
-const ROOT := "res://assets/audio/weapon_sfx/"
-const MAX_VOICES := 10
-const BASE_VOLUME_DB := -8.0
+const ROOT: String = "res://assets/audio/weapon_sfx/"
+const MAX_VOICES: int = 10
+const BASE_VOLUME_DB: float = -8.0
 
 var _players: Array[AudioStreamPlayer] = []
 ## "family/size" -> PackedStringArray of res paths
@@ -14,32 +14,38 @@ var _stream_cache: Dictionary = {}
 
 func setup() -> void:
 	_build_pools()
-	for i in range(MAX_VOICES):
-		var p := AudioStreamPlayer.new()
+	for i: int in range(MAX_VOICES):
+		var p: AudioStreamPlayer = AudioStreamPlayer.new()
 		p.name = "WeaponSfx_%d" % i
 		p.bus = "Master"
 		p.volume_db = BASE_VOLUME_DB
 		add_child(p)
 		_players.append(p)
 
-func play_for(firer: ShipUnit, kind: String) -> void:
-	var k := str(kind).to_lower()
-	if k == "mining" or k == "":
+func play_for(firer: Node, kind: String) -> void:
+	if GameSession != null and GameSession.no_model_perf_mode:
 		return
-	var family := _family_for_kind(k)
+	var k: String = str(kind).to_lower()
+	## mining + function-bucket beams: silent (COMBAT §8.1 / §8.2)
+	if k == "mining" or k == "" or k in [
+			"nos", "neut", "remote_cap", "sensor_damp",
+			"tracking_disrupt", "guidance_disrupt", "target_painter"]:
+		return
+	var family: String = _family_for_kind(k)
 	if family == "":
 		return
-	var size := _size_bucket(firer, family)
-	var path := _pick_path(family, size)
+	var size: String = _size_bucket(firer, family)
+	var path: String = _pick_path(family, size)
 	if path == "":
 		return
-	var stream := _load_stream(path)
+	var stream: AudioStream = _load_stream(path)
 	if stream == null:
 		return
-	var player := _acquire_player()
+	var player: AudioStreamPlayer = _acquire_player()
 	if player == null:
 		return
 	if stream is AudioStreamWAV:
+		@warning_ignore("unsafe_cast")
 		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_DISABLED
 	player.stream = stream
 	player.pitch_scale = 1.0
@@ -59,10 +65,11 @@ func _family_for_kind(kind: String) -> String:
 		_:
 			return ""
 
-func _size_bucket(firer: ShipUnit, family: String) -> String:
-	var group := "frigate"
+func _size_bucket(firer: Node, family: String) -> String:
+	var group: String = "frigate"
 	if firer != null and is_instance_valid(firer):
-		group = str(DataStore.get_ship(firer.ship_id).get("ship_group", "frigate")).to_lower()
+		var ship_id: int = TypedVariant.as_int(firer.get("ship_id"), 0)
+		group = str(DataStore.get_ship(ship_id).get("ship_group", "frigate")).to_lower()
 	match group:
 		"frigate", "destroyer", "drone_light", "drone_medium", "drone_heavy":
 			return "small"
@@ -88,16 +95,16 @@ func _pick_path(family: String, size: String) -> String:
 	if size == "capital" or size == "xlarge":
 		order.append("large")
 	order.append("unk")
-	for sz in order:
-		var key := "%s/%s" % [family, sz]
-		var paths: Array = _pools.get(key, []) as Array
+	for sz: String in order:
+		var key: String = "%s/%s" % [family, sz]
+		var paths: Array = TypedVariant.as_array(_pools.get(key, []))
 		if paths.is_empty():
 			continue
 		var preferred: Array = []
 		var fallback: Array = []
-		for p in paths:
-			var fname := str(p).get_file().to_lower()
-			var is_impact := "impact" in fname and "outburst" not in fname and "fire" not in fname and "shot" not in fname
+		for p: Variant in paths:
+			var fname: String = str(p).get_file().to_lower()
+			var is_impact: bool = "impact" in fname and "outburst" not in fname and "fire" not in fname and "shot" not in fname
 			if is_impact:
 				fallback.append(p)
 			elif "first_shot" in fname or "fire_" in fname or "_fire_" in fname or "outburst" in fname or "shot" in fname:
@@ -107,35 +114,40 @@ func _pick_path(family: String, size: String) -> String:
 		var pool: Array = preferred if not preferred.is_empty() else fallback
 		if pool.is_empty():
 			continue
-		var idx := int(_rr.get(key, 0))
+		var idx: int = TypedVariant.as_int(_rr.get(key, 0))
 		_rr[key] = (idx + 1) % pool.size()
 		return str(pool[idx % pool.size()])
 	## Last resort: any file in family
-	for k in _pools.keys():
+	for k: Variant in _pools.keys():
 		if str(k).begins_with(family + "/"):
-			var arr: Array = _pools[k] as Array
+			var arr: Array = TypedVariant.as_array(_pools[k])
 			if not arr.is_empty():
 				return str(arr[0])
 	return ""
 
 func _acquire_player() -> AudioStreamPlayer:
-	for p in _players:
+	for p: AudioStreamPlayer in _players:
 		if p != null and not p.playing:
 			return p
 	## Steal oldest-finished-ish: first player
 	if _players.is_empty():
 		return null
-	var steal := _players[0]
+	var steal: AudioStreamPlayer = _players[0]
 	steal.stop()
 	return steal
 
 func _load_stream(path: String) -> AudioStream:
 	if _stream_cache.has(path):
-		return _stream_cache[path] as AudioStream
+		var cached: Variant = _stream_cache[path]
+		if cached is AudioStream:
+			@warning_ignore("unsafe_cast")
+			return cached as AudioStream
+		return null
 	var stream: AudioStream = null
 	if ResourceLoader.exists(path):
 		var res: Variant = load(path)
 		if res is AudioStream:
+			@warning_ignore("unsafe_cast")
 			stream = res as AudioStream
 	if stream == null:
 		stream = _load_pcm16_wav(path)
@@ -147,20 +159,20 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 	## Same fallback as death FX for WAVs Godot has not imported yet.
 	if not FileAccess.file_exists(path):
 		return null
-	var f := FileAccess.open(path, FileAccess.READ)
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return null
-	var data := f.get_buffer(f.get_length())
+	var data: PackedByteArray = f.get_buffer(f.get_length())
 	if data.size() < 44 or data.slice(0, 4).get_string_from_ascii() != "RIFF":
 		return null
-	var i := 12
-	var channels := 1
-	var rate := 44100
-	var pcm := PackedByteArray()
+	var i: int = 12
+	var channels: int = 1
+	var rate: int = 44100
+	var pcm: PackedByteArray = PackedByteArray()
 	while i + 8 <= data.size():
-		var cid := data.slice(i, i + 4).get_string_from_ascii()
-		var sz := data.decode_u32(i + 4)
-		var body := i + 8
+		var cid: String = data.slice(i, i + 4).get_string_from_ascii()
+		var sz: int = data.decode_u32(i + 4)
+		var body: int = i + 8
 		if cid == "fmt " and sz >= 16:
 			if data.decode_u16(body) != 1 or data.decode_u16(body + 14) != 16:
 				return null
@@ -172,7 +184,7 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 		i = body + sz + (sz & 1)
 	if pcm.is_empty():
 		return null
-	var wav := AudioStreamWAV.new()
+	var wav: AudioStreamWAV = AudioStreamWAV.new()
 	wav.format = AudioStreamWAV.FORMAT_16_BITS
 	wav.mix_rate = rate
 	wav.stereo = channels >= 2
@@ -182,12 +194,12 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 
 func _build_pools() -> void:
 	_pools.clear()
-	var root_dir := DirAccess.open(ROOT)
+	var root_dir: DirAccess = DirAccess.open(ROOT)
 	if root_dir == null:
 		push_warning("WeaponFireSfx: missing %s" % ROOT)
 		return
 	root_dir.list_dir_begin()
-	var fam := root_dir.get_next()
+	var fam: String = root_dir.get_next()
 	while fam != "":
 		if root_dir.current_is_dir() and not fam.begins_with("."):
 			_scan_family(fam)
@@ -195,20 +207,20 @@ func _build_pools() -> void:
 	root_dir.list_dir_end()
 
 func _scan_family(family: String) -> void:
-	var fam_path := ROOT.path_join(family)
-	var d := DirAccess.open(fam_path)
+	var fam_path: String = ROOT.path_join(family)
+	var d: DirAccess = DirAccess.open(fam_path)
 	if d == null:
 		return
 	d.list_dir_begin()
-	var size_name := d.get_next()
+	var size_name: String = d.get_next()
 	while size_name != "":
 		if d.current_is_dir() and not size_name.begins_with("."):
-			var key := "%s/%s" % [family, size_name]
+			var key: String = "%s/%s" % [family, size_name]
 			var files: Array = []
-			var sd := DirAccess.open(fam_path.path_join(size_name))
+			var sd: DirAccess = DirAccess.open(fam_path.path_join(size_name))
 			if sd:
 				sd.list_dir_begin()
-				var fn := sd.get_next()
+				var fn: String = sd.get_next()
 				while fn != "":
 					if not sd.current_is_dir() and fn.to_lower().ends_with(".wav"):
 						files.append(fam_path.path_join(size_name).path_join(fn))

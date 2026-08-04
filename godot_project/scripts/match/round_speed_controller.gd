@@ -9,7 +9,7 @@ var human_votes: Dictionary = {} ## peer/seat -> speed
 var any_finished: bool = false
 var first_finish_wall_ms: int = 0
 var manual_override_active: bool = false
-const WALL_DRAW_MS := 120_000
+const WALL_DRAW_MS: int = 120_000
 
 func set_vote(seat_id: int, speed: float) -> void:
 	human_votes[seat_id] = speed
@@ -46,7 +46,7 @@ func _recompute() -> void:
 	speed_changed.emit(_resolve())
 
 func _resolve() -> float:
-	var unanimous := _unanimous_human()
+	var unanimous: float = _unanimous_human()
 	if unanimous > 0.0 and not is_equal_approx(unanimous, 1.0):
 		return unanimous
 	if any_finished:
@@ -56,9 +56,9 @@ func _resolve() -> float:
 func _unanimous_human() -> float:
 	if human_votes.is_empty():
 		return -1.0
-	var first := -1.0
-	for k in human_votes.keys():
-		var v := float(human_votes[k])
+	var first: float = -1.0
+	for k_v: Variant in human_votes.keys():
+		var v: float = TypedVariant.as_float(human_votes[k_v], 0.0)
 		if first < 0.0:
 			first = v
 		elif not is_equal_approx(first, v):
@@ -69,14 +69,15 @@ func _majority_human() -> float:
 	if human_votes.is_empty():
 		return 1.0
 	var counts: Dictionary = {}
-	for k in human_votes.keys():
-		var v := float(human_votes[k])
-		counts[v] = int(counts.get(v, 0)) + 1
-	var best_v := 1.0
-	var best_n := -1
-	for v in counts.keys():
-		var n := int(counts[v])
-		if n > best_n or (n == best_n and float(v) < best_v):
+	for k_v: Variant in human_votes.keys():
+		var v: float = TypedVariant.as_float(human_votes[k_v], 0.0)
+		counts[v] = TypedVariant.as_int(counts.get(v, 0), 0) + 1
+	var best_v: float = 1.0
+	var best_n: int = -1
+	for v_v: Variant in counts.keys():
+		var n: int = TypedVariant.as_int(counts[v_v], 0)
+		var v_f: float = TypedVariant.as_float(v_v, 0.0)
+		if n > best_n or (n == best_n and v_f < best_v):
 			best_n = n
-			best_v = float(v)
+			best_v = v_f
 	return best_v

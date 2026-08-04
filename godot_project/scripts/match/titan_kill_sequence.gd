@@ -3,15 +3,15 @@ class_name TitanKillSequence
 ## MULTIPLAYER_PVP §2.6: explode → wreck 5s (wall clock) → then allow next step.
 
 const _ShipDeathFx := preload("res://scripts/visual/ship_death_fx.gd")
-const EXPLODE_S := 2.4
-const WRECK_HOLD_S := 5.0
-const WRECK_KEY := {
+const EXPLODE_S: float = 2.4
+const WRECK_HOLD_S: float = 5.0
+const WRECK_KEY: Dictionary = {
 	"amarr": "tq_titan_wreck_a",
 	"caldari": "tq_titan_wreck_c",
 	"gallente": "tq_titan_wreck_g",
 	"minmatar": "tq_titan_wreck_m",
 }
-const WRECK_SHIP_ID := {
+const WRECK_SHIP_ID: Dictionary = {
 	"amarr": 921,
 	"caldari": 922,
 	"gallente": 923,
@@ -22,18 +22,19 @@ const WRECK_SHIP_ID := {
 static func ensure_wreck_ship_defs() -> void:
 	if DataStore == null:
 		return
-	for race in WRECK_KEY.keys():
-		var wid: int = int(WRECK_SHIP_ID[race])
+	for race_v: Variant in WRECK_KEY.keys():
+		var race: String = str(race_v)
+		var wid: int = TypedVariant.as_int(WRECK_SHIP_ID.get(race, 0), 0)
 		if DataStore.ships.has(wid):
 			continue
 		DataStore.ships[wid] = {
 			"id": wid,
 			"name": "泰坦残骸",
 			"name_en": "TitanWreck",
-				"race": race,
-				"ship_group": "titan",
-				"model_auto_orient": true,
-				"model_key": WRECK_KEY[race],
+			"race": race,
+			"ship_group": "titan",
+			"model_auto_orient": true,
+			"model_key": str(WRECK_KEY.get(race, "")),
 			"shop_eligible": false,
 			"tags": ["titan", "wreck", "shop_ineligible"],
 			"model_long_axis": 2200.0,
@@ -47,7 +48,7 @@ static func play(berth: TitanBerth, parent: Node, on_done: Callable = Callable()
 			on_done.call()
 		return
 	ensure_wreck_ship_defs()
-	var runner := _Runner.new()
+	var runner: _Runner = _Runner.new()
 	parent.add_child(runner)
 	runner.begin(berth, on_done)
 
@@ -55,7 +56,7 @@ static func play(berth: TitanBerth, parent: Node, on_done: Callable = Callable()
 class _Runner extends Node:
 	var _berth: TitanBerth
 	var _on_done: Callable
-	var _phase := 0
+	var _phase: int = 0
 	var _start_ms: int = 0
 	var _wreck: ShipUnit = null
 
@@ -66,14 +67,14 @@ class _Runner extends Node:
 		_start_ms = Time.get_ticks_msec()
 		process_mode = Node.PROCESS_MODE_ALWAYS
 		set_process(true)
-		var pos := berth.fire_point()
+		var pos: Vector3 = berth.fire_point()
 		_ShipDeathFx.spawn_explode(get_parent(), pos, berth.ship_id)
 		berth.set_engine_trail_emitting(false)
 		if berth.unit and is_instance_valid(berth.unit):
 			berth.unit.visible = false
 
 	func _process(_delta: float) -> void:
-		var elapsed := float(Time.get_ticks_msec() - _start_ms) * 0.001
+		var elapsed: float = float(Time.get_ticks_msec() - _start_ms) * 0.001
 		if _phase == 0:
 			if elapsed >= EXPLODE_S:
 				_show_wreck()
@@ -86,8 +87,8 @@ class _Runner extends Node:
 	func _show_wreck() -> void:
 		if _berth == null or not is_instance_valid(_berth):
 			return
-		var race := _berth.race
-		var wid := int(WRECK_SHIP_ID.get(race, 921))
+		var race: String = _berth.race
+		var wid: int = TypedVariant.as_int(WRECK_SHIP_ID.get(race, 921), 921)
 		_wreck = ShipUnit.new()
 		_wreck.name = "TitanWreck"
 		_berth.add_child(_wreck)

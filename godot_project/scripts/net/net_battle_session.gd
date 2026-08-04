@@ -8,8 +8,8 @@ signal anticheat_notify(message: String)
 signal round_jobs_complete(reports: Array)
 signal spectate_stream(snap: Dictionary)
 
-const LOGIC_HZ_DEFAULT := 30
-const SYNC_INTERVAL_DEFAULT := 15
+const LOGIC_HZ_DEFAULT: int = 30
+const SYNC_INTERVAL_DEFAULT: int = 15
 
 var match_rng: MatchRng
 var host_sim: HostSimOrchestrator
@@ -37,8 +37,8 @@ func setup(rng: MatchRng, net: NullsecNetSession, payload: Dictionary) -> void:
 	_net = net
 	is_host = net != null and net.is_host
 	security_mode = str(payload.get("security_mode", "nullsec"))
-	local_seat = int(payload.get("local_seat", net.local_seat if net else 0))
-	host_seat = int(payload.get("host_seat", 0))
+	local_seat = TypedVariant.as_int(payload.get("local_seat", net.local_seat if net else 0), 0)
+	host_seat = TypedVariant.as_int(payload.get("host_seat", 0), 0)
 	logic_hz = NetConnectivity.logic_hz()
 	sync_interval = NetConnectivity.sync_interval_ticks()
 	host_sim = HostSimOrchestrator.new()
@@ -59,7 +59,7 @@ func setup(rng: MatchRng, net: NullsecNetSession, payload: Dictionary) -> void:
 func refresh_host_role() -> void:
 	is_host = _net != null and _net.is_host
 	if _net:
-		host_seat = int(_net.last_match_payload.get("host_seat", host_seat))
+		host_seat = TypedVariant.as_int(_net.last_match_payload.get("host_seat", host_seat), host_seat)
 		GameSession.pending_nullsec["host_seat"] = host_seat
 	if is_host and headless:
 		headless.ensure_running()
@@ -71,34 +71,41 @@ func on_local_battle_begin() -> void:
 		return
 	_round_reports.clear()
 	_awaiting_titan = true
-	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	var seats: Array = TypedVariant.as_array(GameSession.pending_nullsec.get("seats", []))
 	var contenders: Array = []
-	for s in seats:
-		if not bool(s.get("occupied", false)):
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
 			continue
-		var race := str(s.get("titan_race", ""))
+		var s: Dictionary = s_v
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		var race: String = str(s.get("titan_race", ""))
 		if NullsecNetSession.is_spectate_race(race):
 			continue
 		if not NullsecNetSession.is_player_race(race):
 			continue
-		contenders.append(int(s.get("seat_id", -1)))
+		contenders.append(TypedVariant.as_int(s.get("seat_id", -1), -1))
 	if NullsecNetSession.is_lowsec(security_mode):
 		## Lowsec: single PVP job on host home between the two contenders.
 		if contenders.size() >= 2:
-			_active_serial = host_sim.enqueue_pvp(contenders[0], contenders[1], host_seat)
+			_active_serial = host_sim.enqueue_pvp(
+				TypedVariant.as_int(contenders[0], 0),
+				TypedVariant.as_int(contenders[1], 0),
+				host_seat
+			)
 		return
 	## Nullsec: enqueue PVE or PVP for every contender seat / pair.
-	var round_r := int(GameSession.pending_nullsec.get("round_r", 1))
-	var pvp := NullsecPveDirector.is_pvp_round(round_r)
+	var round_r: int = TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", 1), 1)
+	var pvp: bool = NullsecPveDirector.is_pvp_round(round_r)
 	if pvp:
 		var used: Dictionary = {}
-		for i in range(contenders.size()):
-			var a := int(contenders[i])
+		for i: int in range(contenders.size()):
+			var a: int = TypedVariant.as_int(contenders[i], -1)
 			if used.has(a):
 				continue
-			var b := -1
-			for j in range(i + 1, contenders.size()):
-				var cand := int(contenders[j])
+			var b: int = -1
+			for j: int in range(i + 1, contenders.size()):
+				var cand: int = TypedVariant.as_int(contenders[j], -1)
 				if not used.has(cand):
 					b = cand
 					break
@@ -107,18 +114,19 @@ func on_local_battle_begin() -> void:
 			else:
 				used[a] = true
 				used[b] = true
-				var home := a if a == host_seat or b != host_seat else b
+				var home: int = a if a == host_seat or b != host_seat else b
 				host_sim.enqueue_pvp(a, b, home)
 	else:
-		for seat in contenders:
-			var task := "pve_salvage" if (round_r % 2 == 0) else "pve_eliminate"
-			host_sim.enqueue_pve(int(seat), task)
+		for seat_v: Variant in contenders:
+			var seat: int = TypedVariant.as_int(seat_v, -1)
+			var task: String = "pve_salvage" if (round_r % 2 == 0) else "pve_eliminate"
+			host_sim.enqueue_pve(seat, task)
 
 
 func _process(delta: float) -> void:
 	if match_rng == null:
 		return
-	var step := 1.0 / float(maxi(1, logic_hz))
+	var step: float = 1.0 / float(maxi(1, logic_hz))
 	_accum += delta
 	while _accum >= step:
 		_accum -= step
@@ -130,7 +138,7 @@ func _process(delta: float) -> void:
 
 
 func _broadcast_authority() -> void:
-	var snap := build_authority_snapshot()
+	var snap: Dictionary = build_authority_snapshot()
 	_last_authority = snap
 	authority_snapshot.emit(snap)
 	spectate_stream.emit(snap)
@@ -158,12 +166,15 @@ func enrich_and_broadcast(board: BoardController, income_total: int = 0) -> void
 		return
 	var units: Array = []
 	if board:
-		for s in board.all_ships():
+		for s_v: Variant in board.all_ships():
+			if not (s_v is ShipUnit):
+				continue
+			var s: ShipUnit = s_v
 			if s == null or not is_instance_valid(s) or s.is_unmanned:
 				continue
 			if str(s.slot_type) != "field":
 				continue
-			var hp := float(s.structure_hp) + float(s.armor_hp) + float(s.shield_hp)
+			var hp: float = float(s.structure_hp) + float(s.armor_hp) + float(s.shield_hp)
 			units.append({
 				"id": s.get_instance_id(),
 				"ship_id": int(s.ship_id),
@@ -179,7 +190,7 @@ func enrich_and_broadcast(board: BoardController, income_total: int = 0) -> void
 	_income_logs.append({"seat": local_seat, "income_total": income_total, "tick": _logic_tick})
 	while _income_logs.size() > 64:
 		_income_logs.pop_front()
-	var snap := {
+	var snap: Dictionary = {
 		"logic_tick": _logic_tick,
 		"active_serial": _active_serial,
 		"state_hash": _hash_units(units),
@@ -198,10 +209,10 @@ func enrich_and_broadcast(board: BoardController, income_total: int = 0) -> void
 
 func apply_authority(snap: Dictionary, board: BoardController = null) -> void:
 	## Guest / spectate: apply host snapshot then continue predicting.
-	if bool(snap.get("is_authority", false)) == false:
+	if TypedVariant.as_bool(snap.get("is_authority", false), false) == false:
 		return
 	_last_authority = snap
-	_logic_tick = int(snap.get("logic_tick", _logic_tick))
+	_logic_tick = TypedVariant.as_int(snap.get("logic_tick", _logic_tick), _logic_tick)
 	authority_snapshot.emit(snap)
 	spectate_stream.emit(snap)
 	if board == null or is_host:
@@ -211,32 +222,43 @@ func apply_authority(snap: Dictionary, board: BoardController = null) -> void:
 
 func _repredict_from_authority(board: BoardController, snap: Dictionary) -> void:
 	var by_id: Dictionary = {}
-	for u in snap.get("units", []) as Array:
-		if typeof(u) == TYPE_DICTIONARY:
-			by_id[int(u.get("id", 0))] = u
+	for u_v: Variant in TypedVariant.as_array(snap.get("units", [])):
+		if typeof(u_v) == TYPE_DICTIONARY:
+			var u: Dictionary = u_v
+			by_id[TypedVariant.as_int(u.get("id", 0), 0)] = u
 	if by_id.is_empty():
 		return
-	var gaps := 0
-	for s in board.all_ships():
+	var gaps: int = 0
+	for s_v: Variant in board.all_ships():
+		if not (s_v is ShipUnit):
+			continue
+		var s: ShipUnit = s_v
 		if s == null or not is_instance_valid(s):
 			continue
-		var u: Dictionary = by_id.get(s.get_instance_id(), {})
+		var u_v2: Variant = by_id.get(s.get_instance_id(), {})
+		if typeof(u_v2) != TYPE_DICTIONARY:
+			continue
+		var u: Dictionary = u_v2
 		if u.is_empty():
 			continue
-		var auth_hp := float(u.get("hp", 0.0))
-		var local_hp := float(s.structure_hp) + float(s.armor_hp) + float(s.shield_hp)
-		var max_hp := maxf(1.0, float(u.get("max_hp", 1.0)))
+		var auth_hp: float = TypedVariant.as_float(u.get("hp", 0.0), 0.0)
+		var local_hp: float = float(s.structure_hp) + float(s.armor_hp) + float(s.shield_hp)
+		var max_hp: float = maxf(1.0, TypedVariant.as_float(u.get("max_hp", 1.0), 1.0))
 		if absf(auth_hp - local_hp) / max_hp > NetConnectivity.anticheat_gap_hp_rel():
 			gaps += 1
 		if u.has("structure"):
-			s.structure_hp = float(u.get("structure", s.structure_hp))
-			s.armor_hp = float(u.get("armor", s.armor_hp))
-			s.shield_hp = float(u.get("shield", s.shield_hp))
-		s.global_position = Vector3(float(u.get("x", s.global_position.x)), s.global_position.y, float(u.get("z", s.global_position.z)))
+			s.structure_hp = TypedVariant.as_float(u.get("structure", s.structure_hp), s.structure_hp)
+			s.armor_hp = TypedVariant.as_float(u.get("armor", s.armor_hp), s.armor_hp)
+			s.shield_hp = TypedVariant.as_float(u.get("shield", s.shield_hp), s.shield_hp)
+		s.global_position = Vector3(
+			TypedVariant.as_float(u.get("x", s.global_position.x), s.global_position.x),
+			s.global_position.y,
+			TypedVariant.as_float(u.get("z", s.global_position.z), s.global_position.z)
+		)
 	if gaps > 0:
 		_gap_streak += 1
 		if _gap_streak >= NetConnectivity.anticheat_gap_streak():
-			var msg := "联机对照：本地预测与房主权威多次偏差（仅通知，不踢号）"
+			var msg: String = "联机对照：本地预测与房主权威多次偏差（仅通知，不踢号）"
 			anticheat_notify.emit(msg)
 			if _net and _net.multiplayer and _net.multiplayer.has_multiplayer_peer():
 				_net.broadcast_anticheat_notice(msg)
@@ -259,8 +281,11 @@ func record_spot_hit(source_id: int, target_id: int, dealt: float) -> void:
 
 
 func host_result_for_serial(serial: int) -> Dictionary:
-	for r in _round_reports:
-		if int(r.get("serial", -1)) == serial:
+	for r_v: Variant in _round_reports:
+		if not (r_v is Dictionary):
+			continue
+		var r: Dictionary = r_v
+		if TypedVariant.as_int(r.get("serial", -1), -1) == serial:
 			return r
 	return {}
 
@@ -270,19 +295,19 @@ func all_jobs_done() -> bool:
 
 
 func take_round_reports() -> Array:
-	var out := _round_reports.duplicate(true)
+	var out: Array = _round_reports.duplicate(true)
 	_round_reports.clear()
 	_awaiting_titan = false
 	return out
 
 
-func _on_job_finished(serial: int, report: Dictionary) -> void:
+func _on_job_finished(_serial: int, report: Dictionary) -> void:
 	_round_reports.append(report)
 	battle_report.emit(report)
 	if _net and is_host and _net.multiplayer and _net.multiplayer.has_multiplayer_peer():
 		_net.broadcast_battle_report(report)
 	if host_sim and host_sim.pending_count() == 0:
-		var flushed := host_sim.flush_round()
+		var flushed: Array = host_sim.flush_round()
 		round_jobs_complete.emit(flushed if not flushed.is_empty() else _round_reports)
 
 
@@ -291,9 +316,15 @@ func _on_round_finished(reports: Array) -> void:
 
 
 static func _hash_units(units: Array) -> String:
-	var acc := ""
-	for u in units:
-		if typeof(u) != TYPE_DICTIONARY:
+	var acc: String = ""
+	for u_v: Variant in units:
+		if typeof(u_v) != TYPE_DICTIONARY:
 			continue
-		acc += "%d:%.1f:%.1f:%.1f;" % [int(u.get("ship_id", 0)), float(u.get("hp", 0)), float(u.get("x", 0)), float(u.get("z", 0))]
+		var u: Dictionary = u_v
+		acc += "%d:%.1f:%.1f:%.1f;" % [
+			TypedVariant.as_int(u.get("ship_id", 0), 0),
+			TypedVariant.as_float(u.get("hp", 0), 0.0),
+			TypedVariant.as_float(u.get("x", 0), 0.0),
+			TypedVariant.as_float(u.get("z", 0), 0.0),
+		]
 	return "%08x" % hash(acc)

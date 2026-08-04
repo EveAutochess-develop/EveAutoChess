@@ -1,126 +1,126 @@
 {
-  "id": 1,
-  "name": "惩罚者级",
-  "name_en": "Punisher",
-  "type_id": 597,
-  "model_key": "am_chengfazhe",
-  "cost": 2,
-  "ship_groups": [
-    "frigate"
-  ],
-  "ship_group": "frigate",
+  "agility": 2.9,
+  "attack_cycle_s": 3.5,
+  "capacitor_capacity": 400.0,
+  "capacitor_recharge_s": 160.0,
+  "cost": 2.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10101000005.0,
   "fetter_ids": [
     "amarr",
     "frigate",
     "defense"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 4,
+  "id": 1.0,
+  "is_logistic": false,
+  "low_slots": 5.0,
+  "mass": 1190000.0,
+  "med_slots": 2.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "am_chengfazhe",
+  "model_long_axis": 34.0,
+  "name": "惩罚者级",
+  "name_en": "Punisher",
+  "race": "amarr",
+  "scan_resolution": 640.0,
+  "sensor_strength": 10.0,
+  "ship_group": "frigate",
+  "ship_groups": [
+    "frigate"
+  ],
+  "signature_radius": 37.0,
+  "sof_hull": "af3_t1",
+  "source_module_type_id": 453.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 355.0,
+  "stars": [
+    {
+      "armor_hp": 500.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 350.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 450.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 1000.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 700.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 900.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 1500.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "is_logistic": false,
+      "shield_hp": 1050.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1350.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    }
   ],
   "tags": [
     "amarr",
     "frigate",
     "defense"
   ],
-  "is_logistic": false,
-  "weapon_fx": "laser",
-  "race": "amarr",
-  "signature_radius": 37.0,
-  "sensor_strength": 10.0,
-  "scan_resolution": 640.0,
-  "speed": 355.0,
-  "mass": 1190000.0,
-  "agility": 2.9,
-  "capacitor_capacity": 400.0,
-  "capacitor_recharge_s": 160.0,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 4,
-  "med_slots": 2,
-  "low_slots": 5,
-  "source_module_type_id": 453,
-  "source_repair_module_type_id": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "echoes_item_id": 10101000005,
-  "attack_cycle_s": 3.5,
-  "stars": [
-    {
-      "attack_range": 3,
-      "shield_hp": 350.0,
-      "armor_hp": 500.0,
-      "structure_hp": 450.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 3,
-      "shield_hp": 700.0,
-      "armor_hp": 1000.0,
-      "structure_hp": 900.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 3,
-      "shield_hp": 1050.0,
-      "armor_hp": 1500.0,
-      "structure_hp": 1350.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "is_logistic": false
-    }
-  ],
-  "model_long_axis": 34.0,
-  "sof_hull": "af3_t1"
+  "type_id": 597.0,
+  "weapon_fx": "laser"
 }

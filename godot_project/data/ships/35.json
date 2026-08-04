@@ -1,126 +1,126 @@
 {
-  "id": 35,
-  "name": "促进级",
-  "name_en": "Catalyst",
-  "type_id": 16240,
-  "model_key": "glt_cujin",
-  "cost": 3,
-  "ship_groups": [
-    "destroyer"
-  ],
-  "ship_group": "destroyer",
+  "agility": 2.76,
+  "attack_cycle_s": 2.6,
+  "capacitor_capacity": 650.0,
+  "capacitor_recharge_s": 350.0,
+  "cost": 3.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10200000004.0,
   "fetter_ids": [
     "gallente",
     "destroyer",
     "firepower"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7,
+  "id": 35.0,
+  "is_logistic": false,
+  "low_slots": 3.0,
+  "mass": 1550000.0,
+  "med_slots": 2.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "glt_cujin",
+  "model_long_axis": 143.0,
+  "name": "促进级",
+  "name_en": "Catalyst",
+  "race": "gallente",
+  "scan_resolution": 500.0,
+  "sensor_strength": 11.0,
+  "ship_group": "destroyer",
+  "ship_groups": [
+    "destroyer"
+  ],
+  "signature_radius": 68.0,
+  "sof_hull": "gde1_t1",
+  "source_module_type_id": 561.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 265.0,
+  "stars": [
+    {
+      "armor_hp": 800.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 2.0,
+      "is_logistic": false,
+      "shield_hp": 750.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 900.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 1600.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 2.0,
+      "is_logistic": false,
+      "shield_hp": 1500.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1800.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 2400.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      },
+      "attack_range": 2.0,
+      "is_logistic": false,
+      "shield_hp": 2250.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 2700.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.35,
+        "thermal": 0.35
+      }
+    }
   ],
   "tags": [
     "gallente",
     "destroyer",
     "firepower"
   ],
-  "is_logistic": false,
-  "weapon_fx": "rail",
-  "race": "gallente",
-  "signature_radius": 68.0,
-  "sensor_strength": 11.0,
-  "scan_resolution": 500.0,
-  "speed": 265.0,
-  "mass": 1550000.0,
-  "agility": 2.76,
-  "capacitor_capacity": 650.0,
-  "capacitor_recharge_s": 350.0,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 8,
-  "med_slots": 2,
-  "low_slots": 3,
-  "source_module_type_id": 561,
-  "source_repair_module_type_id": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "echoes_item_id": 10200000004,
-  "attack_cycle_s": 2.6,
-  "stars": [
-    {
-      "attack_range": 2,
-      "shield_hp": 750.0,
-      "armor_hp": 800.0,
-      "structure_hp": 900.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 2,
-      "shield_hp": 1500.0,
-      "armor_hp": 1600.0,
-      "structure_hp": 1800.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 2,
-      "shield_hp": 2250.0,
-      "armor_hp": 2400.0,
-      "structure_hp": 2700.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.35,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    }
-  ],
-  "model_long_axis": 143.0,
-  "sof_hull": "gde1_t1"
+  "type_id": 16240.0,
+  "weapon_fx": "rail"
 }

@@ -1,170 +1,170 @@
 {
-  "id": 1403,
+  "_content_dph_mul": 3.0,
+  "attack_cycle_s": 3.5,
+  "cost": 0.0,
+  "fetter_ids": [],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0.0,
+  "id": 1403.0,
+  "is_logistic": false,
+  "is_unmanned": true,
+  "low_slots": 0.0,
+  "med_slots": 0.0,
+  "model_key": "satyr",
+  "model_long_axis": 34.0,
   "name": "萨梯",
   "name_en": "Satyr I",
-  "type_id": 40360,
-  "model_key": "satyr",
   "portrait": "res://assets/ui/fighter_icons/satyr.png",
-  "cost": 0,
+  "race": "gallente",
+  "scan_resolution": 850.0,
+  "ship_group": "fighter",
   "ship_groups": [
     "fighter"
   ],
-  "ship_group": "fighter",
-  "fetter_ids": [],
+  "signature_radius": 88.0,
+  "sof_hull": "gfi1_t1",
+  "source_module_type_id": 0.0,
+  "speed": 857.0,
+  "stars": [
+    {
+      "armor_hp": 250.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 549.5
+      },
+      "drf": 1.0,
+      "drs": 1.0,
+      "explosion_radius": 25.0,
+      "explosion_velocity": 480.0,
+      "falloff": 0.0,
+      "optimal": 2.0,
+      "optimal_sig_radius": 40.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 350.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 250.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "tracking": 0.0
+    },
+    {
+      "armor_hp": 500.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 1099.0
+      },
+      "drf": 1.0,
+      "drs": 1.0,
+      "explosion_radius": 25.0,
+      "explosion_velocity": 480.0,
+      "falloff": 0.0,
+      "optimal": 2.0,
+      "optimal_sig_radius": 40.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 700.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 500.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "tracking": 0.0
+    },
+    {
+      "armor_hp": 750.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 1648.5
+      },
+      "drf": 1.0,
+      "drs": 1.0,
+      "explosion_radius": 25.0,
+      "explosion_velocity": 480.0,
+      "falloff": 0.0,
+      "optimal": 2.0,
+      "optimal_sig_radius": 40.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 1050.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 750.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "tracking": 0.0
+    }
+  ],
   "tags": [
     "gallente",
     "fighter"
   ],
-  "is_logistic": false,
-  "weapon_fx": "missile",
-  "weapon_tier": "light",
-  "race": "gallente",
-  "signature_radius": 88.0,
-  "speed": 857.0,
-  "attack_cycle_s": 3.5,
-  "is_unmanned": true,
+  "tube_hp": 850.0,
+  "type_id": 40360.0,
   "unmanned_kind": "fighter",
-  "tube_hp": 850,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 0,
-  "med_slots": 0,
-  "low_slots": 0,
-  "source_module_type_id": 0,
-  "stars": [
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 504.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.0,
-      "optimal": 2.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 350,
-      "armor_hp": 250,
-      "structure_hp": 250,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "explosion_radius": 25.0,
-      "explosion_velocity": 480.0,
-      "drf": 1.0,
-      "drs": 1.0
-    },
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 1008.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.0,
-      "optimal": 2.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 700,
-      "armor_hp": 500,
-      "structure_hp": 500,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "explosion_radius": 25.0,
-      "explosion_velocity": 480.0,
-      "drf": 1.0,
-      "drs": 1.0
-    },
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 1512.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.0,
-      "optimal": 2.0,
-      "falloff": 0.0,
-      "optimal_sig_radius": 40.0,
-      "shield_hp": 1050,
-      "armor_hp": 750,
-      "structure_hp": 750,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "explosion_radius": 25.0,
-      "explosion_velocity": 480.0,
-      "drf": 1.0,
-      "drs": 1.0
-    }
-  ],
-  "model_long_axis": 34.0,
-  "scan_resolution": 850.0,
-  "sof_hull": "gfi1_t1",
-  "_content_dph_mul": 3
+  "weapon_fx": "missile",
+  "weapon_tier": "light"
 }

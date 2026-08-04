@@ -13,9 +13,14 @@ var up_level_demand: int = 4
 var win_streak: int = 0
 var loss_streak: int = 0
 var shop_slots: Array = []  # {ship_id, purchased}
+## Independent of player shop/bag (AI_PLAYER_HANDBOOK §2.8).
+var equipment_slots: Array = []  # {id, purchased}
+var equipment_inventory: Array = []  # 16 × item id or ""
 var _recent_shop_hits: Dictionary = {}
 var _pity_refresh_count: int = 0
 var _pity_seen_tonnage: Dictionary = {}
+var _equip_pity_refresh_count: int = 0
+var _equip_pity_seen_cat: Dictionary = {}
 ## Cells AI has already deployed onto this match ("x,z"); prefer fresh cells each place/reshuffle.
 var _used_field_cells: Dictionary = {}
 
@@ -29,12 +34,14 @@ func init_economy() -> void:
 	## Seat opening only — no shopping. Nullsec builds the rival hulls per PVP round.
 	endless = _match.mode == "endless"
 	var eco: Dictionary = DataStore.economy
-	ai_gold = int(eco.get("base_gold", 5))
+	ai_gold = TypedVariant.as_int(eco.get("base_gold", 5), 5)
 	ai_level = 1
 	ai_exp = 0
-	up_level_demand = int(eco.get("initial_level_exp_demand", 4))
+	up_level_demand = TypedVariant.as_int(eco.get("initial_level_exp_demand", 4), 4)
 	win_streak = 0
 	loss_streak = 0
+	_ensure_equipment_inventory()
+	equipment_slots.clear()
 	_used_field_cells.clear()
 	_refresh_shop()
 
@@ -51,7 +58,7 @@ func rebuild_round_army() -> void:
 	_run_economy_turn()
 
 func after_round() -> void:
-	_grant_exp(int(DataStore.economy.get("base_exp_income", 4)))
+	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
 	if _match.mode == "nullsec":
 		## Hulls bought here would be wiped when the next round's board is authored, so
 		## the seat only banks gold/exp and spends it when it is actually the rival.
@@ -60,18 +67,21 @@ func after_round() -> void:
 	_run_economy_turn()
 
 func population_limit() -> int:
-	return mini(ai_level + int(DataStore.board.get("ship_count_buff", 0)), int(DataStore.board.get("max_deployment", 999)))
+	return mini(
+		ai_level + TypedVariant.as_int(DataStore.board.get("ship_count_buff", 0), 0),
+		TypedVariant.as_int(DataStore.board.get("max_deployment", 999), 999)
+	)
 
 func field_cap() -> int:
 	## min(AI pop, floor(player pop × 2.0))
-	var ai_pop := maxi(1, population_limit())
+	var ai_pop: int = maxi(1, population_limit())
 	## Nullsec seats use their own population, same as humans: the asymmetric cap below
 	## is 1v1 Versus only (MULTIPLAYER_MATCH_FLOW §5.0).
 	if _match and _match.mode == "nullsec":
 		return ai_pop
-	var player_pop := maxi(1, _match.population_limit())
-	var mult := float(DataStore.ai.get("field_cap_vs_player_pop", 2.0))
-	var vs_player := maxi(1, int(floor(float(player_pop) * mult)))
+	var player_pop: int = maxi(1, _match.population_limit())
+	var mult: float = TypedVariant.as_float(DataStore.ai.get("field_cap_vs_player_pop", 2.0), 2.0)
+	var vs_player: int = maxi(1, floori(float(player_pop) * mult))
 	return mini(ai_pop, vs_player)
 
 func update_streaks(won: bool) -> void:
@@ -84,21 +94,21 @@ func update_streaks(won: bool) -> void:
 
 func apply_income(won: bool, kills: int) -> void:
 	var eco: Dictionary = DataStore.economy
-	var interest: int = int(floor(float(ai_gold) / float(eco.get("interest_divisor", 10))))
-	var cap: int = int(eco.get("interest_cap", 5))
-	if bool(eco.get("interest_capped", true)):
+	var interest: int = floori(float(ai_gold) / TypedVariant.as_float(eco.get("interest_divisor", 10), 10.0))
+	var cap: int = TypedVariant.as_int(eco.get("interest_cap", 5), 5)
+	if TypedVariant.as_bool(eco.get("interest_capped", true), true):
 		interest = mini(interest, cap)
-	var base: int = _match._base_income_for_round() if _match.has_method("_base_income_for_round") else int(eco.get("base_gold_income", 5))
-	var win_g: int = int(eco.get("win_gold", 1)) if won else 0
+	var base: int = _match._base_income_for_round() if _match.has_method("_base_income_for_round") else TypedVariant.as_int(eco.get("base_gold_income", 5), 5)
+	var win_g: int = TypedVariant.as_int(eco.get("win_gold", 1), 1) if won else 0
 	var streak: int = win_streak if won else loss_streak
 	var streak_g: int = _match._streak_bonus(streak) if _match.has_method("_streak_bonus") else 0
-	var kill_g: int = kills * int(eco.get("kill_gold_per_ship", 1))
+	var kill_g: int = kills * TypedVariant.as_int(eco.get("kill_gold_per_ship", 1), 1)
 	var mining_g: int = _match._mining_gold_for_team(ShipUnit.TEAM_AI) if _match.has_method("_mining_gold_for_team") else 0
 	var income: int = base + interest + win_g + streak_g + kill_g + mining_g
-	var mul: float = float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0))
+	var mul: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
 	## Buff multiplies combat economy only; mining gold stays raw (parallel channel).
-	var combat_part := income - mining_g
-	income = int(round(float(combat_part) * mul)) + mining_g
+	var combat_part: int = income - mining_g
+	income = roundi(float(combat_part) * mul) + mining_g
 	ai_gold += income
 
 func add_gold(amount: int) -> void:
@@ -107,36 +117,36 @@ func add_gold(amount: int) -> void:
 func _grant_exp(amount: int) -> void:
 	ai_exp += amount
 	var eco: Dictionary = DataStore.economy
-	var inc: int = int(eco.get("level_exp_demand_increment", 8))
+	var inc: int = TypedVariant.as_int(eco.get("level_exp_demand_increment", 8), 8)
 	while ai_exp >= up_level_demand:
 		ai_exp -= up_level_demand
 		ai_level += 1
 		up_level_demand += inc
 
 func _refresh_shop() -> void:
-	var n := int(DataStore.economy.get("shop_slot_count", 7))
+	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 7), 7)
 	ShopController._decay_recent_hits(_recent_shop_hits)
 	shop_slots.clear()
 	var seen_counts: Dictionary = {}
 	var force_tonnages: Array = []
-	var window := maxi(1, int(DataStore.economy.get("shop_tonnage_pity_window", 5)))
+	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_tonnage_pity_window", 5), 5))
 	if _pity_refresh_count >= window:
-		for key in ShopController._unlocked_tonnage_keys(ai_level):
-			if not bool(_pity_seen_tonnage.get(key, false)):
+		for key: Variant in ShopController._unlocked_tonnage_keys(ai_level):
+			if not TypedVariant.as_bool(_pity_seen_tonnage.get(key, false), false):
 				force_tonnages.append(key)
-	var force_i := 0
-	for i in range(n):
-		var sid := 0
+	var force_i: int = 0
+	for i: int in range(n):
+		var sid: int = 0
 		if force_i < force_tonnages.size():
 			## Reuse player shop helper via temporary ShopController statics.
 			var pool: Array = []
 			var eligible: Array = ShopController._eligible_ship_ids_for_level(ai_level, DataStore.ship_ids())
-			var max_same: int = maxi(1, int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2)))
-			var want := str(force_tonnages[force_i])
+			var max_same: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2))
+			var want: String = str(force_tonnages[force_i])
 			force_i += 1
-			for cand in eligible:
-				var cid := int(cand)
-				if int(seen_counts.get(cid, 0)) >= max_same:
+			for cand: Variant in eligible:
+				var cid: int = TypedVariant.as_int(cand, 0)
+				if TypedVariant.as_int(seen_counts.get(cid, 0), 0) >= max_same:
 					continue
 				if ShopController.ship_tonnage_key(cid) == want:
 					pool.append(cid)
@@ -144,17 +154,190 @@ func _refresh_shop() -> void:
 				sid = ShopController._pick_pseudo_random(pool, _recent_shop_hits, _ai_titan_race())
 		if sid <= 0:
 			sid = _roll_ship_id(seen_counts)
-		seen_counts[sid] = int(seen_counts.get(sid, 0)) + 1
-		_recent_shop_hits[sid] = int(_recent_shop_hits.get(sid, 0)) + 1
+		seen_counts[sid] = TypedVariant.as_int(seen_counts.get(sid, 0), 0) + 1
+		_recent_shop_hits[sid] = TypedVariant.as_int(_recent_shop_hits.get(sid, 0), 0) + 1
 		shop_slots.append({"ship_id": sid, "purchased": false})
 	if _pity_refresh_count >= window:
 		_pity_refresh_count = 0
 		_pity_seen_tonnage.clear()
-	for slot in shop_slots:
-		var key := ShopController.ship_tonnage_key(int(slot.get("ship_id", 0)))
+	for slot: Variant in shop_slots:
+		var slot_dict: Dictionary = TypedVariant.as_dict(slot)
+		var key: String = ShopController.ship_tonnage_key(TypedVariant.as_int(slot_dict.get("ship_id", 0), 0))
 		if key != "":
 			_pity_seen_tonnage[key] = true
 	_pity_refresh_count += 1
+	_roll_equipment_shop()
+
+
+func _ensure_equipment_inventory() -> void:
+	var n: int = 16
+	if _match != null:
+		n = int(_match.EQUIPMENT_INVENTORY_SIZE)
+	while equipment_inventory.size() < n:
+		equipment_inventory.append("")
+	if equipment_inventory.size() > n:
+		equipment_inventory.resize(n)
+
+
+func _roll_equipment_shop() -> void:
+	equipment_slots.clear()
+	var count: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 5), 5))
+	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_category_pity_window", 10), 10))
+	var pool: Array = DataStore.function_module_shop_pool_ids_for_level(ai_level)
+	var by_cat: Dictionary = {}
+	for id: Variant in pool:
+		var cat: String = DataStore.function_module_shop_category(str(id))
+		if cat == "":
+			continue
+		if not by_cat.has(cat):
+			by_cat[cat] = []
+		var cat_arr: Array = TypedVariant.as_array(by_cat[cat])
+		cat_arr.append(str(id))
+		by_cat[cat] = cat_arr
+	var pos: int = _equip_pity_refresh_count % window
+	var remaining_refreshes: int = window - pos
+	var missing: Array = []
+	for cat: Variant in by_cat.keys():
+		if not TypedVariant.as_bool(_equip_pity_seen_cat.get(cat, false), false):
+			missing.append(cat)
+	var force_cats: Array = []
+	if not missing.is_empty():
+		var later_capacity: int = maxi(0, remaining_refreshes - 1) * count
+		var force_n: int = maxi(0, missing.size() - later_capacity)
+		force_n = mini(force_n, mini(count, missing.size()))
+		if force_n > 0:
+			missing.shuffle()
+			force_cats = missing.slice(0, force_n)
+	var force_i: int = 0
+	for _i: int in range(count):
+		var pick: String = ""
+		if force_i < force_cats.size():
+			var cat: String = str(force_cats[force_i])
+			force_i += 1
+			var arr: Array = TypedVariant.as_array(by_cat.get(cat, []))
+			if not arr.is_empty():
+				pick = str(arr[randi() % arr.size()])
+		if pick == "" and not pool.is_empty():
+			pick = str(pool[randi() % pool.size()])
+		equipment_slots.append({"id": pick, "purchased": false})
+		if pick != "":
+			var seen_cat: String = DataStore.function_module_shop_category(pick)
+			if seen_cat != "" and by_cat.has(seen_cat):
+				_equip_pity_seen_cat[seen_cat] = true
+	_equip_pity_refresh_count += 1
+	if _equip_pity_refresh_count % window == 0:
+		_equip_pity_seen_cat.clear()
+
+
+func _find_empty_equipment_inv() -> int:
+	_ensure_equipment_inventory()
+	for i: int in range(equipment_inventory.size()):
+		if str(equipment_inventory[i]).strip_edges() == "":
+			return i
+	return -1
+
+
+func add_equipment_to_inventory(item_id: String) -> bool:
+	var mid: String = str(item_id).strip_edges()
+	if mid == "":
+		return false
+	var bag: int = _find_empty_equipment_inv()
+	if bag < 0:
+		return false
+	equipment_inventory[bag] = mid
+	return true
+
+
+func _random_buy_equipment() -> void:
+	if equipment_slots.is_empty():
+		_roll_equipment_shop()
+	_ensure_equipment_inventory()
+	var chance: float = TypedVariant.as_float(DataStore.ai.get("ai_equipment_buy_chance", 0.55), 0.55)
+	var max_buys: int = TypedVariant.as_int(DataStore.ai.get("ai_equipment_max_buys_per_turn", 3), 3)
+	var order: Array = []
+	for i: int in range(equipment_slots.size()):
+		order.append(i)
+	order.shuffle()
+	var buys: int = 0
+	for idx_v: Variant in order:
+		if buys >= max_buys:
+			break
+		var idx: int = TypedVariant.as_int(idx_v, 0)
+		var slot: Dictionary = TypedVariant.as_dict(equipment_slots[idx])
+		if TypedVariant.as_bool(slot.get("purchased", false), false):
+			continue
+		if randf() > chance:
+			continue
+		var item_id: String = str(slot.get("id", "")).strip_edges()
+		if item_id == "":
+			continue
+		var mod: Dictionary = DataStore.get_function_module(item_id)
+		if mod.is_empty() or TypedVariant.as_bool(mod.get("implant", false), false):
+			continue
+		var cost: int = TypedVariant.as_int(mod.get("cost", 10), 10)
+		if ai_gold < cost:
+			continue
+		var bag: int = _find_empty_equipment_inv()
+		if bag < 0:
+			break
+		ai_gold -= cost
+		equipment_slots[idx]["purchased"] = true
+		equipment_inventory[bag] = item_id
+		buys += 1
+	if buys > 0:
+		SessionDiagnostics.log("ai.equipment_buy", "buys=%d gold=%d" % [buys, ai_gold])
+
+
+func _random_distribute_equipment() -> void:
+	if _board == null:
+		return
+	_ensure_equipment_inventory()
+	var ships: Array = []
+	for s: ShipUnit in _board.all_ships():
+		if s == null or not is_instance_valid(s):
+			continue
+		if s.team_id != ShipUnit.TEAM_AI:
+			continue
+		if str(s.slot_type) != "field":
+			continue
+		if s.is_unmanned:
+			continue
+		var sd: Dictionary = DataStore.get_ship(s.ship_id)
+		if not FunctionFit.ship_allows_function_fit(sd):
+			continue
+		if s.get_function_fit().size() >= FunctionFit.MAX_SLOTS:
+			continue
+		ships.append(s)
+	if ships.is_empty():
+		return
+	var inv_order: Array = []
+	for i: int in range(equipment_inventory.size()):
+		if str(equipment_inventory[i]).strip_edges() != "":
+			inv_order.append(i)
+	inv_order.shuffle()
+	var fitted: int = 0
+	for idx_v: Variant in inv_order:
+		var inv_i: int = TypedVariant.as_int(idx_v, 0)
+		var item_id: String = str(equipment_inventory[inv_i]).strip_edges()
+		if item_id == "":
+			continue
+		ships.shuffle()
+		for s_any: Variant in ships:
+			if not (s_any is ShipUnit):
+				continue
+			var s: ShipUnit = s_any
+			if s == null or not is_instance_valid(s):
+				continue
+			if s.get_function_fit().size() >= FunctionFit.MAX_SLOTS:
+				continue
+			var res: Dictionary = s.try_fit_function_module(item_id)
+			if TypedVariant.as_bool(res.get("ok", false), false):
+				equipment_inventory[inv_i] = ""
+				fitted += 1
+				break
+	if fitted > 0:
+		SessionDiagnostics.log("ai.equipment_fit", "fitted=%d" % fitted)
+
 
 func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
 	## Reuse shop odds table at min(ai_level, 5).
@@ -170,44 +353,49 @@ func _ai_titan_race() -> String:
 	return _board.titan_fetter_race(ShipUnit.TEAM_AI)
 
 func _run_economy_turn() -> void:
-	if not bool(DataStore.ai.get("uses_shop_economy", true)):
+	if not TypedVariant.as_bool(DataStore.ai.get("uses_shop_economy", true), true):
 		_deploy_legacy_quota()
 		return
 	## Spend loop: hangar buy → overflow field → refresh/exp → stop.
-	var guard := 40
+	var guard: int = 40
 	while guard > 0:
 		guard -= 1
 		if not _try_buy_one():
 			break
 	sync_field_for_prepare()
+	## Random function-module buy + fit after ships are on the field (§2.8).
+	_random_buy_equipment()
+	_random_distribute_equipment()
 	## Do NOT sell here — keep hangar visible during Prepare for AI purchase readability.
 
 func _try_buy_one() -> bool:
-	var slot_i := -1
-	for i in range(shop_slots.size()):
-		if not shop_slots[i].get("purchased", false):
+	var slot_i: int = -1
+	for i: int in range(shop_slots.size()):
+		var slot0: Dictionary = TypedVariant.as_dict(shop_slots[i])
+		if not TypedVariant.as_bool(slot0.get("purchased", false), false):
 			slot_i = i
 			break
 	if slot_i < 0:
 		## refresh or buy exp
-		var refresh_cost := int(DataStore.economy.get("refresh_cost", 2))
-		var exp_cost := int(DataStore.economy.get("buy_exp_gold_cost", 4))
+		var refresh_cost: int = TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 2)
+		var exp_cost: int = TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 4)
 		if ai_gold >= refresh_cost and randf() < 0.55:
 			ai_gold -= refresh_cost
 			_refresh_shop()
 			return true
 		if ai_gold >= exp_cost:
 			ai_gold -= exp_cost
-			_grant_exp(int(DataStore.economy.get("buy_exp_amount", 4)))
+			_grant_exp(TypedVariant.as_int(DataStore.economy.get("buy_exp_amount", 4), 4))
 			return true
 		return false
-	var sid := int(shop_slots[slot_i].get("ship_id", 0))
-	var cost := int(DataStore.get_ship(sid).get("cost", 0))
+	var slot: Dictionary = TypedVariant.as_dict(shop_slots[slot_i])
+	var sid: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
+	var cost: int = TypedVariant.as_int(DataStore.get_ship(sid).get("cost", 0), 0)
 	if ai_gold < cost:
 		return false
-	var hangar := _board.find_empty_hangar(ShipUnit.TEAM_AI)
-	var cap := field_cap()
-	var on_field := _board.count_field(ShipUnit.TEAM_AI)
+	var hangar: Vector2i = _board.find_empty_hangar(ShipUnit.TEAM_AI)
+	var cap: int = field_cap()
+	var on_field: int = _board.count_field(ShipUnit.TEAM_AI)
 	if hangar.x >= 0:
 		ai_gold -= cost
 		shop_slots[slot_i]["purchased"] = true
@@ -218,12 +406,12 @@ func _try_buy_one() -> bool:
 		_board.try_upgrades_all()
 		return true
 	var ship_data: Dictionary = DataStore.get_ship(sid)
-	if bool(ship_data.get("requires_cyno_entry", false)):
+	if TypedVariant.as_bool(ship_data.get("requires_cyno_entry", false), false):
 		return false
 	if on_field < cap:
 		## Overflow onto field when hangar full.
-		if bool(ship_data.get("deploy_enemy_half_only", false)):
-			var enemy_cell := _pick_ai_field_cell()
+		if TypedVariant.as_bool(ship_data.get("deploy_enemy_half_only", false), false):
+			var enemy_cell: Vector2i = _pick_ai_field_cell()
 			if enemy_cell.x < 0:
 				return false
 			ai_gold -= cost
@@ -233,7 +421,7 @@ func _try_buy_one() -> bool:
 				"slot_type": "field", "x": enemy_cell.x, "z": enemy_cell.y,
 			})
 			## Fix world side after deploy.
-			for s in _board.all_ships():
+			for s: ShipUnit in _board.all_ships():
 				if s.team_id == ShipUnit.TEAM_AI and s.ship_id == sid and s.slot_type == "field" and s.grid_x == enemy_cell.x and s.grid_z == enemy_cell.y:
 					s.field_side_team = ShipUnit.TEAM_PLAYER
 					s.global_position = BoardController.cell_to_world("field", ShipUnit.TEAM_PLAYER, enemy_cell.x, enemy_cell.y)
@@ -242,7 +430,7 @@ func _try_buy_one() -> bool:
 			_board.try_upgrades_all()
 			_board.refresh_cross_team_cell_offsets()
 			return true
-		var field := _pick_ai_field_cell()
+		var field: Vector2i = _pick_ai_field_cell()
 		if field.x < 0:
 			return false
 		ai_gold -= cost
@@ -264,17 +452,17 @@ func _mark_field_cell_used(x: int, z: int) -> void:
 
 func _pick_ai_field_cell() -> Vector2i:
 	## Random empty AI-owned field cell; prefer cells not yet used this match.
-	var fh := int(DataStore.board.get("field_height", 6))
+	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 6)
 	var unused: Array[Vector2i] = []
 	var used: Array[Vector2i] = []
-	var total_cells := 0
-	for z in range(fh):
+	var total_cells: int = 0
+	for z: int in range(fh):
 		var cols: int = BoardController.field_cols_at(z)
 		total_cells += cols
-		for x in range(cols):
+		for x: int in range(cols):
 			if not _board.is_field_cell_free_for(ShipUnit.TEAM_AI, x, z):
 				continue
-			var k := _cell_key(x, z)
+			var k: String = _cell_key(x, z)
 			if _used_field_cells.has(k):
 				used.append(Vector2i(x, z))
 			else:
@@ -292,7 +480,7 @@ func _pick_ai_field_cell() -> Vector2i:
 func _reshuffle_ai_field() -> void:
 	## Every prepare: move all manned AI field ships to new random cells (prefer unused).
 	var ships: Array = []
-	for s in _board.field_ships(ShipUnit.TEAM_AI):
+	for s: ShipUnit in _board.field_ships(ShipUnit.TEAM_AI):
 		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
 			continue
 		ships.append(s)
@@ -300,20 +488,24 @@ func _reshuffle_ai_field() -> void:
 		return
 	ships.shuffle()
 	## Free occupancy first so picks don't collide with old seats.
-	for s_any in ships:
+	for s_any: Variant in ships:
+		if not (s_any is ShipUnit):
+			continue
 		var s: ShipUnit = s_any
 		_board.release_field_occupancy(s)
-	for s_any2 in ships:
+	for s_any2: Variant in ships:
+		if not (s_any2 is ShipUnit):
+			continue
 		var ship: ShipUnit = s_any2
 		if ship == null or not is_instance_valid(ship):
 			continue
-		var cell := _pick_ai_field_cell()
+		var cell: Vector2i = _pick_ai_field_cell()
 		if cell.x < 0:
 			## Restore to any free cell via board fallback; should be rare.
 			cell = _board.find_empty_field(ShipUnit.TEAM_AI)
 		if cell.x < 0:
 			continue
-		var side := ShipUnit.TEAM_AI
+		var side: int = ShipUnit.TEAM_AI
 		if ship.deploy_enemy_half_only:
 			side = ShipUnit.TEAM_PLAYER
 		elif ship.field_side_team >= 0:
@@ -323,17 +515,26 @@ func _reshuffle_ai_field() -> void:
 
 func _deploy_hangar_to_field() -> void:
 	var hangar_ships: Array = []
-	for s in _board.all_ships():
+	for s: ShipUnit in _board.all_ships():
 		if s.team_id == ShipUnit.TEAM_AI and s.slot_type == "hangar" and not s.is_destroyed:
 			hangar_ships.append(s)
-	hangar_ships.sort_custom(func(a, b): return a.star > b.star)
-	for s in hangar_ships:
+	hangar_ships.sort_custom(func(a: Variant, b: Variant) -> bool:
+		if not (a is ShipUnit) or not (b is ShipUnit):
+			return false
+		var aa: ShipUnit = a
+		var bb: ShipUnit = b
+		return aa.star > bb.star
+	)
+	for s_any: Variant in hangar_ships:
+		if not (s_any is ShipUnit):
+			continue
+		var s: ShipUnit = s_any
 		if s.requires_cyno_entry:
 			continue
 		if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
 			break
 		if s.deploy_enemy_half_only:
-			var enemy_cell := _pick_ai_field_cell()
+			var enemy_cell: Vector2i = _pick_ai_field_cell()
 			if enemy_cell.x < 0:
 				continue
 			AdminBus.request(&"board.move", {
@@ -345,7 +546,7 @@ func _deploy_hangar_to_field() -> void:
 			})
 			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
 			continue
-		var cell := _pick_ai_field_cell()
+		var cell: Vector2i = _pick_ai_field_cell()
 		if cell.x < 0:
 			break
 		AdminBus.request(&"board.move", {
@@ -357,14 +558,14 @@ func _deploy_hangar_to_field() -> void:
 		_mark_field_cell_used(cell.x, cell.y)
 
 func _ensure_one_logistic() -> void:
-	var has_logi := false
-	for s in _board.field_ships(ShipUnit.TEAM_AI):
+	var has_logi: bool = false
+	for s: ShipUnit in _board.field_ships(ShipUnit.TEAM_AI):
 		if s.is_logistic and not s.is_destroyed:
 			has_logi = true
 			break
 	if has_logi:
 		return
-	for s in _board.all_ships():
+	for s: ShipUnit in _board.all_ships():
 		if s.team_id != ShipUnit.TEAM_AI or s.is_destroyed:
 			continue
 		if not s.is_logistic:
@@ -374,7 +575,7 @@ func _ensure_one_logistic() -> void:
 			continue
 		if s.slot_type == "field":
 			return
-		var cell := _pick_ai_field_cell()
+		var cell: Vector2i = _pick_ai_field_cell()
 		if cell.x < 0:
 			return
 		if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
@@ -394,14 +595,18 @@ func _sell_hangar_remainder() -> void:
 	## capital hangar count > floor(hangar_slots/2), trimming down to that cap.
 	var to_sell: Array = []
 	var capitals: Array[ShipUnit] = []
-	for s in _board.all_ships():
+	for s: ShipUnit in _board.all_ships():
 		if s.team_id == ShipUnit.TEAM_AI and s.slot_type == "hangar" and not s.is_destroyed:
 			if s.requires_cyno_entry:
 				capitals.append(s)
 				continue
 			to_sell.append(s)
-	var hangar_slots := maxi(1, int(DataStore.board.get("hangar_width", 15)) * int(DataStore.board.get("hangar_height", 1)))
-	var keep_capitals := int(floor(float(hangar_slots) * 0.5))
+	var hangar_slots: int = maxi(
+		1,
+		TypedVariant.as_int(DataStore.board.get("hangar_width", 15), 15)
+		* TypedVariant.as_int(DataStore.board.get("hangar_height", 1), 1)
+	)
+	var keep_capitals: int = floori(float(hangar_slots) * 0.5)
 	## 3 capitals on a 15-slot hangar → keep all (3 <= 7). Never wipe the kit.
 	if capitals.size() > keep_capitals:
 		capitals.sort_custom(func(a: ShipUnit, b: ShipUnit) -> bool:
@@ -411,12 +616,14 @@ func _sell_hangar_remainder() -> void:
 				return a.get_cost() < b.get_cost()
 			return a.get_instance_id() > b.get_instance_id()
 		)
-		for i in range(keep_capitals, capitals.size()):
+		for i: int in range(keep_capitals, capitals.size()):
 			to_sell.append(capitals[i])
-	var sold_n := 0
-	var sold_gold := 0
-	for s in to_sell:
-		var ship := s as ShipUnit
+	var sold_n: int = 0
+	var sold_gold: int = 0
+	for s_any: Variant in to_sell:
+		if not (s_any is ShipUnit):
+			continue
+		var ship: ShipUnit = s_any
 		if ship == null or not is_instance_valid(ship):
 			continue
 		## Belt-and-suspenders: never sell cyno-gated hulls outside the excess trim above.
@@ -426,13 +633,13 @@ func _sell_hangar_remainder() -> void:
 			"ship_instance_id": ship.get_instance_id(),
 			"team": ShipUnit.TEAM_AI,
 		})
-		if r.get("accepted", false):
-			var gold := int(r.get("gold", ship.get_sell_price()))
+		if TypedVariant.as_bool(r.get("accepted", false), false):
+			var gold: int = TypedVariant.as_int(r.get("gold", ship.get_sell_price()), ship.get_sell_price())
 			ai_gold += gold
 			sold_n += 1
 			sold_gold += gold
 	if sold_n > 0:
-		var tree := get_tree()
+		var tree: SceneTree = get_tree()
 		if tree:
 			tree.call_group(
 				"match_root",
@@ -451,11 +658,13 @@ func sync_field_for_prepare() -> void:
 func finalize_prepare() -> void:
 	## Deploy first, then sell leftover hangar — never sell-before-deploy (leaves empty field).
 	sync_field_for_prepare()
+	## Last chance to hang leftover bag gear on field ships before hangar sell.
+	_random_distribute_equipment()
 	_sell_hangar_remainder()
 
 func _deploy_legacy_quota() -> void:
-	var per := maxi(0, int(DataStore.ai.get("deploys_per_round", 1)))
-	var placed := 0
+	var per: int = maxi(0, TypedVariant.as_int(DataStore.ai.get("deploys_per_round", 1), 1))
+	var placed: int = 0
 	while placed < per:
 		if not _try_deploy_one_random():
 			break
@@ -463,34 +672,34 @@ func _deploy_legacy_quota() -> void:
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
 
 func _try_deploy_one_random() -> bool:
-	var cap := field_cap()
+	var cap: int = field_cap()
 	if _board.count_field(ShipUnit.TEAM_AI) >= cap:
 		return false
-	var tries := int(DataStore.ai.get("deploy_try_limit", 28))
-	var tag := str(DataStore.ai.get("cruiser_ship_group_tag", "cruiser"))
-	var block_until := int(DataStore.ai.get("cruiser_block_battle_stages", 3))
+	var tries: int = TypedVariant.as_int(DataStore.ai.get("deploy_try_limit", 28), 28)
+	var tag: String = str(DataStore.ai.get("cruiser_ship_group_tag", "cruiser"))
+	var block_until: int = TypedVariant.as_int(DataStore.ai.get("cruiser_block_battle_stages", 3), 3)
 	var ids: Array = DataStore.ship_ids()
 	if ids.is_empty():
 		return false
-	for _i in range(tries):
-		var cell := _pick_ai_field_cell()
+	for _i: int in range(tries):
+		var cell: Vector2i = _pick_ai_field_cell()
 		if cell.x < 0:
 			return false
-		var sid: int = ids[randi() % ids.size()]
+		var sid: int = TypedVariant.as_int(ids[randi() % ids.size()], 0)
 		var sd: Dictionary = DataStore.get_ship(sid)
-		if bool(sd.get("requires_cyno_entry", false)):
+		if TypedVariant.as_bool(sd.get("requires_cyno_entry", false), false):
 			continue
 		if _match.battle_game_stage_count <= block_until and DataStore.ship_has_group(sid, tag):
 			continue
-		if bool(sd.get("deploy_enemy_half_only", false)):
-			var enemy_cell := _pick_ai_field_cell()
+		if TypedVariant.as_bool(sd.get("deploy_enemy_half_only", false), false):
+			var enemy_cell: Vector2i = _pick_ai_field_cell()
 			if enemy_cell.x < 0:
 				continue
 			AdminBus.request(&"board.deploy", {
 				"ship_id": sid, "star": 1, "team": ShipUnit.TEAM_AI,
 				"slot_type": "field", "x": enemy_cell.x, "z": enemy_cell.y,
 			})
-			for s2 in _board.all_ships():
+			for s2: ShipUnit in _board.all_ships():
 				if s2.team_id == ShipUnit.TEAM_AI and s2.ship_id == sid and s2.slot_type == "field" and s2.grid_x == enemy_cell.x and s2.grid_z == enemy_cell.y:
 					s2.field_side_team = ShipUnit.TEAM_PLAYER
 					s2.global_position = BoardController.cell_to_world("field", ShipUnit.TEAM_PLAYER, enemy_cell.x, enemy_cell.y)
@@ -509,11 +718,11 @@ func _try_deploy_one_random() -> bool:
 	return false
 
 func _on_deploy(payload: Dictionary) -> Dictionary:
-	var ship_id := int(payload.get("ship_id", 0))
-	var x := int(payload.get("x", 0))
-	var z := int(payload.get("z", 0))
-	var star := int(payload.get("star", 1))
-	if bool(DataStore.get_ship(ship_id).get("requires_cyno_entry", false)):
+	var ship_id: int = TypedVariant.as_int(payload.get("ship_id", 0), 0)
+	var x: int = TypedVariant.as_int(payload.get("x", 0), 0)
+	var z: int = TypedVariant.as_int(payload.get("z", 0), 0)
+	var star: int = TypedVariant.as_int(payload.get("star", 1), 1)
+	if TypedVariant.as_bool(DataStore.get_ship(ship_id).get("requires_cyno_entry", false), false):
 		return {"accepted": false, "reason_key": "requires_cyno"}
 	if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
 		return {"accepted": false, "reason_key": "ai_field_cap"}

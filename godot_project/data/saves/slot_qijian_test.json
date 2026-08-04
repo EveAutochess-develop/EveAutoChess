@@ -1,6 +1,6 @@
 {
   "save_version": 1,
-  "mode": "endless",
+  "mode": "versus",
   "battle_game_stage_count": 1,
   "round_phase_value": 0,
   "battle_phase_value": 0,
@@ -14,7 +14,25 @@
     "win_streak": 0,
     "loss_streak": 0,
     "shop_locked": false,
-    "shop_slots": []
+    "shop_slots": [],
+    "equipment_inventory": [
+      "implant_focus_crystal",
+      "implant_pulse_crystal",
+      "implant_barrage",
+      "implant_sniper",
+      "implant_he_coil",
+      "implant_thermal_cycle",
+      "implant_support_proj",
+      "implant_warhead",
+      "implant_bombing",
+      "implant_auto_def",
+      "implant_shield_support",
+      "implant_armor_support",
+      "",
+      "",
+      "",
+      ""
+    ]
   },
   "ai": {
     "gold": 50,

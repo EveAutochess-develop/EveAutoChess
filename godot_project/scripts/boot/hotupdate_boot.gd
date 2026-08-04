@@ -1,8 +1,8 @@
 extends Control
 ## Eternal thin shell: version.json → manifest → download → load_resource_pack → main menu.
 
-const DEFAULT_RESOLVE := "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
-const CACHE_DIR := "user://hotupdate/"
+const DEFAULT_RESOLVE: String = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
+const CACHE_DIR: String = "user://hotupdate/"
 
 @onready var status_label: Label = $Margin/VBox/Status
 @onready var progress: ProgressBar = $Margin/VBox/Progress
@@ -33,14 +33,14 @@ func _ready() -> void:
 	_start_update()
 
 func _style_boot() -> void:
-	var bg := get_node_or_null("ColorRect") as ColorRect
+	var bg: ColorRect = get_node_or_null("ColorRect") as ColorRect
 	# Keep an opaque fill so we never show the default gray clear color
 	if bg:
 		UiAssets.full_rect(bg)
 		bg.color = Color(0.06, 0.08, 0.12, 1.0)
-	var tex := UiAssets.tex(UiAssets.MAIN_BG)
+	var tex: Texture2D = UiAssets.tex(UiAssets.MAIN_BG)
 	if tex:
-		var bg_tex := TextureRect.new()
+		var bg_tex: TextureRect = TextureRect.new()
 		bg_tex.name = "BG"
 		UiAssets.full_rect(bg_tex)
 		bg_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -52,7 +52,7 @@ func _style_boot() -> void:
 		# Soft dim on top of photo, still opaque enough
 		if bg:
 			bg.color = Color(0.02, 0.03, 0.06, 0.55)
-	var title := get_node_or_null("Margin/VBox/Title") as Label
+	var title: Label = get_node_or_null("Margin/VBox/Title") as Label
 	if title:
 		title.text = "星视寰宇EVE自走棋"
 		UiAssets.apply_label_font(title, true, 32)
@@ -70,31 +70,34 @@ func _set_status(t: String) -> void:
 		status_label.text = t
 
 func _start_update() -> void:
-	var local_pointer := "res://boot/resolve_url.txt"
+	var local_pointer: String = "res://boot/resolve_url.txt"
 	if FileAccess.file_exists(local_pointer):
 		_base_url = FileAccess.get_file_as_string(local_pointer).strip_edges()
 		if not _base_url.ends_with("/"):
 			_base_url += "/"
-	var err := _http.request(_base_url + "version.json")
+	var err: Error = _http.request(_base_url + "version.json")
 	if err != OK:
 		_set_status("无法请求 version.json，可跳过使用内置内容")
 		play_btn.disabled = false
 		return
-	var result = await _http.request_completed
-	_on_version(result)
+	var result: Variant = await _http.request_completed
+	if result is Array:
+		var arr: Array = result
+		_on_version(arr)
 
 func _on_version(result: Array) -> void:
-	var response_code: int = result[1]
+	var response_code: int = TypedVariant.as_int(result[1], 0)
 	var body: PackedByteArray = result[3]
 	if response_code != 200:
 		_set_status("热更不可用 (%d)，使用内置内容" % response_code)
 		play_btn.disabled = false
 		return
-	var data = JSON.parse_string(body.get_string_from_utf8())
-	if typeof(data) != TYPE_DICTIONARY:
+	var data_v: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(data_v) != TYPE_DICTIONARY:
 		_set_status("version.json 无效")
 		play_btn.disabled = false
 		return
+	var data: Dictionary = data_v
 	if data.has("baseUrl"):
 		_base_url = str(data["baseUrl"])
 		if not _base_url.ends_with("/"):
@@ -108,68 +111,80 @@ func _on_version(result: Array) -> void:
 	GameSession.shell_version = str(ProjectSettings.get_setting("application/config/version", "1.0.0-shell"))
 	_set_status("拉取 manifest %s…" % DataStore.content_version)
 	_http.request(_base_url + "manifest.json")
-	var man = await _http.request_completed
-	_on_manifest(man)
+	var man_v: Variant = await _http.request_completed
+	if man_v is Array:
+		var man: Array = man_v
+		_on_manifest(man)
 
 func _on_manifest(result: Array) -> void:
-	var response_code: int = result[1]
+	var response_code: int = TypedVariant.as_int(result[1], 0)
 	var body: PackedByteArray = result[3]
 	if response_code != 200:
 		_set_status("manifest 失败，使用内置")
 		play_btn.disabled = false
 		return
-	var data = JSON.parse_string(body.get_string_from_utf8())
-	if typeof(data) != TYPE_DICTIONARY:
+	var data_v: Variant = JSON.parse_string(body.get_string_from_utf8())
+	if typeof(data_v) != TYPE_DICTIONARY:
 		play_btn.disabled = false
 		return
-	var files = data.get("files", [])
-	if typeof(files) != TYPE_ARRAY or files.is_empty():
+	var data: Dictionary = data_v
+	var files_v: Variant = data.get("files", [])
+	if typeof(files_v) != TYPE_ARRAY:
 		_set_status("manifest 空，使用内置内容")
 		play_btn.disabled = false
 		return
-	var i := 0
-	for f in files:
-		if typeof(f) != TYPE_DICTIONARY:
+	var files: Array = files_v
+	if files.is_empty():
+		_set_status("manifest 空，使用内置内容")
+		play_btn.disabled = false
+		return
+	var i: int = 0
+	for f_v: Variant in files:
+		if typeof(f_v) != TYPE_DICTIONARY:
 			continue
-		var path := str(f.get("path", ""))
+		var f: Dictionary = f_v
+		var path: String = str(f.get("path", ""))
 		if path.is_empty():
 			continue
 		i += 1
 		progress.value = float(i) / float(files.size()) * 100.0
 		_set_status("下载 %s" % path)
-		var ok := await _download_file(path, str(f.get("sha256", "")))
+		var ok: bool = await _download_file(path, str(f.get("sha256", "")))
 		if not ok:
 			_set_status("下载失败: %s（可跳过）" % path)
 			play_btn.disabled = false
 			return
 		if path.ends_with(".pck"):
-			var local := CACHE_DIR + path.get_file()
-			var abs_path := ProjectSettings.globalize_path(local)
+			var local: String = CACHE_DIR + path.get_file()
+			var abs_path: String = ProjectSettings.globalize_path(local)
 			if FileAccess.file_exists(local):
-				var mounted := ProjectSettings.load_resource_pack(abs_path)
+				var mounted: bool = ProjectSettings.load_resource_pack(abs_path)
 				_set_status("挂载 %s → %s" % [path, str(mounted)])
 	DataStore.reload_all()
 	_set_status("热更完成 · %s" % DataStore.content_version)
 	play_btn.disabled = false
 
 func _download_file(rel: String, expect_sha: String) -> bool:
-	var url := _base_url + rel
-	var local := CACHE_DIR + rel.get_file()
+	var url: String = _base_url + rel
+	var local: String = CACHE_DIR + rel.get_file()
 	_http.request(url)
-	var result = await _http.request_completed
-	var code: int = result[1]
+	var result_v: Variant = await _http.request_completed
+	if not (result_v is Array):
+		return false
+	var result: Array = result_v
+	var code: int = TypedVariant.as_int(result[1], 0)
 	var body: PackedByteArray = result[3]
 	if code != 200:
 		return false
 	if expect_sha != "":
-		var ctx := HashingContext.new()
+		var ctx: HashingContext = HashingContext.new()
 		ctx.start(HashingContext.HASH_SHA256)
 		ctx.update(body)
-		var digest := ctx.finish()
-		var h := digest.hex_encode()
+		var digest: PackedByteArray = ctx.finish()
+		var h: String = digest.hex_encode()
 		if h != expect_sha:
 			push_warning("sha mismatch %s got %s expect %s" % [rel, h, expect_sha])
-	var f := FileAccess.open(local, FileAccess.WRITE)
+	var f: FileAccess = FileAccess.open(local, FileAccess.WRITE)
 	if f == null:
 		return false
 	f.store_buffer(body)
