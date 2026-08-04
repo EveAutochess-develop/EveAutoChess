@@ -17,8 +17,11 @@ func set_seats(p_seats: Array) -> void:
 func all_ready_and_titans_selected() -> bool:
 	if seats.is_empty():
 		return false
-	for s in seats:
-		if not bool(s.get("ready", false)):
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			return false
+		var s: Dictionary = s_v
+		if not TypedVariant.as_bool(s.get("ready", false), false):
 			return false
 		if str(s.get("titan_race", "")) == "":
 			return false
@@ -30,41 +33,45 @@ func assign_regions(security_mode: String = "nullsec") -> Dictionary:
 		return _assign_lowsec_race_skies()
 	var pool: Array = SkyboxCatalog.nullsec_regions()
 	var ids: Array = []
-	for r in pool:
-		var rid := str(r.get("region_id", ""))
+	for r_v: Variant in pool:
+		if not (r_v is Dictionary):
+			continue
+		var r: Dictionary = r_v
+		var rid: String = str(r.get("region_id", ""))
 		if rid != "":
 			ids.append(rid)
 	if ids.is_empty():
 		ids = ["period_basis", "delve", "fountain", "querious"]
 	var must: Array = SkyboxCatalog.must_include_region_ids()
-	for m in must:
-		var ms := str(m)
+	for m_v: Variant in must:
+		var ms: String = str(m_v)
 		if ms not in ids:
 			ids.append(ms)
 	## Shuffle with match stream
 	var shuffled: Array = ids.duplicate()
-	for i in range(shuffled.size() - 1, 0, -1):
-		var j := 0
+	for i: int in range(shuffled.size() - 1, 0, -1):
+		var j: int = 0
 		if match_rng:
 			j = match_rng.stream_randi_range("match", 0, i)
 		else:
 			j = randi() % (i + 1)
-		var tmp = shuffled[i]
+		var tmp: Variant = shuffled[i]
 		shuffled[i] = shuffled[j]
 		shuffled[j] = tmp
 	var player_seats: Array = []
-	for seat in seats:
-		if typeof(seat) != TYPE_DICTIONARY:
+	for seat_v: Variant in seats:
+		if typeof(seat_v) != TYPE_DICTIONARY:
 			continue
-		var race := str(seat.get("titan_race", ""))
+		var seat: Dictionary = seat_v
+		var race: String = str(seat.get("titan_race", ""))
 		if NullsecNetSession.is_spectate_race(race):
 			continue
-		if not bool(seat.get("occupied", true)):
+		if not TypedVariant.as_bool(seat.get("occupied", true), true):
 			continue
 		player_seats.append(seat)
-	var n := mini(player_seats.size(), shuffled.size())
+	var n: int = mini(player_seats.size(), shuffled.size())
 	var picked: Array = shuffled.slice(0, maxi(n, 1))
-	var must_id := "period_basis"
+	var must_id: String = "period_basis"
 	if must.size() > 0:
 		must_id = str(must[0])
 	if must_id not in picked and must_id in shuffled:
@@ -73,7 +80,7 @@ func assign_regions(security_mode: String = "nullsec") -> Dictionary:
 		else:
 			## Drop it on a random slot: pinning index 0 handed 贝斯星域 to seat 0
 			## (normally the local player) every single match.
-			var slot := 0
+			var slot: int = 0
 			if picked.size() > 1:
 				if match_rng:
 					slot = match_rng.stream_randi_range("match", 0, picked.size() - 1)
@@ -81,10 +88,10 @@ func assign_regions(security_mode: String = "nullsec") -> Dictionary:
 					slot = randi() % picked.size()
 			picked[slot] = must_id
 	assignments.clear()
-	for i in range(player_seats.size()):
+	for i: int in range(player_seats.size()):
 		var seat: Dictionary = player_seats[i]
-		var sid := int(seat.get("seat_id", i))
-		var rid := str(picked[i % picked.size()]) if not picked.is_empty() else must_id
+		var sid: int = TypedVariant.as_int(seat.get("seat_id", i), i)
+		var rid: String = str(picked[i % picked.size()]) if not picked.is_empty() else must_id
 		assignments[sid] = rid
 		seat["region_id"] = rid
 	regions_assigned.emit(assignments)
@@ -95,26 +102,28 @@ func _assign_lowsec_race_skies() -> Dictionary:
 	## Lowsec: UI region labels only (random stem). Sky rendering deferred — no panorama switch.
 	var stems: Array = SkyboxCatalog.race_stem_list()
 	var player_seats: Array = []
-	for seat in seats:
-		if typeof(seat) != TYPE_DICTIONARY:
+	for seat_v: Variant in seats:
+		if typeof(seat_v) != TYPE_DICTIONARY:
 			continue
-		var race := str(seat.get("titan_race", ""))
+		var seat: Dictionary = seat_v
+		var race: String = str(seat.get("titan_race", ""))
 		if NullsecNetSession.is_spectate_race(race):
 			continue
-		if not bool(seat.get("occupied", true)):
+		if not TypedVariant.as_bool(seat.get("occupied", true), true):
 			continue
 		if not NullsecNetSession.is_player_race(race):
 			continue
 		player_seats.append(seat)
 	assignments.clear()
-	for seat in player_seats:
-		var sid := int(seat.get("seat_id", 0))
-		var idx := 0
+	for seat_v: Variant in player_seats:
+		var seat: Dictionary = seat_v
+		var sid: int = TypedVariant.as_int(seat.get("seat_id", 0), 0)
+		var idx: int = 0
 		if match_rng:
 			idx = match_rng.stream_randi_range("match", 0, stems.size() - 1)
 		else:
 			idx = randi() % stems.size()
-		var stem := str(stems[idx])
+		var stem: String = str(stems[idx])
 		assignments[sid] = stem
 		seat["region_id"] = stem
 	regions_assigned.emit(assignments)

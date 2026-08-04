@@ -1,6 +1,8 @@
 extends RefCounted
 class_name PublicRoomEnumerator
-## Public codes 1..9999; continue cursor; reverse after 9999→1.
+## Room codes 1..9999; continue cursor; reverse after 9999→1.
+## SEMI_ASYNC §7 — no private filter; match try-joins all candidates.
+@warning_ignore_start("untyped_declaration", "inferred_declaration", "unsafe_method_access", "unsafe_call_argument", "inference_on_variant", "unsafe_cast")
 
 static func next_codes(batch: int = 32) -> Array:
 	var st: Dictionary = NullsecLobbyPopup.load_enum_cursor()
@@ -49,15 +51,12 @@ static func advance_past(code: int) -> void:
 	NullsecLobbyPopup.save_enum_cursor(next, dir)
 
 
-## Count same-version public rooms currently in match (for skip hint).
-static func count_in_match_public(rooms: Array, rules_hash: String) -> int:
+static func count_in_match(rooms: Array, rules_hash: String) -> int:
 	var n := 0
 	for r in rooms:
 		if typeof(r) != TYPE_DICTIONARY:
 			continue
 		var d: Dictionary = r
-		if bool(d.get("private", false)):
-			continue
 		if str(d.get("rules", "")) != rules_hash:
 			continue
 		if bool(d.get("in_match", false)):
@@ -65,49 +64,113 @@ static func count_in_match_public(rooms: Array, rules_hash: String) -> int:
 	return n
 
 
-## Pick first joinable public room at/after cursor; wrap to min if none.
-## Full rooms (occupied>=20) silently skipped. ignore_in_match skips in_match ads.
-static func pick_public_room(rooms: Array, rules_hash: String, ignore_in_match: bool = false) -> Dictionary:
-	var cursor := peek_cursor()
-	var dir := peek_dir()
-	var candidates: Array = []
+static func count_rules_mismatch(rooms: Array, rules_hash: String) -> int:
+	var n := 0
 	for r in rooms:
 		if typeof(r) != TYPE_DICTIONARY:
 			continue
 		var d: Dictionary = r
-		if bool(d.get("private", false)):
+		var rh := str(d.get("rules", ""))
+		if rh == "" or rh == rules_hash:
 			continue
+		n += 1
+	return n
+
+
+## Deprecated aliases.
+static func count_in_match_public(rooms: Array, rules_hash: String) -> int:
+	return count_in_match(rooms, rules_hash)
+
+
+static func count_rules_mismatch_public(rooms: Array, rules_hash: String) -> int:
+	return count_rules_mismatch(rooms, rules_hash)
+
+
+## Ordered join candidates (same rules, not full); optional skip in_match.
+## Same room_code on multiple hosts is kept as separate endpoints (key ip:port).
+static func list_join_candidates(rooms: Array, rules_hash: String, ignore_in_match: bool = false) -> Array:
+	var cursor := peek_cursor()
+	var dir := peek_dir()
+	var candidates: Array = []
+	var seen_ep: Dictionary = {} ## "ip:port" — never collapse by code alone
+	for r in rooms:
+		if typeof(r) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = r
 		if str(d.get("rules", "")) != rules_hash:
 			continue
 		var occ := int(d.get("occupied", 0))
 		var cap := int(d.get("cap", NullsecNetSession.SEAT_TOTAL))
 		if occ >= cap:
-			continue ## silent skip full
+			continue
 		if ignore_in_match and bool(d.get("in_match", false)):
 			continue
 		var code := int(d.get("code", 0))
 		if code < 1 or code > 9999:
 			continue
+		var ip := str(d.get("ip", ""))
+		var port := int(d.get("port", NullsecNetSession.port_for_code(code)))
+		var ep := "%s:%d" % [ip, port]
+		if ep == ":0" or seen_ep.has(ep):
+			continue
+		seen_ep[ep] = true
 		candidates.append(d)
 	if candidates.is_empty():
-		return {}
+		return []
+	## code asc, then emptier first when same code (prefer joinable public seats).
 	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a.get("code", 0)) < int(b.get("code", 0))
+		var ca := int(a.get("code", 0))
+		var cb := int(b.get("code", 0))
+		if ca != cb:
+			return ca < cb
+		return int(a.get("occupied", 0)) < int(b.get("occupied", 0))
 	)
-	## Prefer first code >= cursor when sweeping forward; <= when reverse.
+	## Rotate so sweep starts at cursor (all endpoints with that code stay contiguous).
+	var ordered: Array = []
 	if dir >= 0:
 		for d in candidates:
 			if int(d.get("code", 0)) >= cursor:
-				return d
-		return candidates[0]
-	for i in range(candidates.size() - 1, -1, -1):
-		var d: Dictionary = candidates[i]
-		if int(d.get("code", 0)) <= cursor:
-			return d
-	return candidates[candidates.size() - 1]
+				ordered.append(d)
+		for d in candidates:
+			if int(d.get("code", 0)) < cursor:
+				ordered.append(d)
+	else:
+		for i in range(candidates.size() - 1, -1, -1):
+			var d: Dictionary = candidates[i]
+			if int(d.get("code", 0)) <= cursor:
+				ordered.append(d)
+		for i in range(candidates.size() - 1, -1, -1):
+			var d2: Dictionary = candidates[i]
+			if int(d2.get("code", 0)) > cursor:
+				ordered.append(d2)
+	return ordered
 
 
-## First free public code starting at cursor, skipping `taken` codes.
+## Count full rooms (occupied>=cap) with matching rules.
+static func count_full(rooms: Array, rules_hash: String) -> int:
+	var n := 0
+	for r in rooms:
+		if typeof(r) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = r
+		if str(d.get("rules", "")) != rules_hash:
+			continue
+		var occ := int(d.get("occupied", 0))
+		var cap := int(d.get("cap", NullsecNetSession.SEAT_TOTAL))
+		if occ >= cap:
+			n += 1
+	return n
+
+
+## Pick first joinable room at/after cursor (legacy single-pick).
+static func pick_public_room(rooms: Array, rules_hash: String, ignore_in_match: bool = false) -> Dictionary:
+	var list := list_join_candidates(rooms, rules_hash, ignore_in_match)
+	if list.is_empty():
+		return {}
+	return list[0]
+
+
+## First free code starting at cursor, skipping `taken` codes (LAN peer codes + local bind fails).
 static func claim_free_code(taken: Dictionary) -> int:
 	var st: Dictionary = NullsecLobbyPopup.load_enum_cursor()
 	var cursor := int(st.get("cursor", 1))

@@ -3,10 +3,10 @@ class_name ShipWeaponDerive
 ## Manned hull attack = attack slots × representative weapon module (ammo baked in).
 ## Unmanned units keep stars[] attack. See SHIP_STATS_V2 §2.2.
 
-const DEFAULT_KIT_METERS_PER_CELL := 500.0
+const DEFAULT_KIT_METERS_PER_CELL: float = 500.0
 
 ## weapon_fx → size_key → module_type_id  (4×4 = 16)
-const WEAPON_KIT := {
+const WEAPON_KIT: Dictionary = {
 	"laser": {"frigate": 453, "destroyer": 453, "cruiser": 456, "large": 462, "capital": 11002810000},
 	"rail": {"frigate": 561, "destroyer": 561, "cruiser": 570, "large": 574, "capital": 11000320000},
 	"cannon": {"frigate": 485, "destroyer": 485, "cruiser": 491, "large": 498, "capital": 11004810000},
@@ -14,7 +14,7 @@ const WEAPON_KIT := {
 }
 
 ## race → [frigate, cruiser, large] remote repair module type ids
-const REPAIR_KIT := {
+const REPAIR_KIT: Dictionary = {
 	"amarr": [11355, 11357, 11359],
 	"caldari": [3586, 3596, 3606],
 	"gallente": [27932, 27930, 27904],
@@ -23,13 +23,13 @@ const REPAIR_KIT := {
 
 
 static func uses_baked_star_attack(ship: Dictionary) -> bool:
-	return bool(ship.get("is_unmanned", false))
+	return TypedVariant.as_bool(ship.get("is_unmanned", false))
 
 
 static func _guns_muted(ship: Dictionary) -> bool:
-	var fx := str(ship.get("weapon_fx", ""))
-	var role := str(ship.get("capital_role", ""))
-	return role == "carrier" or fx == "mining" or bool(ship.get("is_mining_ship", false))
+	var fx: String = str(ship.get("weapon_fx", ""))
+	var role: String = str(ship.get("capital_role", ""))
+	return role == "carrier" or fx == "mining" or TypedVariant.as_bool(ship.get("is_mining_ship", false))
 
 
 static func should_derive(ship: Dictionary) -> bool:
@@ -40,17 +40,17 @@ static func should_derive(ship: Dictionary) -> bool:
 		return false
 	if _guns_muted(ship):
 		return true
-	var fx := str(ship.get("weapon_fx", ""))
-	var logistic := bool(ship.get("is_logistic", false)) or fx == "heal"
+	var fx: String = str(ship.get("weapon_fx", ""))
+	var logistic: bool = TypedVariant.as_bool(ship.get("is_logistic", false)) or fx == "heal"
 	if logistic:
-		var rid := resolve_repair_module_id(ship)
+		var rid: int = resolve_repair_module_id(ship)
 		if rid > 0 and not DataStore.get_module(rid).is_empty():
 			return true
-	var explicit := int(ship.get("source_module_type_id", 0))
+	var explicit: int = TypedVariant.as_int(ship.get("source_module_type_id", 0))
 	if explicit > 0:
 		## Echoes capital modules not yet in equipment table → keep stars[].
 		return not DataStore.get_module(explicit).is_empty()
-	var mid := resolve_module_id(ship)
+	var mid: int = resolve_module_id(ship)
 	if mid <= 0:
 		## No kit (titan/freighter placeholders with 0 slots) → derive zeros.
 		return true
@@ -58,9 +58,9 @@ static func should_derive(ship: Dictionary) -> bool:
 
 
 static func attack_slot_count(ship: Dictionary) -> int:
-	var n := int(ship.get("attack_weapon_slots", 0))
+	var n: int = TypedVariant.as_int(ship.get("attack_weapon_slots", 0))
 	if n <= 0:
-		n = int(ship.get("hi_slots", 0))
+		n = TypedVariant.as_int(ship.get("hi_slots", 0))
 	return maxi(n, 0)
 
 
@@ -68,10 +68,10 @@ static func kit_meters_per_cell() -> float:
 	if DataStore == null:
 		return DEFAULT_KIT_METERS_PER_CELL
 	var cd: Dictionary = DataStore.combat
-	var v := float(cd.get("weapon_kit_meters_per_cell", 0.0))
+	var v: float = TypedVariant.as_float(cd.get("weapon_kit_meters_per_cell", 0.0))
 	if v > 0.0:
 		return v
-	v = float(cd.get("speed_meters_per_cell", 0.0))
+	v = TypedVariant.as_float(cd.get("speed_meters_per_cell", 0.0))
 	return v if v > 0.0 else DEFAULT_KIT_METERS_PER_CELL
 
 
@@ -80,7 +80,7 @@ static func meters_to_cells(meters: float) -> float:
 
 
 static func size_key(ship: Dictionary) -> String:
-	var tier := str(ship.get("weapon_tier", ""))
+	var tier: String = str(ship.get("weapon_tier", ""))
 	if tier == "small":
 		return "frigate"
 	if tier == "large":
@@ -89,7 +89,7 @@ static func size_key(ship: Dictionary) -> String:
 		return "cruiser"
 	if tier == "capital":
 		return "capital"
-	var group := str(ship.get("ship_group", ""))
+	var group: String = str(ship.get("ship_group", ""))
 	if group in ["frigate", "destroyer"]:
 		return "frigate"
 	if group in ["dreadnought", "carrier", "force_auxiliary", "titan"]:
@@ -102,34 +102,34 @@ static func size_key(ship: Dictionary) -> String:
 
 
 static func resolve_module_id(ship: Dictionary) -> int:
-	var mod_id := int(ship.get("source_module_type_id", 0))
+	var mod_id: int = TypedVariant.as_int(ship.get("source_module_type_id", 0))
 	if mod_id > 0:
 		return mod_id
-	var fx := str(ship.get("weapon_fx", ""))
+	var fx: String = str(ship.get("weapon_fx", ""))
 	if fx == "heal":
-		var race := str(ship.get("race", "amarr")).to_lower()
-		fx = {"amarr": "laser", "caldari": "rail", "minmatar": "cannon", "gallente": "rail"}.get(race, "laser")
-	var kit_by_fx: Variant = WEAPON_KIT.get(fx, {})
-	if typeof(kit_by_fx) != TYPE_DICTIONARY:
+		var race: String = str(ship.get("race", "amarr")).to_lower()
+		fx = str({"amarr": "laser", "caldari": "rail", "minmatar": "cannon", "gallente": "rail"}.get(race, "laser"))
+	var kit_by_fx: Dictionary = TypedVariant.as_dict(WEAPON_KIT.get(fx, {}))
+	if kit_by_fx.is_empty():
 		return 0
-	return int((kit_by_fx as Dictionary).get(size_key(ship), 0))
+	return TypedVariant.as_int(kit_by_fx.get(size_key(ship), 0))
 
 
 static func resolve_repair_module_id(ship: Dictionary) -> int:
-	var rid := int(ship.get("source_repair_module_type_id", 0))
+	var rid: int = TypedVariant.as_int(ship.get("source_repair_module_type_id", 0))
 	if rid > 0:
 		return rid
-	var race := str(ship.get("race", "amarr")).to_lower()
+	var race: String = str(ship.get("race", "amarr")).to_lower()
 	var kit: Variant = REPAIR_KIT.get(race, REPAIR_KIT["amarr"])
-	if typeof(kit) != TYPE_ARRAY or (kit as Array).size() < 3:
+	var arr: Array = TypedVariant.as_array(kit)
+	if arr.size() < 3:
 		return 0
-	var arr: Array = kit
-	var key := size_key(ship)
+	var key: String = size_key(ship)
 	if key == "large" or key == "capital":
-		return int(arr[2])
+		return TypedVariant.as_int(arr[2])
 	if key == "cruiser":
-		return int(arr[1])
-	return int(arr[0])
+		return TypedVariant.as_int(arr[1])
+	return TypedVariant.as_int(arr[0])
 
 
 static func _zero_damage() -> Dictionary:
@@ -138,16 +138,16 @@ static func _zero_damage() -> Dictionary:
 
 static func _scale_damage(d: Dictionary, mul: float) -> Dictionary:
 	return {
-		"emp": snappedf(float(d.get("emp", 0.0)) * mul, 0.01),
-		"thermal": snappedf(float(d.get("thermal", 0.0)) * mul, 0.01),
-		"kinetic": snappedf(float(d.get("kinetic", 0.0)) * mul, 0.01),
-		"explosive": snappedf(float(d.get("explosive", 0.0)) * mul, 0.01),
+		"emp": snappedf(TypedVariant.as_float(d.get("emp", 0.0)) * mul, 0.01),
+		"thermal": snappedf(TypedVariant.as_float(d.get("thermal", 0.0)) * mul, 0.01),
+		"kinetic": snappedf(TypedVariant.as_float(d.get("kinetic", 0.0)) * mul, 0.01),
+		"explosive": snappedf(TypedVariant.as_float(d.get("explosive", 0.0)) * mul, 0.01),
 	}
 
 
 static func _per_slot_weapon(mod_id: int) -> Dictionary:
 	## Damage fields on the module are already per-slot final (ammo baked in).
-	var out := {
+	var out: Dictionary = {
 		"damage": _zero_damage(),
 		"tracking": 0.0,
 		"optimal": 0.0,
@@ -164,20 +164,20 @@ static func _per_slot_weapon(mod_id: int) -> Dictionary:
 	if mod.is_empty():
 		return out
 	out["damage"] = {
-		"emp": float(mod.get("emDamage", 0.0)),
-		"thermal": float(mod.get("thermalDamage", 0.0)),
-		"kinetic": float(mod.get("kineticDamage", 0.0)),
-		"explosive": float(mod.get("explosiveDamage", 0.0)),
+		"emp": TypedVariant.as_float(mod.get("emDamage", 0.0)),
+		"thermal": TypedVariant.as_float(mod.get("thermalDamage", 0.0)),
+		"kinetic": TypedVariant.as_float(mod.get("kineticDamage", 0.0)),
+		"explosive": TypedVariant.as_float(mod.get("explosiveDamage", 0.0)),
 	}
-	out["tracking"] = float(mod.get("trackingSpeed", 0.0))
-	out["optimal"] = meters_to_cells(float(mod.get("maxRange", 0.0)))
-	out["falloff"] = meters_to_cells(float(mod.get("falloff", 0.0)))
-	out["optimal_sig_radius"] = float(mod.get("signatureResolution", 40.0))
-	var rof_ms := float(mod.get("rateOfFire", 1000.0))
+	out["tracking"] = TypedVariant.as_float(mod.get("trackingSpeed", 0.0))
+	out["optimal"] = meters_to_cells(TypedVariant.as_float(mod.get("maxRange", 0.0)))
+	out["falloff"] = meters_to_cells(TypedVariant.as_float(mod.get("falloff", 0.0)))
+	out["optimal_sig_radius"] = TypedVariant.as_float(mod.get("signatureResolution", 40.0))
+	var rof_ms: float = TypedVariant.as_float(mod.get("rateOfFire", 1000.0))
 	out["rate_of_fire_s"] = snappedf(rof_ms / 1000.0, 0.001)
-	out["explosion_radius"] = float(mod.get("explosionRadius", 0.0))
-	out["explosion_velocity"] = float(mod.get("explosionVelocity", 0.0))
-	out["drf"] = float(mod.get("aoeDamageReductionFactor", 0.0))
+	out["explosion_radius"] = TypedVariant.as_float(mod.get("explosionRadius", 0.0))
+	out["explosion_velocity"] = TypedVariant.as_float(mod.get("explosionVelocity", 0.0))
+	out["drf"] = TypedVariant.as_float(mod.get("aoeDamageReductionFactor", 0.0))
 	return out
 
 
@@ -192,8 +192,8 @@ static func _racial_repair(amount: float, race: String) -> Dictionary:
 		"gallente":
 			return {"shield": 0.0, "armor": 0.0, "structure": amount}
 		_:
-			var half := amount / 2.0
-			return {"shield": float(ceili(half)), "armor": float(floor(half)), "structure": 0.0}
+			var half: float = amount / 2.0
+			return {"shield": float(ceili(half)), "armor": floorf(half), "structure": 0.0}
 
 
 static func derive_attack(ship: Dictionary, _star: int = 1) -> Dictionary:
@@ -201,9 +201,9 @@ static func derive_attack(ship: Dictionary, _star: int = 1) -> Dictionary:
 	## Damage is always ★1 kit baseline; star DPH is ShipUnit.star_dph_mul (SHIP_STATS_V2 §2.5).
 	if not should_derive(ship):
 		return {}
-	var fx := str(ship.get("weapon_fx", ""))
-	var slots := attack_slot_count(ship)
-	var zero := {
+	var fx: String = str(ship.get("weapon_fx", ""))
+	var slots: int = attack_slot_count(ship)
+	var zero: Dictionary = {
 		"damage": _zero_damage(),
 		"tracking": 0.0,
 		"optimal": 0.0,
@@ -215,8 +215,8 @@ static func derive_attack(ship: Dictionary, _star: int = 1) -> Dictionary:
 		"repair": {"shield": 0.0, "armor": 0.0, "structure": 0.0},
 		"attack_cycle_s": -1.0,
 	}
-	var mute_guns := _guns_muted(ship)
-	var mid := resolve_module_id(ship)
+	var mute_guns: bool = _guns_muted(ship)
+	var mid: int = resolve_module_id(ship)
 	var wpn: Dictionary
 	if mute_guns or mid <= 0:
 		wpn = {
@@ -225,49 +225,49 @@ static func derive_attack(ship: Dictionary, _star: int = 1) -> Dictionary:
 			"optimal": 0.0,
 			"falloff": 0.0,
 			"optimal_sig_radius": 40.0,
-			"rate_of_fire_s": float(ship.get("attack_cycle_s", 1.0)),
+			"rate_of_fire_s": TypedVariant.as_float(ship.get("attack_cycle_s", 1.0)),
 			"explosion_radius": 0.0,
 			"explosion_velocity": 0.0,
 			"drf": 0.0,
 		}
 	else:
 		wpn = _per_slot_weapon(mid)
-	var slot_dmg: Dictionary = wpn["damage"]
-	var total_1 := {
-		"emp": float(slot_dmg.get("emp", 0.0)) * float(slots),
-		"thermal": float(slot_dmg.get("thermal", 0.0)) * float(slots),
-		"kinetic": float(slot_dmg.get("kinetic", 0.0)) * float(slots),
-		"explosive": float(slot_dmg.get("explosive", 0.0)) * float(slots),
+	var slot_dmg: Dictionary = TypedVariant.as_dict(wpn.get("damage", {}))
+	var total_1: Dictionary = {
+		"emp": TypedVariant.as_float(slot_dmg.get("emp", 0.0)) * float(slots),
+		"thermal": TypedVariant.as_float(slot_dmg.get("thermal", 0.0)) * float(slots),
+		"kinetic": TypedVariant.as_float(slot_dmg.get("kinetic", 0.0)) * float(slots),
+		"explosive": TypedVariant.as_float(slot_dmg.get("explosive", 0.0)) * float(slots),
 	}
 	zero["damage"] = _scale_damage(total_1, 1.0)
-	zero["tracking"] = float(wpn.get("tracking", 0.0))
-	zero["optimal"] = float(wpn.get("optimal", 0.0))
-	zero["falloff"] = float(wpn.get("falloff", 0.0))
-	zero["optimal_sig_radius"] = float(wpn.get("optimal_sig_radius", 40.0))
-	zero["explosion_radius"] = float(wpn.get("explosion_radius", 0.0))
-	zero["explosion_velocity"] = float(wpn.get("explosion_velocity", 0.0))
-	zero["drf"] = float(wpn.get("drf", 0.0))
-	zero["attack_cycle_s"] = float(wpn.get("rate_of_fire_s", -1.0))
+	zero["tracking"] = TypedVariant.as_float(wpn.get("tracking", 0.0))
+	zero["optimal"] = TypedVariant.as_float(wpn.get("optimal", 0.0))
+	zero["falloff"] = TypedVariant.as_float(wpn.get("falloff", 0.0))
+	zero["optimal_sig_radius"] = TypedVariant.as_float(wpn.get("optimal_sig_radius", 40.0))
+	zero["explosion_radius"] = TypedVariant.as_float(wpn.get("explosion_radius", 0.0))
+	zero["explosion_velocity"] = TypedVariant.as_float(wpn.get("explosion_velocity", 0.0))
+	zero["drf"] = TypedVariant.as_float(wpn.get("drf", 0.0))
+	zero["attack_cycle_s"] = TypedVariant.as_float(wpn.get("rate_of_fire_s", -1.0))
 
-	var logistic := bool(ship.get("is_logistic", false)) or fx == "heal"
+	var logistic: bool = TypedVariant.as_bool(ship.get("is_logistic", false)) or fx == "heal"
 	if logistic:
-		var rid := resolve_repair_module_id(ship)
-		var amount := 0.0
-		var cycle_s := float(wpn.get("rate_of_fire_s", 0.0))
-		var opt := float(wpn.get("optimal", 0.0))
+		var rid: int = resolve_repair_module_id(ship)
+		var amount: float = 0.0
+		var cycle_s: float = TypedVariant.as_float(wpn.get("rate_of_fire_s", 0.0))
+		var opt: float = TypedVariant.as_float(wpn.get("optimal", 0.0))
 		if rid > 0 and DataStore != null:
 			var rmod: Dictionary = DataStore.get_module(rid)
 			if not rmod.is_empty():
-				amount = float(
+				amount = TypedVariant.as_float(
 					rmod.get("structureDamageAmount",
 						rmod.get("armorDamageAmount",
 							rmod.get("shieldBonus", 0.0)))
 				)
-				var dur_ms := float(rmod.get("duration", rmod.get("rateOfFire", 3000.0)))
+				var dur_ms: float = TypedVariant.as_float(rmod.get("duration", rmod.get("rateOfFire", 3000.0)))
 				cycle_s = snappedf(dur_ms / 1000.0, 0.001)
-				opt = meters_to_cells(float(rmod.get("maxRange", 0.0)))
-		var hi := int(ship.get("hi_slots", slots))
-		var total_rep := amount * float(maxi(hi, 0))
+				opt = meters_to_cells(TypedVariant.as_float(rmod.get("maxRange", 0.0)))
+		var hi: int = TypedVariant.as_int(ship.get("hi_slots", slots))
+		var total_rep: float = amount * float(maxi(hi, 0))
 		zero["repair"] = _racial_repair(total_rep, str(ship.get("race", "amarr")).to_lower())
 		if opt > 0.0:
 			zero["optimal"] = opt
@@ -281,7 +281,7 @@ static func merge_into_star(ship: Dictionary, star_row: Dictionary, star: int) -
 	var out: Dictionary = star_row.duplicate(true)
 	if star_row.is_empty() or not should_derive(ship):
 		return out
-	var derived := derive_attack(ship, star)
+	var derived: Dictionary = derive_attack(ship, star)
 	if derived.is_empty():
 		return out
 	out["damage"] = derived["damage"]
@@ -290,7 +290,7 @@ static func merge_into_star(ship: Dictionary, star_row: Dictionary, star: int) -
 	out["falloff"] = derived["falloff"]
 	out["optimal_sig_radius"] = derived["optimal_sig_radius"]
 	out["repair"] = derived["repair"]
-	if float(derived.get("explosion_radius", 0.0)) > 0.0 or str(ship.get("weapon_fx", "")) == "missile":
+	if TypedVariant.as_float(derived.get("explosion_radius", 0.0)) > 0.0 or str(ship.get("weapon_fx", "")) == "missile":
 		out["explosion_radius"] = derived["explosion_radius"]
 		out["explosion_velocity"] = derived["explosion_velocity"]
 		out["drf"] = derived["drf"]

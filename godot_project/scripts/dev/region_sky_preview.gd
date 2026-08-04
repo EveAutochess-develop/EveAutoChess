@@ -8,21 +8,24 @@ var _label: Label = null
 var _yaw: float = 0.0
 
 func _ready() -> void:
-	for r in SkyboxCatalog.nullsec_regions():
-		_ids.append(str((r as Dictionary).get("region_id", "")))
+	for r_v: Variant in SkyboxCatalog.nullsec_regions():
+		if not (r_v is Dictionary):
+			continue
+		var r: Dictionary = r_v
+		_ids.append(str(r.get("region_id", "")))
 	_ids.sort()
-	var cam := Camera3D.new()
+	var cam: Camera3D = Camera3D.new()
 	cam.name = "Cam"
 	cam.current = true
 	add_child(cam)
-	var we := WorldEnvironment.new()
-	var env := Environment.new()
+	var we: WorldEnvironment = WorldEnvironment.new()
+	var env: Environment = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 0.86
 	we.environment = env
 	add_child(we)
-	var layer := CanvasLayer.new()
+	var layer: CanvasLayer = CanvasLayer.new()
 	add_child(layer)
 	_label = Label.new()
 	_label.position = Vector2(24, 20)
@@ -32,14 +35,14 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_yaw += delta * 0.12
-	var cam := get_node_or_null("Cam") as Camera3D
+	var cam: Camera3D = get_node_or_null("Cam") as Camera3D
 	if cam:
 		cam.rotation = Vector3(0.0, _yaw, 0.0)
 
 func _unhandled_input(event: InputEvent) -> void:
-	var step := 0
+	var step: int = 0
 	if event is InputEventKey and (event as InputEventKey).pressed:
-		var k := (event as InputEventKey).keycode
+		var k: Key = (event as InputEventKey).keycode
 		if k == KEY_RIGHT or k == KEY_SPACE:
 			step = 1
 		elif k == KEY_LEFT:
@@ -54,12 +57,12 @@ func _apply() -> void:
 	if _ids.is_empty():
 		_label.text = "可分配星域池为空：先跑 tools/stage_region_skyboxes.py"
 		return
-	var rid := str(_ids[_idx])
-	var tex := SkyboxCatalog.load_sky_texture(rid)
-	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	var rid: String = str(_ids[_idx])
+	var tex: Texture2D = SkyboxCatalog.load_sky_texture(rid)
+	var we: WorldEnvironment = get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we and tex:
-		var sky := Sky.new()
-		var mat := PanoramaSkyMaterial.new()
+		var sky: Sky = Sky.new()
+		var mat: PanoramaSkyMaterial = PanoramaSkyMaterial.new()
 		mat.panorama = tex
 		sky.sky_material = mat
 		we.environment.sky = sky

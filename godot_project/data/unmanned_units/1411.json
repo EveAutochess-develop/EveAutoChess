@@ -46,7 +46,7 @@
       "optimal": 5.0,
       "optimal_sig_radius": 400.0,
       "repair": {
-        "armor": 120.0,
+        "armor": 740.0,
         "shield": 0.0,
         "structure": 0.0
       },
@@ -85,7 +85,7 @@
       "optimal": 5.0,
       "optimal_sig_radius": 400.0,
       "repair": {
-        "armor": 240.0,
+        "armor": 1480.0,
         "shield": 0.0,
         "structure": 0.0
       },
@@ -124,7 +124,7 @@
       "optimal": 5.0,
       "optimal_sig_radius": 400.0,
       "repair": {
-        "armor": 360.0,
+        "armor": 2220.0,
         "shield": 0.0,
         "structure": 0.0
       },

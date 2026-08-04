@@ -1,126 +1,126 @@
 {
-  "id": 21,
-  "name": "裂谷级",
-  "name_en": "Rifter",
-  "type_id": 587,
-  "model_key": "mmte_liegu",
-  "cost": 2,
-  "ship_groups": [
-    "frigate"
-  ],
-  "ship_group": "frigate",
+  "agility": 3.2,
+  "attack_cycle_s": 3.375,
+  "capacitor_capacity": 250.0,
+  "capacitor_recharge_s": 125.0,
+  "cost": 2.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10101000021.0,
   "fetter_ids": [
     "minmatar",
     "frigate",
     "defense"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 5,
+  "id": 21.0,
+  "is_logistic": false,
+  "low_slots": 4.0,
+  "mass": 1067000.0,
+  "med_slots": 3.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "mmte_liegu",
+  "model_long_axis": 31.0,
+  "name": "裂谷级",
+  "name_en": "Rifter",
+  "race": "minmatar",
+  "scan_resolution": 660.0,
+  "sensor_strength": 8.0,
+  "ship_group": "frigate",
+  "ship_groups": [
+    "frigate"
+  ],
+  "signature_radius": 35.0,
+  "sof_hull": "mf4_t1",
+  "source_module_type_id": 485.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 365.0,
+  "stars": [
+    {
+      "armor_hp": 450.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 4.0,
+      "is_logistic": false,
+      "shield_hp": 450.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 350.0,
+      "structure_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 900.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 4.0,
+      "is_logistic": false,
+      "shield_hp": 900.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 700.0,
+      "structure_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    },
+    {
+      "armor_hp": 1350.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 4.0,
+      "is_logistic": false,
+      "shield_hp": 1350.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1050.0,
+      "structure_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      }
+    }
   ],
   "tags": [
     "minmatar",
     "frigate",
     "defense"
   ],
-  "is_logistic": false,
-  "weapon_fx": "cannon",
-  "race": "minmatar",
-  "signature_radius": 35.0,
-  "sensor_strength": 8.0,
-  "scan_resolution": 660.0,
-  "speed": 365.0,
-  "mass": 1067000.0,
-  "agility": 3.2,
-  "capacitor_capacity": 250.0,
-  "capacitor_recharge_s": 125.0,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 3,
-  "med_slots": 3,
-  "low_slots": 4,
-  "source_module_type_id": 485,
-  "source_repair_module_type_id": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "echoes_item_id": 10101000021,
-  "attack_cycle_s": 3.375,
-  "stars": [
-    {
-      "attack_range": 4,
-      "shield_hp": 450.0,
-      "armor_hp": 450.0,
-      "structure_hp": 350.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 4,
-      "shield_hp": 900.0,
-      "armor_hp": 900.0,
-      "structure_hp": 700.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 4,
-      "shield_hp": 1350.0,
-      "armor_hp": 1350.0,
-      "structure_hp": 1050.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    }
-  ],
-  "model_long_axis": 31.0,
-  "sof_hull": "mf4_t1"
+  "type_id": 587.0,
+  "weapon_fx": "cannon"
 }

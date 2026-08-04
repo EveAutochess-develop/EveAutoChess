@@ -11,6 +11,8 @@ var target_fps: int = 60
 var no_model_perf_mode: bool = false
 ## Player override for camera breathe (options menu). true = on.
 var camera_breathe_enabled: bool = true
+## Ship float HP: "ring" (fans around tonnage) | "bars" (4 horizontal incl. cap).
+var health_bar_style: String = "ring"
 ## Developer debug master switch (options → 开发者调试). Default off.
 var developer_debug_enabled: bool = false
 ## Soften player citadel loss when developer debug is on. Default off.
@@ -25,32 +27,52 @@ var resume_slot_id: String = ""
 ## One-shot payload from 读取存档 (e.g. 旗舰测试 inject). Prefer over re-reading disk.
 ## Cleared after match applies it. Never used by「继续上次对局」.
 var resume_payload: Dictionary = {}
+## Options「核实版本是否最新」→ Boot 才走指针仓/HF（默认启动不联网）。
+var pending_content_verify: bool = false
 
 ## Local-only settings memory (graphics / audio / developer). Not a match save.
-const SETTINGS_PATH := "user://player_settings.cfg"
+const SETTINGS_PATH: String = "user://player_settings.cfg"
+
+
+func request_verify_content_version() -> void:
+	## Shell Boot owns real verify; editor/dev may lack boot.tscn update UI.
+	pending_content_verify = true
+	var boot: String = "res://scenes/boot.tscn"
+	if ResourceLoader.exists(boot):
+		var err: Error = get_tree().change_scene_to_file(boot)
+		if err != OK:
+			push_error("[GameSession] boot scene failed: %s" % err)
+			pending_content_verify = false
+	else:
+		push_warning("[GameSession] no boot.tscn — verify only works in eternal shell")
+		pending_content_verify = false
 
 func _ready() -> void:
 	_load_settings()
 	_apply_platform_render_profile()
 
 func _load_settings() -> void:
-	var cf := ConfigFile.new()
+	var cf: ConfigFile = ConfigFile.new()
 	if cf.load(SETTINGS_PATH) != OK:
 		return
-	target_fps = int(cf.get_value("graphics", "target_fps", target_fps))
-	no_model_perf_mode = bool(cf.get_value("graphics", "no_model_perf_mode", false))
-	camera_breathe_enabled = bool(cf.get_value("graphics", "camera_breathe_enabled", true))
-	developer_debug_enabled = bool(cf.get_value("developer", "debug_enabled", false))
-	player_citadel_soften = bool(cf.get_value("developer", "player_citadel_soften", false))
-	player_ai_double_economy = bool(cf.get_value("developer", "player_ai_double_economy", false))
-	enemy_layout_adjust = bool(cf.get_value("developer", "enemy_layout_adjust", false))
+	target_fps = TypedVariant.as_int(cf.get_value("graphics", "target_fps", target_fps), target_fps)
+	no_model_perf_mode = TypedVariant.as_bool(cf.get_value("graphics", "no_model_perf_mode", false), false)
+	camera_breathe_enabled = TypedVariant.as_bool(cf.get_value("graphics", "camera_breathe_enabled", true), true)
+	health_bar_style = str(cf.get_value("graphics", "health_bar_style", health_bar_style))
+	if health_bar_style != "bars":
+		health_bar_style = "ring"
+	developer_debug_enabled = TypedVariant.as_bool(cf.get_value("developer", "debug_enabled", false), false)
+	player_citadel_soften = TypedVariant.as_bool(cf.get_value("developer", "player_citadel_soften", false), false)
+	player_ai_double_economy = TypedVariant.as_bool(cf.get_value("developer", "player_ai_double_economy", false), false)
+	enemy_layout_adjust = TypedVariant.as_bool(cf.get_value("developer", "enemy_layout_adjust", false), false)
 
 func save_settings() -> void:
-	var cf := ConfigFile.new()
+	var cf: ConfigFile = ConfigFile.new()
 	cf.load(SETTINGS_PATH)
 	cf.set_value("graphics", "target_fps", target_fps)
 	cf.set_value("graphics", "no_model_perf_mode", no_model_perf_mode)
 	cf.set_value("graphics", "camera_breathe_enabled", camera_breathe_enabled)
+	cf.set_value("graphics", "health_bar_style", health_bar_style)
 	cf.set_value("developer", "debug_enabled", developer_debug_enabled)
 	cf.set_value("developer", "player_citadel_soften", player_citadel_soften)
 	cf.set_value("developer", "player_ai_double_economy", player_ai_double_economy)
@@ -60,9 +82,25 @@ func save_settings() -> void:
 func set_no_model_perf_mode(on: bool) -> void:
 	no_model_perf_mode = on
 	save_settings()
+	SessionDiagnostics.log("settings", "nomodel=%d fps_cap=%d" % [1 if on else 0, target_fps])
+	if on:
+		var tree: SceneTree = get_tree()
+		if tree:
+			tree.call_group("match_root", "apply_no_model_perf_cleanup")
+
+func set_target_fps(fps: int) -> void:
+	target_fps = maxi(0, fps)
+	Engine.max_fps = target_fps
+	save_settings()
+	SessionDiagnostics.log("settings", "fps_cap=%d nomodel=%d" % [target_fps, 1 if no_model_perf_mode else 0])
 
 func set_camera_breathe_enabled(on: bool) -> void:
 	camera_breathe_enabled = on
+	save_settings()
+	SessionDiagnostics.log("settings", "breathe=%d" % (1 if on else 0))
+
+func set_health_bar_style(style: String) -> void:
+	health_bar_style = "bars" if str(style) == "bars" else "ring"
 	save_settings()
 
 func set_developer_debug_enabled(on: bool) -> void:
@@ -95,8 +133,8 @@ func enemy_layout_adjust_active() -> bool:
 
 func _apply_platform_render_profile() -> void:
 	## PC: high 3D resolve + MSAA8. Mobile: 1.0 / MSAA off (4× greyscreens phones).
-	var mobile := OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
-	var root := get_tree().root
+	var mobile: bool = OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
+	var root: Window = get_tree().root
 	if root == null:
 		return
 	if mobile:
@@ -106,11 +144,13 @@ func _apply_platform_render_profile() -> void:
 		print("[GameSession] mobile render profile: scaling_3d=1.0 msaa=off")
 		return
 	# Editor preview: lighter 3D resolve so first frame isn't a multi-second GPU hitch.
-	var scale := 1.5 if OS.has_feature("editor") else 3.0
-	if DataStore and DataStore.visual is Dictionary:
-		var key := "editor_scaling_3d" if OS.has_feature("editor") else "desktop_scaling_3d"
-		if DataStore.visual.has(key):
-			scale = float(DataStore.visual[key])
+	var scale: float = 1.5 if OS.has_feature("editor") else 3.0
+	var data_store: Node = get_node_or_null(^"/root/DataStore")
+	var visual: Dictionary = TypedVariant.as_dict(data_store.get("visual")) if data_store else {}
+	if not visual.is_empty():
+		var key: String = "editor_scaling_3d" if OS.has_feature("editor") else "desktop_scaling_3d"
+		if visual.has(key):
+			scale = TypedVariant.as_float(visual.get(key), 0.0)
 	scale = clampf(scale, 1.0, 4.0)
 	root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	root.scaling_3d_scale = scale
@@ -118,7 +158,7 @@ func _apply_platform_render_profile() -> void:
 	root.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	root.anisotropic_filtering_level = Viewport.ANISOTROPY_16X
 	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
-		var sz := DisplayServer.window_get_size()
+		var sz: Vector2i = DisplayServer.window_get_size()
 		if sz.x < 1600 or sz.y < 900:
 			DisplayServer.window_set_size(Vector2i(1920, 1080))
 	print("[GameSession] desktop render profile: scaling_3d=%.1f msaa=%s editor=%s" % [

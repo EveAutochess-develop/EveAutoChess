@@ -2,18 +2,18 @@ extends Node3D
 class_name CapitalJumpFx
 ## Capital cyno warp-in: jump-tunnel flash → red light descent onto the field.
 
-const JUMP_GLOW := "res://assets/vfx/cyno/jumptunnelglow_02a.png"
-const JUMP_DIFF := "res://assets/vfx/cyno/jumptunneldiffuse.png"
-const FALLBACK := "res://assets/vfx/cyno/cyno_soft.png"
+const JUMP_GLOW: String = "res://assets/vfx/cyno/jumptunnelglow_02a.png"
+const JUMP_DIFF: String = "res://assets/vfx/cyno/jumptunneldiffuse.png"
+const FALLBACK: String = "res://assets/vfx/cyno/cyno_soft.png"
 
 var _ship: ShipUnit = null
 var _land: Vector3 = Vector3.ZERO
-var _elapsed := 0.0
-var _duration := 0.85
+var _elapsed: float = 0.0
+var _duration: float = 0.85
 var _portal: MeshInstance3D = null
 var _light: OmniLight3D = null
-var _start_y := 0.0
-var _done := false
+var _start_y: float = 0.0
+var _done: bool = false
 var _on_done: Callable = Callable()
 
 
@@ -38,20 +38,23 @@ func _process(delta: float) -> void:
 	if _done:
 		return
 	## Respect match speed if present.
-	var mul := 1.0
-	var root := get_tree().get_first_node_in_group("match_root")
-	if root and root.get("match_ctrl"):
-		mul = float(root.match_ctrl.speed_multiplier)
+	var mul: float = 1.0
+	var root: Node = get_tree().get_first_node_in_group("match_root")
+	if root:
+		var mc_v: Variant = root.get("match_ctrl")
+		if mc_v is Node:
+			var mc: Node = mc_v
+			mul = TypedVariant.as_float(mc.get("speed_multiplier"), 1.0)
 	_elapsed += delta * mul
-	var t := clampf(_elapsed / _duration, 0.0, 1.0)
+	var t: float = clampf(_elapsed / _duration, 0.0, 1.0)
 	## Ease-in for “落”
-	var ease_t := t * t
+	var ease_t: float = t * t
 	if _ship != null and is_instance_valid(_ship):
-		var y := lerpf(_start_y, _land.y, ease_t)
+		var y: float = lerpf(_start_y, _land.y, ease_t)
 		_ship.global_position = Vector3(_land.x, y, _land.z)
 	if _portal:
 		_portal.rotation.y += delta * mul * 4.0
-		var s := lerpf(0.4, 1.6, minf(t * 2.0, 1.0)) * (1.0 if t < 0.7 else lerpf(1.0, 0.2, (t - 0.7) / 0.3))
+		var s: float = lerpf(0.4, 1.6, minf(t * 2.0, 1.0)) * (1.0 if t < 0.7 else lerpf(1.0, 0.2, (t - 0.7) / 0.3))
 		_portal.scale = Vector3(s, s, s)
 	if _light:
 		_light.light_energy = lerpf(6.0, 1.2, ease_t)
@@ -74,8 +77,8 @@ func _finish() -> void:
 
 
 func _build() -> void:
-	var glow := _tex(JUMP_GLOW, FALLBACK)
-	var diff := _tex(JUMP_DIFF, FALLBACK)
+	var glow: Texture2D = _tex(JUMP_GLOW, FALLBACK)
+	var diff: Texture2D = _tex(JUMP_DIFF, FALLBACK)
 
 	_light = OmniLight3D.new()
 	_light.name = "JumpLight"
@@ -87,7 +90,7 @@ func _build() -> void:
 
 	_portal = MeshInstance3D.new()
 	_portal.name = "JumpPortal"
-	var tor := TorusMesh.new()
+	var tor: TorusMesh = TorusMesh.new()
 	tor.inner_radius = 0.55
 	tor.outer_radius = 1.35
 	tor.rings = 16
@@ -97,9 +100,9 @@ func _build() -> void:
 	_portal.material_override = _mat(Color(1.0, 0.35, 0.2, 0.85), glow, 3.5)
 	add_child(_portal)
 
-	var disc := MeshInstance3D.new()
+	var disc: MeshInstance3D = MeshInstance3D.new()
 	disc.name = "JumpDisc"
-	var q := QuadMesh.new()
+	var q: QuadMesh = QuadMesh.new()
 	q.size = Vector2(3.6, 3.6)
 	disc.mesh = q
 	disc.rotation_degrees = Vector3(-90, 0, 0)
@@ -107,7 +110,7 @@ func _build() -> void:
 	disc.material_override = _mat(Color(1.0, 0.2, 0.12, 0.75), diff if diff else glow, 2.8)
 	add_child(disc)
 
-	var sparks := CPUParticles3D.new()
+	var sparks: CPUParticles3D = CPUParticles3D.new()
 	sparks.name = "JumpSparks"
 	sparks.amount = 40
 	sparks.lifetime = 0.7
@@ -127,7 +130,7 @@ func _build() -> void:
 
 
 func _mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = false) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -145,11 +148,11 @@ func _mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = fal
 
 func _tex(primary: String, fallback: String) -> Texture2D:
 	if ResourceLoader.exists(primary):
-		var t := load(primary)
+		var t: Variant = load(primary)
 		if t is Texture2D:
 			return t
 	if ResourceLoader.exists(fallback):
-		var t2 := load(fallback)
+		var t2: Variant = load(fallback)
 		if t2 is Texture2D:
 			return t2
 	return null

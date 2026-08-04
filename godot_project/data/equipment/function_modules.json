@@ -1,0 +1,3049 @@
+{
+  "_meta": {
+    "doc": "EQUIPMENT.md",
+    "note": "function bucket; markers for first shipment forbidden"
+  },
+  "items": {
+    "afterburner_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：速度 ×{mul}（可多装线性叠）。",
+      "blurb_holes": {
+        "capacitor_need": 320.0,
+        "duration_s": 10.0,
+        "mul": 2.15
+      },
+      "capacitor_need": 320.0,
+      "cost": 9.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 2.15,
+          "op": "mul_stat_active",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12066.png",
+      "id": "afterburner_l",
+      "implant": false,
+      "line": "afterburner",
+      "name": "加力燃烧器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "弹幕压制"
+      ],
+      "synth_next": "afterburner_xl",
+      "targeting": "none",
+      "typeID": 12066.0,
+      "weapon_gate": null
+    },
+    "afterburner_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：速度 ×{mul}（可多装线性叠）。",
+      "blurb_holes": {
+        "capacitor_need": 80.0,
+        "duration_s": 10.0,
+        "mul": 2.15
+      },
+      "capacitor_need": 80.0,
+      "cost": 4.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 2.15,
+          "op": "mul_stat_active",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12056.png",
+      "id": "afterburner_m",
+      "implant": false,
+      "line": "afterburner",
+      "name": "加力燃烧器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "afterburner_l",
+      "targeting": "none",
+      "typeID": 12056.0,
+      "weapon_gate": null
+    },
+    "afterburner_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：速度 ×{mul}（可多装线性叠）。",
+      "blurb_holes": {
+        "capacitor_need": 20.0,
+        "duration_s": 10.0,
+        "mul": 2.15
+      },
+      "capacitor_need": 20.0,
+      "cost": 1.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 2.15,
+          "op": "mul_stat_active",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/439.png",
+      "id": "afterburner_s",
+      "implant": false,
+      "line": "afterburner",
+      "name": "加力燃烧器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "afterburner_m",
+      "targeting": "none",
+      "typeID": 439.0,
+      "weapon_gate": null
+    },
+    "afterburner_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：速度 ×{mul}（可多装线性叠）。",
+      "blurb_holes": {
+        "capacitor_need": 8000.0,
+        "duration_s": 20.0,
+        "mul": 2.15
+      },
+      "capacitor_need": 8000.0,
+      "cost": 19.0,
+      "duration_s": 20.0,
+      "effects": [
+        {
+          "mul": 2.15,
+          "op": "mul_stat_active",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/41236.png",
+      "id": "afterburner_xl",
+      "implant": false,
+      "line": "afterburner",
+      "name": "加力燃烧器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 41236.0,
+      "weapon_gate": null
+    },
+    "armor_repairer_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复armor {amount}。",
+      "blurb_holes": {
+        "amount": 690.0,
+        "capacitor_need": 400.0,
+        "duration_s": 15.0
+      },
+      "capacitor_need": 400.0,
+      "cost": 9.0,
+      "duration_s": 15.0,
+      "effects": [
+        {
+          "amount": 690.0,
+          "layer": "armor",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3538.png",
+      "id": "armor_repairer_l",
+      "implant": false,
+      "line": "armor_repairer",
+      "name": "装甲维修器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "装甲支援"
+      ],
+      "synth_next": "armor_repairer_xl",
+      "targeting": "none",
+      "typeID": 3538.0,
+      "weapon_gate": null
+    },
+    "armor_repairer_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复armor {amount}。",
+      "blurb_holes": {
+        "amount": 276.0,
+        "capacitor_need": 160.0,
+        "duration_s": 12.0
+      },
+      "capacitor_need": 160.0,
+      "cost": 4.0,
+      "duration_s": 12.0,
+      "effects": [
+        {
+          "amount": 276.0,
+          "layer": "armor",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3528.png",
+      "id": "armor_repairer_m",
+      "implant": false,
+      "line": "armor_repairer",
+      "name": "装甲维修器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "armor_repairer_l",
+      "targeting": "none",
+      "typeID": 3528.0,
+      "weapon_gate": null
+    },
+    "armor_repairer_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复armor {amount}。",
+      "blurb_holes": {
+        "amount": 69.0,
+        "capacitor_need": 40.0,
+        "duration_s": 6.0
+      },
+      "capacitor_need": 40.0,
+      "cost": 1.0,
+      "duration_s": 6.0,
+      "effects": [
+        {
+          "amount": 69.0,
+          "layer": "armor",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/523.png",
+      "id": "armor_repairer_s",
+      "implant": false,
+      "line": "armor_repairer",
+      "name": "装甲维修器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "armor_repairer_m",
+      "targeting": "none",
+      "typeID": 523.0,
+      "weapon_gate": null
+    },
+    "armor_repairer_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复armor {amount}。",
+      "blurb_holes": {
+        "amount": 9600.0,
+        "capacitor_need": 2400.0,
+        "duration_s": 30.0
+      },
+      "capacitor_need": 2400.0,
+      "cost": 19.0,
+      "duration_s": 30.0,
+      "effects": [
+        {
+          "amount": 9600.0,
+          "layer": "armor",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/20701.png",
+      "id": "armor_repairer_xl",
+      "implant": false,
+      "line": "armor_repairer",
+      "name": "装甲维修器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 20701.0,
+      "weapon_gate": null
+    },
+    "bcs": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "限 {weapon_gate}：伤害 ×{dmg} · 攻击周期 ×{cycle}。",
+      "blurb_holes": {
+        "cycle": 0.92,
+        "dmg": 1.07,
+        "weapon_gate": "missile"
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.07,
+          "op": "mul_damage_gate"
+        },
+        {
+          "mul": 0.92,
+          "op": "mul_stat",
+          "stat": "attack_cycle_s"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12274.png",
+      "id": "bcs",
+      "implant": false,
+      "name": "弹道控制系统",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 12274.0,
+      "weapon_gate": "missile"
+    },
+    "bulkheads": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：结构 HP ×{mul}。",
+      "blurb_holes": {
+        "mul": 1.15
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.15,
+          "op": "mul_stat",
+          "stat": "structure_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1333.png",
+      "id": "bulkheads",
+      "implant": false,
+      "name": "结构加强",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "resist",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 1333.0,
+      "weapon_gate": null
+    },
+    "cap_battery_l": {
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：电容量 +{amount}。",
+      "blurb_holes": {
+        "amount": 800.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 9.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 800.0,
+          "op": "add_stat",
+          "stat": "capacitor_capacity"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/2020.png",
+      "id": "cap_battery_l",
+      "implant": false,
+      "line": "cap_battery",
+      "name": "电容电池",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "脉冲晶体"
+      ],
+      "synth_next": "cap_battery_xl",
+      "targeting": "none",
+      "typeID": 2020.0,
+      "weapon_gate": null
+    },
+    "cap_battery_m": {
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：电容量 +{amount}。",
+      "blurb_holes": {
+        "amount": 300.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 4.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 300.0,
+          "op": "add_stat",
+          "stat": "capacitor_capacity"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/2018.png",
+      "id": "cap_battery_m",
+      "implant": false,
+      "line": "cap_battery",
+      "name": "电容电池",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "cap_battery_l",
+      "targeting": "none",
+      "typeID": 2018.0,
+      "weapon_gate": null
+    },
+    "cap_battery_s": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：电容量 +{amount}。",
+      "blurb_holes": {
+        "amount": 120.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 1.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 120.0,
+          "op": "add_stat",
+          "stat": "capacitor_capacity"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1185.png",
+      "id": "cap_battery_s",
+      "implant": false,
+      "line": "cap_battery",
+      "name": "电容电池",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "cap_battery_m",
+      "targeting": "none",
+      "typeID": 1185.0,
+      "weapon_gate": null
+    },
+    "cap_battery_xl": {
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "被动：电容量 +{amount}。",
+      "blurb_holes": {
+        "amount": 50000.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 19.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 50000.0,
+          "op": "add_stat",
+          "stat": "capacitor_capacity"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/41484.png",
+      "id": "cap_battery_xl",
+      "implant": false,
+      "line": "cap_battery",
+      "name": "电容电池",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 41484.0,
+      "weapon_gate": null
+    },
+    "coating_ms": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：装甲电热动爆抗性各 +{amount}。",
+      "blurb_holes": {
+        "amount": 11.68
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 11.68,
+          "layer": "armor",
+          "op": "add_resist"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1304.png",
+      "id": "coating_ms",
+      "implant": false,
+      "name": "全抗装甲涂层",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "resist",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "热能循环",
+        "装甲支援"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 1304.0,
+      "weapon_gate": null
+    },
+    "damage_control": {
+      "activate": "first_damage",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "首次承伤后激活：{duration_s}s 内盾/甲/结构电热动爆抗性各 +{amount}；冷却 {cooldown_s}s。",
+      "blurb_holes": {
+        "amount": 90.0,
+        "cooldown_s": 240.0,
+        "duration_s": 15.0
+      },
+      "capacitor_need": 0.0,
+      "cooldown_s": 240.0,
+      "cost": 10.0,
+      "duration_s": 15.0,
+      "effects": [
+        {
+          "amount": 90.0,
+          "layer": "all",
+          "op": "add_resist_active"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/2046.png",
+      "id": "damage_control",
+      "implant": false,
+      "name": "损伤控制",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "resist",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 2046.0,
+      "weapon_gate": null
+    },
+    "drone_damage_amp": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "无人机/舰载机伤害 ×{mul}。",
+      "blurb_holes": {
+        "mul": 1.15
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "buff_drones",
+          "stats": {
+            "damage": 1.15
+          }
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/4393.png",
+      "id": "drone_damage_amp",
+      "implant": false,
+      "name": "无人机伤害增效",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "轰炸战术"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 4393.0,
+      "weapon_gate": null
+    },
+    "drone_nav": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "无人机/舰载机速度 +{pct}%。",
+      "blurb_holes": {
+        "pct": 25.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "buff_drones",
+          "stats": {
+            "speed": 1.25
+          }
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/24395.png",
+      "id": "drone_nav",
+      "implant": false,
+      "name": "无人机导航电脑",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "轰炸战术",
+        "自动防御"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 24395.0,
+      "weapon_gate": null
+    },
+    "guidance_disruptor": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格：削弱敌方导弹爆炸速度/半径。",
+      "blurb_holes": {
+        "range_cells": 20.0
+      },
+      "capacitor_need": 15.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 0.92,
+          "op": "debuff_mul",
+          "stat": "explosion_velocity"
+        },
+        {
+          "mul": 1.1,
+          "op": "debuff_mul",
+          "stat": "explosion_radius"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/37543.png",
+      "id": "guidance_disruptor",
+      "implant": false,
+      "name": "制导干扰器",
+      "passive": false,
+      "range_cells": 20.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 37543.0,
+      "weapon_gate": null
+    },
+    "gyro_stabilizer": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "限 {weapon_gate}：伤害 ×{dmg} · 攻击周期 ×{cycle}。",
+      "blurb_holes": {
+        "cycle": 0.92,
+        "dmg": 1.07,
+        "weapon_gate": "cannon"
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.07,
+          "op": "mul_damage_gate"
+        },
+        {
+          "mul": 0.92,
+          "op": "mul_stat",
+          "stat": "attack_cycle_s"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/520.png",
+      "id": "gyro_stabilizer",
+      "implant": false,
+      "name": "回转稳定器",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "弹幕压制",
+        "狙击技术"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 520.0,
+      "weapon_gate": "cannon"
+    },
+    "hardener_ms": {
+      "activate": "on_need",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：护盾电热动爆抗性各 +{amount}。",
+      "blurb_holes": {
+        "amount": 25.0,
+        "capacitor_need": 40.0,
+        "duration_s": 10.0
+      },
+      "capacitor_need": 40.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "amount": 25.0,
+          "layer": "shield",
+          "op": "add_resist_active"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/578.png",
+      "id": "hardener_ms",
+      "implant": false,
+      "name": "全抗盾硬化",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "resist",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 578.0,
+      "weapon_gate": null
+    },
+    "heat_sink": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "限 {weapon_gate}：伤害 ×{dmg} · 攻击周期 ×{cycle}。",
+      "blurb_holes": {
+        "cycle": 0.92,
+        "dmg": 1.07,
+        "weapon_gate": "laser"
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.07,
+          "op": "mul_damage_gate"
+        },
+        {
+          "mul": 0.92,
+          "op": "mul_stat",
+          "stat": "attack_cycle_s"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/2363.png",
+      "id": "heat_sink",
+      "implant": false,
+      "name": "散热槽",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "聚焦晶体",
+        "脉冲晶体"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 2363.0,
+      "weapon_gate": "laser"
+    },
+    "hull_repairer_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复structure {amount}。",
+      "blurb_holes": {
+        "amount": 100.0,
+        "capacitor_need": 120.0,
+        "duration_s": 3.0
+      },
+      "capacitor_need": 120.0,
+      "cost": 9.0,
+      "duration_s": 3.0,
+      "effects": [
+        {
+          "amount": 100.0,
+          "layer": "structure",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3663.png",
+      "id": "hull_repairer_l",
+      "implant": false,
+      "line": "hull_repairer",
+      "name": "结构维修",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "hull_repairer_xl",
+      "targeting": "none",
+      "typeID": 3663.0,
+      "weapon_gate": null
+    },
+    "hull_repairer_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复structure {amount}。",
+      "blurb_holes": {
+        "amount": 50.0,
+        "capacitor_need": 60.0,
+        "duration_s": 5.0
+      },
+      "capacitor_need": 60.0,
+      "cost": 4.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "amount": 50.0,
+          "layer": "structure",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3653.png",
+      "id": "hull_repairer_m",
+      "implant": false,
+      "line": "hull_repairer",
+      "name": "结构维修",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "hull_repairer_l",
+      "targeting": "none",
+      "typeID": 3653.0,
+      "weapon_gate": null
+    },
+    "hull_repairer_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复structure {amount}。",
+      "blurb_holes": {
+        "amount": 25.0,
+        "capacitor_need": 30.0,
+        "duration_s": 3.0
+      },
+      "capacitor_need": 30.0,
+      "cost": 1.0,
+      "duration_s": 3.0,
+      "effects": [
+        {
+          "amount": 25.0,
+          "layer": "structure",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/524.png",
+      "id": "hull_repairer_s",
+      "implant": false,
+      "line": "hull_repairer",
+      "name": "结构维修",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "hull_repairer_m",
+      "targeting": "none",
+      "typeID": 524.0,
+      "weapon_gate": null
+    },
+    "hull_repairer_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复structure {amount}。",
+      "blurb_holes": {
+        "amount": 1800.0,
+        "capacitor_need": 720.0,
+        "duration_s": 10.0
+      },
+      "capacitor_need": 720.0,
+      "cost": 19.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "amount": 1800.0,
+          "layer": "structure",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/41511.png",
+      "id": "hull_repairer_xl",
+      "implant": false,
+      "line": "hull_repairer",
+      "name": "结构维修",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 41511.0,
+      "weapon_gate": null
+    },
+    "implant_armor_support": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "维修时目标装甲抗性 +{res_pct}% ；后勤航平分无人机；同目标不叠。",
+      "blurb_holes": {
+        "res_pct": 10.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "implant_armor_support",
+          "res_pct": 10.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_armor_support.png",
+      "id": "implant_armor_support",
+      "implant": true,
+      "name": "装甲支援",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "armor_repairer_l",
+        "coating_ms"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16010000001,
+      "weapon_gate": "heal"
+    },
+    "implant_auto_def": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "无人机前 {rounds} 轮：每轮 {chance}% 清锁定；tracking 与爆炸速度 +{pct}%。",
+      "blurb_holes": {
+        "chance": 50.0,
+        "pct": 40.0,
+        "rounds": 5.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "chance": 50.0,
+          "op": "implant_auto_def",
+          "pct": 40.0,
+          "rounds": 5.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_auto_def.png",
+      "id": "implant_auto_def",
+      "implant": true,
+      "name": "自动防御",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "sensor_dampener",
+        "drone_nav"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16011000001,
+      "weapon_gate": "drone"
+    },
+    "implant_barrage": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "加农射速 +{rof_pct}% ；舰船速度 +{spd_pct}%。",
+      "blurb_holes": {
+        "rof_pct": 10.0,
+        "spd_pct": 10.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 0.909,
+          "op": "mul_stat",
+          "stat": "attack_cycle_s"
+        },
+        {
+          "mul": 1.1,
+          "op": "mul_stat",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_barrage.png",
+      "id": "implant_barrage",
+      "implant": true,
+      "name": "弹幕压制",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "afterburner_l",
+        "gyro_stabilizer"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16002000001,
+      "weapon_gate": "cannon"
+    },
+    "implant_bombing": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "无人机速度 +{spd_pct}%。首次放出：前 {hits} 次攻击伤害 ×2；{window_s}s 内速度再 ×2。",
+      "blurb_holes": {
+        "hits": 5.0,
+        "spd_pct": 20.0,
+        "window_s": 20.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "hits": 5.0,
+          "op": "implant_bombing",
+          "spd_pct": 20.0,
+          "window_s": 20.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_bombing.png",
+      "id": "implant_bombing",
+      "implant": true,
+      "name": "轰炸战术",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "drone_damage_amp",
+        "drone_nav"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16008000001,
+      "weapon_gate": "drone"
+    },
+    "implant_focus_crystal": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激光命中叠层：每层伤害 +{stack_pct}% ，上限 {cap_pct}%。未命中耗层回盾（等百分比），回盾冷却 {shield_cd}s。",
+      "blurb_holes": {
+        "cap_pct": 20.0,
+        "shield_cd": 20.0,
+        "stack_pct": 1.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "cap_pct": 20.0,
+          "op": "implant_focus_crystal",
+          "shield_cd": 20.0,
+          "stack_pct": 1.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_focus_crystal.png",
+      "id": "implant_focus_crystal",
+      "implant": true,
+      "name": "聚焦晶体",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "shield_extender_l",
+        "heat_sink"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16000000001,
+      "weapon_gate": "laser"
+    },
+    "implant_he_coil": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "磁轨结算无视 {pen_pct}% 抗性；被命中目标速度 −{spd_pct}%。",
+      "blurb_holes": {
+        "pen_pct": 15.0,
+        "spd_pct": 10.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "implant_he_coil",
+          "pen_pct": 15.0,
+          "spd_pct": 10.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_he_coil.png",
+      "id": "implant_he_coil",
+      "implant": true,
+      "name": "高能线圈",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "mfs",
+        "stasis_grappler"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16003000001,
+      "weapon_gate": "rail"
+    },
+    "implant_pulse_crystal": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "增伤态：激光伤害 +{dmg_pct}% ，每次耗容 {cap_cost_pct}%。电容 ≤{low_pct}% 时改每 {swap_s}s 用 {shield_pct}% 盾换 {gain_pct}% 容；电容 ≥{high_pct}% 恢复增伤。",
+      "blurb_holes": {
+        "cap_cost_pct": 5.0,
+        "dmg_pct": 15.0,
+        "gain_pct": 15.0,
+        "high_pct": 90.0,
+        "low_pct": 50.0,
+        "shield_pct": 10.0,
+        "swap_s": 10.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "cap_cost_pct": 5.0,
+          "dmg_pct": 15.0,
+          "gain_pct": 15.0,
+          "high_pct": 90.0,
+          "low_pct": 50.0,
+          "op": "implant_pulse_crystal",
+          "shield_pct": 10.0,
+          "swap_s": 10.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_pulse_crystal.png",
+      "id": "implant_pulse_crystal",
+      "implant": true,
+      "name": "脉冲晶体",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "heat_sink",
+        "cap_battery_l"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16001000001,
+      "weapon_gate": "laser"
+    },
+    "implant_shield_support": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "远程盾修每 {n} 轮有 1 轮回复 ×{mul}（后勤航/后勤无人机）。",
+      "blurb_holes": {
+        "mul": 2.0,
+        "n": 3.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "every": 3.0,
+          "mul": 2.0,
+          "op": "implant_shield_support"
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_shield_support.png",
+      "id": "implant_shield_support",
+      "implant": true,
+      "name": "护盾支援",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "remote_cap_l",
+        "shield_booster_l"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16009000001,
+      "weapon_gate": "heal"
+    },
+    "implant_sniper": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "常态加农伤害 −100%。每 {n} 次攻击有 1 次：伤害 ×{mul} 且无视跟踪必中。",
+      "blurb_holes": {
+        "mul": 10.0,
+        "n": 10.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "every": 10.0,
+          "mul": 10.0,
+          "op": "implant_sniper"
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_sniper.png",
+      "id": "implant_sniper",
+      "implant": true,
+      "name": "狙击技术",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "gyro_stabilizer",
+        "tracking_computer"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16005000001,
+      "weapon_gate": "cannon"
+    },
+    "implant_support_proj": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "导弹命中 {strip_pct}% 概率打落 1 件装备回对方背包（满则不打落）；命中毁电 {neut_pct}%。",
+      "blurb_holes": {
+        "neut_pct": 1.0,
+        "strip_pct": 5.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "neut_pct": 1.0,
+          "op": "implant_support_proj",
+          "strip_pct": 5.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_support_proj.png",
+      "id": "implant_support_proj",
+      "implant": true,
+      "name": "支援投射",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "neut_s",
+        "missile_guidance_computer"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16006000001,
+      "weapon_gate": "missile"
+    },
+    "implant_thermal_cycle": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "隔轮：奇数轮磁轨伤害 +{dmg_pct}% ；偶数轮持续期内装甲四属抗性 +{res_pct}%。",
+      "blurb_holes": {
+        "dmg_pct": 15.0,
+        "res_pct": 15.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "dmg_pct": 15.0,
+          "op": "implant_thermal_cycle",
+          "res_pct": 15.0
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_thermal_cycle.png",
+      "id": "implant_thermal_cycle",
+      "implant": true,
+      "name": "热能循环",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "mfs",
+        "coating_ms"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16004000001,
+      "weapon_gate": "rail"
+    },
+    "implant_warhead": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "有盾→纯电磁；有甲无盾→纯爆炸；打结构→四属均伤。",
+      "blurb_holes": {},
+      "capacitor_need": 0.0,
+      "cost": 0.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "implant_warhead"
+        }
+      ],
+      "icon": "res://assets/ui/sprites/equipment_implants/implant_warhead.png",
+      "id": "implant_warhead",
+      "implant": true,
+      "name": "弹头装药",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_pool": false,
+      "size": "S",
+      "synth_from": [
+        "missile_guidance_enhancer",
+        "missile_guidance_computer"
+      ],
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 16007000001,
+      "weapon_gate": "missile"
+    },
+    "membrane_ms": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：装甲电热动爆抗性各 +{amount}。",
+      "blurb_holes": {
+        "amount": 15.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 15.0,
+          "layer": "armor",
+          "op": "add_resist"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/11267.png",
+      "id": "membrane_ms",
+      "implant": false,
+      "name": "全抗充能膜",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "resist",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 11267.0,
+      "weapon_gate": null
+    },
+    "mfs": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "限 {weapon_gate}：伤害 ×{dmg} · 攻击周期 ×{cycle}。",
+      "blurb_holes": {
+        "cycle": 0.92,
+        "dmg": 1.07,
+        "weapon_gate": "rail"
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.07,
+          "op": "mul_damage_gate"
+        },
+        {
+          "mul": 0.92,
+          "op": "mul_stat",
+          "stat": "attack_cycle_s"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/9944.png",
+      "id": "mfs",
+      "implant": false,
+      "name": "磁性力场稳定器",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "高能线圈",
+        "热能循环"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 9944.0,
+      "weapon_gate": "rail"
+    },
+    "missile_guidance_computer": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s：爆炸速度 +{ev}% · 爆炸半径 −{er}%。",
+      "blurb_holes": {
+        "duration_s": 10.0,
+        "er": 5.5,
+        "ev": 5.5
+      },
+      "capacitor_need": 7.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 1.055,
+          "op": "mul_stat_active",
+          "stat": "explosion_velocity"
+        },
+        {
+          "mul": 0.945,
+          "op": "mul_stat_active",
+          "stat": "explosion_radius"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/35788.png",
+      "id": "missile_guidance_computer",
+      "implant": false,
+      "name": "导弹制导计算机",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "支援投射",
+        "弹头装药"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 35788.0,
+      "weapon_gate": "missile"
+    },
+    "missile_guidance_enhancer": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "导弹：爆炸速度 +{ev}% · 爆炸半径 −{er}%。",
+      "blurb_holes": {
+        "er": 4.4,
+        "ev": 4.4
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.044,
+          "op": "mul_stat",
+          "stat": "explosion_velocity"
+        },
+        {
+          "mul": 0.956,
+          "op": "mul_stat",
+          "stat": "explosion_radius"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/35770.png",
+      "id": "missile_guidance_enhancer",
+      "implant": false,
+      "name": "导弹制导增强器",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "弹头装药"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 35770.0,
+      "weapon_gate": "missile"
+    },
+    "neut_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s（耗电 {capacitor_need}）：敌电容 −{amount}。",
+      "blurb_holes": {
+        "amount": 500.0,
+        "capacitor_need": 500.0,
+        "duration_s": 24.0,
+        "range_cells": 8.0
+      },
+      "capacitor_need": 500.0,
+      "cost": 9.0,
+      "duration_s": 24.0,
+      "effects": [
+        {
+          "amount": 500.0,
+          "op": "neut"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12269.png",
+      "id": "neut_l",
+      "implant": false,
+      "line": "neut",
+      "name": "能量中和",
+      "passive": false,
+      "range_cells": 8.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "neut_xl",
+      "targeting": "enemy",
+      "typeID": 12269.0,
+      "weapon_gate": null
+    },
+    "neut_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s（耗电 {capacitor_need}）：敌电容 −{amount}。",
+      "blurb_holes": {
+        "amount": 150.0,
+        "capacitor_need": 150.0,
+        "duration_s": 12.0,
+        "range_cells": 4.0
+      },
+      "capacitor_need": 150.0,
+      "cost": 4.0,
+      "duration_s": 12.0,
+      "effects": [
+        {
+          "amount": 150.0,
+          "op": "neut"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12265.png",
+      "id": "neut_m",
+      "implant": false,
+      "line": "neut",
+      "name": "能量中和",
+      "passive": false,
+      "range_cells": 4.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "neut_l",
+      "targeting": "enemy",
+      "typeID": 12265.0,
+      "weapon_gate": null
+    },
+    "neut_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s（耗电 {capacitor_need}）：敌电容 −{amount}。",
+      "blurb_holes": {
+        "amount": 45.0,
+        "capacitor_need": 45.0,
+        "duration_s": 6.0,
+        "range_cells": 2.0
+      },
+      "capacitor_need": 45.0,
+      "cost": 1.0,
+      "duration_s": 6.0,
+      "effects": [
+        {
+          "amount": 45.0,
+          "op": "neut"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/533.png",
+      "id": "neut_s",
+      "implant": false,
+      "line": "neut",
+      "name": "能量中和",
+      "passive": false,
+      "range_cells": 2.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "支援投射"
+      ],
+      "synth_next": "neut_m",
+      "targeting": "enemy",
+      "typeID": 533.0,
+      "weapon_gate": null
+    },
+    "neut_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s（耗电 {capacitor_need}）：敌电容 −{amount}。",
+      "blurb_holes": {
+        "amount": 3600.0,
+        "capacitor_need": 3600.0,
+        "duration_s": 48.0,
+        "range_cells": 15.0
+      },
+      "capacitor_need": 3600.0,
+      "cost": 19.0,
+      "duration_s": 48.0,
+      "effects": [
+        {
+          "amount": 3600.0,
+          "op": "neut"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/40659.png",
+      "id": "neut_xl",
+      "implant": false,
+      "line": "neut",
+      "name": "能量中和",
+      "passive": false,
+      "range_cells": 15.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 40659.0,
+      "weapon_gate": null
+    },
+    "nos_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s：抽敌电容 {amount} 并回己。",
+      "blurb_holes": {
+        "amount": 100.0,
+        "duration_s": 10.0,
+        "range_cells": 8.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 9.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "amount": 100.0,
+          "op": "nos"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12261.png",
+      "id": "nos_l",
+      "implant": false,
+      "line": "nos",
+      "name": "能量吸取",
+      "passive": false,
+      "range_cells": 8.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "nos_xl",
+      "targeting": "enemy",
+      "typeID": 12261.0,
+      "weapon_gate": null
+    },
+    "nos_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s：抽敌电容 {amount} 并回己。",
+      "blurb_holes": {
+        "amount": 30.0,
+        "duration_s": 5.0,
+        "range_cells": 4.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 4.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "amount": 30.0,
+          "op": "nos"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12257.png",
+      "id": "nos_m",
+      "implant": false,
+      "line": "nos",
+      "name": "能量吸取",
+      "passive": false,
+      "range_cells": 4.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "nos_l",
+      "targeting": "enemy",
+      "typeID": 12257.0,
+      "weapon_gate": null
+    },
+    "nos_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s：抽敌电容 {amount} 并回己。",
+      "blurb_holes": {
+        "amount": 8.0,
+        "duration_s": 2.5,
+        "range_cells": 2.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 1.0,
+      "duration_s": 2.5,
+      "effects": [
+        {
+          "amount": 8.0,
+          "op": "nos"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/530.png",
+      "id": "nos_s",
+      "implant": false,
+      "line": "nos",
+      "name": "能量吸取",
+      "passive": false,
+      "range_cells": 2.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "nos_m",
+      "targeting": "enemy",
+      "typeID": 530.0,
+      "weapon_gate": null
+    },
+    "nos_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · 每 {duration_s}s：抽敌电容 {amount} 并回己。",
+      "blurb_holes": {
+        "amount": 700.0,
+        "duration_s": 20.0,
+        "range_cells": 15.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 19.0,
+      "duration_s": 20.0,
+      "effects": [
+        {
+          "amount": 700.0,
+          "op": "nos"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/40665.png",
+      "id": "nos_xl",
+      "implant": false,
+      "line": "nos",
+      "name": "能量吸取",
+      "passive": false,
+      "range_cells": 15.0,
+      "shop_category": "cap_warfare",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 40665.0,
+      "weapon_gate": null
+    },
+    "omnidir_tracking": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "无人机/舰载机：optimal/falloff/tracking 被动加成。",
+      "blurb_holes": {},
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "op": "buff_drones",
+          "stats": {
+            "falloff": 1.1,
+            "optimal": 1.1,
+            "tracking": 1.1
+          }
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/33822.png",
+      "id": "omnidir_tracking",
+      "implant": false,
+      "name": "全方位索敌增强器",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "weapon",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 33822.0,
+      "weapon_gate": null
+    },
+    "remote_cap_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "友军残容优先 · {range_cells} 格 · 每 {duration_s}s：灌容 {amount}（耗电 {capacitor_need}）。",
+      "blurb_holes": {
+        "amount": 270.0,
+        "capacitor_need": 338.0,
+        "duration_s": 5.0,
+        "range_cells": 4.0
+      },
+      "capacitor_need": 338.0,
+      "cost": 9.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "amount": 270.0,
+          "op": "remote_cap"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12225.png",
+      "id": "remote_cap_l",
+      "implant": false,
+      "line": "remote_cap",
+      "name": "远程电容传输",
+      "passive": false,
+      "range_cells": 4.0,
+      "shop_category": "remote_cap",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "护盾支援"
+      ],
+      "synth_next": "remote_cap_xl",
+      "targeting": "ally_cap",
+      "typeID": 12225.0,
+      "weapon_gate": null
+    },
+    "remote_cap_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "友军残容优先 · {range_cells} 格 · 每 {duration_s}s：灌容 {amount}（耗电 {capacitor_need}）。",
+      "blurb_holes": {
+        "amount": 90.0,
+        "capacitor_need": 113.0,
+        "duration_s": 5.0,
+        "range_cells": 3.0
+      },
+      "capacitor_need": 113.0,
+      "cost": 4.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "amount": 90.0,
+          "op": "remote_cap"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12217.png",
+      "id": "remote_cap_m",
+      "implant": false,
+      "line": "remote_cap",
+      "name": "远程电容传输",
+      "passive": false,
+      "range_cells": 3.0,
+      "shop_category": "remote_cap",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "remote_cap_l",
+      "targeting": "ally_cap",
+      "typeID": 12217.0,
+      "weapon_gate": null
+    },
+    "remote_cap_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "友军残容优先 · {range_cells} 格 · 每 {duration_s}s：灌容 {amount}（耗电 {capacitor_need}）。",
+      "blurb_holes": {
+        "amount": 30.0,
+        "capacitor_need": 38.0,
+        "duration_s": 5.0,
+        "range_cells": 2.0
+      },
+      "capacitor_need": 38.0,
+      "cost": 1.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "amount": 30.0,
+          "op": "remote_cap"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/529.png",
+      "id": "remote_cap_s",
+      "implant": false,
+      "line": "remote_cap",
+      "name": "远程电容传输",
+      "passive": false,
+      "range_cells": 2.0,
+      "shop_category": "remote_cap",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "remote_cap_m",
+      "targeting": "ally_cap",
+      "typeID": 529.0,
+      "weapon_gate": null
+    },
+    "remote_cap_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "友军残容优先 · {range_cells} 格 · 每 {duration_s}s：灌容 {amount}（耗电 {capacitor_need}）。",
+      "blurb_holes": {
+        "amount": 1000.0,
+        "capacitor_need": 2500.0,
+        "duration_s": 20.0,
+        "range_cells": 8.0
+      },
+      "capacitor_need": 2500.0,
+      "cost": 19.0,
+      "duration_s": 20.0,
+      "effects": [
+        {
+          "amount": 1000.0,
+          "op": "remote_cap"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12219.png",
+      "id": "remote_cap_xl",
+      "implant": false,
+      "line": "remote_cap",
+      "name": "远程电容传输",
+      "passive": false,
+      "range_cells": 8.0,
+      "shop_category": "remote_cap",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "ally_cap",
+      "typeID": 12219.0,
+      "weapon_gate": null
+    },
+    "sensor_booster": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s：扫描分辨率 +{scan}% · 感应强度 +{sens}%。",
+      "blurb_holes": {
+        "duration_s": 10.0,
+        "scan": 25.0,
+        "sens": 40.0
+      },
+      "capacitor_need": 10.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 1.25,
+          "op": "mul_stat_active",
+          "stat": "scan_resolution"
+        },
+        {
+          "mul": 1.4,
+          "op": "mul_stat_active",
+          "stat": "sensor_strength"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1973.png",
+      "id": "sensor_booster",
+      "implant": false,
+      "name": "感应增强器",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 1973.0,
+      "weapon_gate": null
+    },
+    "sensor_dampener": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格：敌方扫描/感应 −{pct}%。",
+      "blurb_holes": {
+        "pct": 13.7,
+        "range_cells": 12.5
+      },
+      "capacitor_need": 30.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 0.863,
+          "op": "debuff_mul",
+          "stat": "scan_resolution"
+        },
+        {
+          "mul": 0.863,
+          "op": "debuff_mul",
+          "stat": "sensor_strength"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1968.png",
+      "id": "sensor_dampener",
+      "implant": false,
+      "name": "远程感应抑阻",
+      "passive": false,
+      "range_cells": 12.5,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "自动防御"
+      ],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 1968.0,
+      "weapon_gate": null
+    },
+    "shield_booster_l": {
+      "activate": "periodic",
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复shield {amount}。",
+      "blurb_holes": {
+        "amount": 207.0,
+        "capacitor_need": 160.0,
+        "duration_s": 4.0
+      },
+      "capacitor_need": 160.0,
+      "cost": 9.0,
+      "duration_s": 4.0,
+      "effects": [
+        {
+          "amount": 207.0,
+          "layer": "shield",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/10838.png",
+      "id": "shield_booster_l",
+      "implant": false,
+      "line": "shield_booster",
+      "name": "护盾回充",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "护盾支援"
+      ],
+      "synth_next": "shield_booster_xl",
+      "targeting": "none",
+      "typeID": 10838.0,
+      "weapon_gate": null
+    },
+    "shield_booster_m": {
+      "activate": "periodic",
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复shield {amount}。",
+      "blurb_holes": {
+        "amount": 78.0,
+        "capacitor_need": 60.0,
+        "duration_s": 3.0
+      },
+      "capacitor_need": 60.0,
+      "cost": 4.0,
+      "duration_s": 3.0,
+      "effects": [
+        {
+          "amount": 78.0,
+          "layer": "shield",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/10836.png",
+      "id": "shield_booster_m",
+      "implant": false,
+      "line": "shield_booster",
+      "name": "护盾回充",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "shield_booster_l",
+      "targeting": "none",
+      "typeID": 10836.0,
+      "weapon_gate": null
+    },
+    "shield_booster_s": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复shield {amount}。",
+      "blurb_holes": {
+        "amount": 26.0,
+        "capacitor_need": 20.0,
+        "duration_s": 2.0
+      },
+      "capacitor_need": 20.0,
+      "cost": 1.0,
+      "duration_s": 2.0,
+      "effects": [
+        {
+          "amount": 26.0,
+          "layer": "shield",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/399.png",
+      "id": "shield_booster_s",
+      "implant": false,
+      "line": "shield_booster",
+      "name": "护盾回充",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "shield_booster_m",
+      "targeting": "none",
+      "typeID": 399.0,
+      "weapon_gate": null
+    },
+    "shield_booster_xl": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "周期 {duration_s}s（耗电 {capacitor_need}）：回复shield {amount}。",
+      "blurb_holes": {
+        "amount": 7200.0,
+        "capacitor_need": 2400.0,
+        "duration_s": 10.0
+      },
+      "capacitor_need": 2400.0,
+      "cost": 19.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "amount": 7200.0,
+          "layer": "shield",
+          "op": "repair"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/20703.png",
+      "id": "shield_booster_xl",
+      "implant": false,
+      "line": "shield_booster",
+      "name": "护盾回充",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "repair",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 20703.0,
+      "weapon_gate": null
+    },
+    "shield_extender_l": {
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：护盾 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 1600.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 9.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 1600.0,
+          "op": "add_stat",
+          "stat": "shield_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3839.png",
+      "id": "shield_extender_l",
+      "implant": false,
+      "line": "shield_extender",
+      "name": "护盾扩展",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [
+        "聚焦晶体"
+      ],
+      "synth_next": "shield_extender_xl",
+      "targeting": "none",
+      "typeID": 3839.0,
+      "weapon_gate": null
+    },
+    "shield_extender_m": {
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：护盾 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 800.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 4.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 800.0,
+          "op": "add_stat",
+          "stat": "shield_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/3829.png",
+      "id": "shield_extender_m",
+      "implant": false,
+      "line": "shield_extender",
+      "name": "护盾扩展",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "shield_extender_l",
+      "targeting": "none",
+      "typeID": 3829.0,
+      "weapon_gate": null
+    },
+    "shield_extender_s": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：护盾 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 400.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 1.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 400.0,
+          "op": "add_stat",
+          "stat": "shield_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/377.png",
+      "id": "shield_extender_s",
+      "implant": false,
+      "line": "shield_extender",
+      "name": "护盾扩展",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "shield_extender_m",
+      "targeting": "none",
+      "typeID": 377.0,
+      "weapon_gate": null
+    },
+    "shield_extender_xl": {
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "被动：护盾 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 50000.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 19.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 50000.0,
+          "op": "add_stat",
+          "stat": "shield_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/40354.png",
+      "id": "shield_extender_xl",
+      "implant": false,
+      "line": "shield_extender",
+      "name": "护盾扩展",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 40354.0,
+      "weapon_gate": null
+    },
+    "stasis_grappler": {
+      "activate": "periodic",
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格（无衰减）· 仅旗舰：敌方速度 −{pct}%。",
+      "blurb_holes": {
+        "pct": 80.0,
+        "range_cells": 3.0
+      },
+      "capacitor_need": 4.0,
+      "cost": 19.0,
+      "duration_s": 2.0,
+      "effects": [
+        {
+          "mul": 0.2,
+          "op": "debuff_mul",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/41040.png",
+      "id": "stasis_grappler",
+      "implant": false,
+      "name": "重型停滞捕捉",
+      "no_falloff": true,
+      "passive": false,
+      "range_cells": 3.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [
+        "高能线圈"
+      ],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 41040.0,
+      "weapon_gate": null
+    },
+    "stasis_webifier": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格（无衰减）：敌方速度 −{pct}%。",
+      "blurb_holes": {
+        "pct": 50.0,
+        "range_cells": 8.0
+      },
+      "capacitor_need": 5.0,
+      "cost": 10.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "mul": 0.5,
+          "op": "debuff_mul",
+          "stat": "speed"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/526.png",
+      "id": "stasis_webifier",
+      "implant": false,
+      "name": "停滞缠绕",
+      "no_falloff": true,
+      "passive": false,
+      "range_cells": 8.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 526.0,
+      "weapon_gate": null
+    },
+    "steel_plates_l": {
+      "allowed_on": [
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：装甲 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 3000.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 9.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 3000.0,
+          "op": "add_stat",
+          "stat": "armor_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/11279.png",
+      "id": "steel_plates_l",
+      "implant": false,
+      "line": "steel_plates",
+      "name": "钢板",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "L",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "steel_plates_xl",
+      "targeting": "none",
+      "typeID": 11279.0,
+      "weapon_gate": null
+    },
+    "steel_plates_m": {
+      "allowed_on": [
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：装甲 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 1000.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 4.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 1000.0,
+          "op": "add_stat",
+          "stat": "armor_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/11297.png",
+      "id": "steel_plates_m",
+      "implant": false,
+      "line": "steel_plates",
+      "name": "钢板",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "M",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "steel_plates_l",
+      "targeting": "none",
+      "typeID": 11297.0,
+      "weapon_gate": null
+    },
+    "steel_plates_s": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：装甲 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 300.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 1.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 300.0,
+          "op": "add_stat",
+          "stat": "armor_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/11293.png",
+      "id": "steel_plates_s",
+      "implant": false,
+      "line": "steel_plates",
+      "name": "钢板",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": "steel_plates_m",
+      "targeting": "none",
+      "typeID": 11293.0,
+      "weapon_gate": null
+    },
+    "steel_plates_xl": {
+      "allowed_on": [
+        "XL"
+      ],
+      "blurb": "被动：装甲 HP +{amount}。",
+      "blurb_holes": {
+        "amount": 50000.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 19.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "amount": 50000.0,
+          "op": "add_stat",
+          "stat": "armor_hp"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/40348.png",
+      "id": "steel_plates_xl",
+      "implant": false,
+      "line": "steel_plates",
+      "name": "钢板",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "expand",
+      "shop_pool": true,
+      "size": "XL",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 40348.0,
+      "weapon_gate": null
+    },
+    "target_painter": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格：敌方信源半径 +{pct}%。",
+      "blurb_holes": {
+        "pct": 25.0,
+        "range_cells": 15.0
+      },
+      "capacitor_need": 10.0,
+      "cost": 10.0,
+      "duration_s": 5.0,
+      "effects": [
+        {
+          "mul": 1.25,
+          "op": "debuff_mul",
+          "stat": "signature_radius"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/12709.png",
+      "id": "target_painter",
+      "implant": false,
+      "name": "目标标记",
+      "passive": false,
+      "range_cells": 15.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 12709.0,
+      "weapon_gate": null
+    },
+    "tracking_computer": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：optimal +{opt}% · falloff +{fo}% · tracking +{tr}%。",
+      "blurb_holes": {
+        "capacitor_need": 7.0,
+        "duration_s": 10.0,
+        "fo": 10.0,
+        "opt": 5.0,
+        "tr": 10.0
+      },
+      "capacitor_need": 7.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 1.05,
+          "op": "mul_stat_active",
+          "stat": "optimal"
+        },
+        {
+          "mul": 1.1,
+          "op": "mul_stat_active",
+          "stat": "falloff"
+        },
+        {
+          "mul": 1.1,
+          "op": "mul_stat_active",
+          "stat": "tracking"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1977.png",
+      "id": "tracking_computer",
+      "implant": false,
+      "name": "索敌计算机",
+      "passive": false,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [
+        "狙击技术"
+      ],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 1977.0,
+      "weapon_gate": null
+    },
+    "tracking_disruptor": {
+      "activate": "periodic",
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "敌对 · {range_cells} 格 · {duration_s}s：敌方 optimal/falloff/tracking 各 −{pct}%。",
+      "blurb_holes": {
+        "duration_s": 10.0,
+        "pct": 15.3,
+        "range_cells": 20.0
+      },
+      "capacitor_need": 15.0,
+      "cost": 10.0,
+      "duration_s": 10.0,
+      "effects": [
+        {
+          "mul": 0.847,
+          "op": "debuff_mul",
+          "stat": "optimal"
+        },
+        {
+          "mul": 0.847,
+          "op": "debuff_mul",
+          "stat": "falloff"
+        },
+        {
+          "mul": 0.847,
+          "op": "debuff_mul",
+          "stat": "tracking"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/2108.png",
+      "id": "tracking_disruptor",
+      "implant": false,
+      "name": "索敌扰断器",
+      "passive": false,
+      "range_cells": 20.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "enemy",
+      "typeID": 2108.0,
+      "weapon_gate": null
+    },
+    "tracking_enhancer": {
+      "allowed_on": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ],
+      "blurb": "被动：optimal +{opt}% · falloff +{fo}% · tracking +{tr}%。",
+      "blurb_holes": {
+        "fo": 14.5,
+        "opt": 7.25,
+        "tr": 7.0
+      },
+      "capacitor_need": 0.0,
+      "cost": 10.0,
+      "duration_s": 0.0,
+      "effects": [
+        {
+          "mul": 1.0725,
+          "op": "mul_stat",
+          "stat": "optimal"
+        },
+        {
+          "mul": 1.145,
+          "op": "mul_stat",
+          "stat": "falloff"
+        },
+        {
+          "mul": 1.07,
+          "op": "mul_stat",
+          "stat": "tracking"
+        }
+      ],
+      "icon": "res://assets/ui/item_icons/1998.png",
+      "id": "tracking_enhancer",
+      "implant": false,
+      "name": "索敌增强器",
+      "passive": true,
+      "range_cells": 0.0,
+      "shop_category": "ewar",
+      "shop_pool": true,
+      "size": "S",
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "typeID": 1998.0,
+      "weapon_gate": null
+    }
+  }
+}

@@ -7,5 +7,7 @@
   "uses_shop_economy": true,
   "ai_gold_income_buff_mul": 2.0,
   "_comment_cap": "AI field hard cap = min(ai_pop, floor(player_pop * field_cap_vs_player_pop)).",
-  "field_cap_vs_player_pop": 2.0
+  "field_cap_vs_player_pop": 2.0,
+  "ai_equipment_buy_chance": 0.55,
+  "ai_equipment_max_buys_per_turn": 3
 }

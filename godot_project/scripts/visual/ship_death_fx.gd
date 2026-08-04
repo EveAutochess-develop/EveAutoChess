@@ -2,12 +2,12 @@ extends RefCounted
 class_name ShipDeathFx
 ## All ships: titan-same Echoes explosion+sfx, scaled; no wreck. Titans keep wreck path elsewhere.
 
-const FX_SCRIPT := "res://scripts/vfx/echoes_ship_death_fx.gd"
-const EXPLODE_DURATION_S := 2.4
+const FX_SCRIPT: String = "res://scripts/vfx/echoes_ship_death_fx.gd"
+const EXPLODE_DURATION_S: float = 2.4
 
 static func scale_for_ship(ship_id: int) -> float:
 	var ship: Dictionary = DataStore.get_ship(ship_id)
-	var group := str(ship.get("ship_group", "frigate"))
+	var group: String = str(ship.get("ship_group", "frigate"))
 	match group:
 		"frigate":
 			return 0.12
@@ -24,38 +24,43 @@ static func scale_for_ship(ship_id: int) -> float:
 		"freighter":
 			return 0.85
 		_:
-			var tags: Array = ship.get("tags", []) as Array
-			for t in tags:
-				if str(t) == "sleeper" or str(t) == "pve_creep":
-					return 0.25
+			var tags_v: Variant = ship.get("tags", [])
+			if tags_v is Array:
+				var tags: Array = tags_v
+				for t: Variant in tags:
+					if str(t) == "sleeper" or str(t) == "pve_creep":
+						return 0.25
 			return 0.2
 
 static func should_spawn_wreck(ship_id: int) -> bool:
 	var ship: Dictionary = DataStore.get_ship(ship_id)
 	if str(ship.get("ship_group", "")) == "titan":
 		return true
-	var tags: Array = ship.get("tags", []) as Array
-	for t in tags:
-		if str(t) == "titan":
-			return true
+	var tags_v: Variant = ship.get("tags", [])
+	if tags_v is Array:
+		var tags: Array = tags_v
+		for t: Variant in tags:
+			if str(t) == "titan":
+				return true
 	return false
 
 ## Spawns one-shot explode (no wreck) at world position. Returns the FX node.
 static func spawn_explode(parent: Node, world_pos: Vector3, ship_id: int) -> Node3D:
 	if parent == null:
 		return null
-	var script := load(FX_SCRIPT) as Script
-	if script == null:
+	var loaded: Variant = load(FX_SCRIPT)
+	if not (loaded is Script):
 		return null
-	var fx := Node3D.new()
+	var script: Script = loaded
+	var fx: Node3D = Node3D.new()
 	fx.set_script(script)
 	fx.name = "ShipDeathFx_%d" % ship_id
 	parent.add_child(fx)
 	fx.global_position = world_pos
-	var sc := scale_for_ship(ship_id)
+	var sc: float = scale_for_ship(ship_id)
 	fx.scale = Vector3.ONE * sc
 	## Drive explode over EXPLODE_DURATION_S then free (no wreck for non-titans).
-	var runner := _DeathFxRunner.new()
+	var runner: _DeathFxRunner = _DeathFxRunner.new()
 	parent.add_child(runner)
 	runner.begin(fx, not should_spawn_wreck(ship_id))
 	return fx
@@ -63,8 +68,8 @@ static func spawn_explode(parent: Node, world_pos: Vector3, ship_id: int) -> Nod
 
 class _DeathFxRunner extends Node:
 	var _fx: Node3D
-	var _t := 0.0
-	var _no_wreck := true
+	var _t: float = 0.0
+	var _no_wreck: bool = true
 
 	func begin(fx: Node3D, no_wreck: bool) -> void:
 		_fx = fx
@@ -77,7 +82,7 @@ class _DeathFxRunner extends Node:
 			queue_free()
 			return
 		_t += delta
-		var amt := clampf(_t / EXPLODE_DURATION_S, 0.0, 1.0)
+		var amt: float = clampf(_t / EXPLODE_DURATION_S, 0.0, 1.0)
 		if _fx.has_method("apply_phase"):
 			_fx.call("apply_phase", "explode", amt, true)
 		if amt >= 1.0:

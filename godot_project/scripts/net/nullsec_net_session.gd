@@ -7,6 +7,8 @@ signal peer_joined(peer_id: int)
 signal peer_left(peer_id: int)
 signal rejected(reason: String)
 signal match_start(payload: Dictionary)
+## UI_AND_SHELL §1.2 — bottom load bar phase + 0..1 progress while entering match.
+signal match_loading(phase: String, progress: float)
 signal join_accepted(seat: int, in_match: bool)
 ## SEMI_ASYNC_NETPLAY §3.7 — ship table authority.
 signal ships_mismatch(host_hash: String)
@@ -19,24 +21,39 @@ signal anticheat_notice_received(message: String)
 signal host_migrated(generation: int, new_host_seat: int)
 signal match_terminated_host_lost(reason: String)
 signal rejoin_accepted(seat: int)
+## MULTIPLAYER_PVP §4.2 — scout intel ask/reply (no view switch).
+signal scout_intel_asked(from_seat: int, from_nick: String, scout_ship_name: String, reply_peer: int, target_seat: int)
+signal scout_intel_received(target_seat: int, target_nick: String, summary: Dictionary)
+## Prepare live fleet sync + first-spend clock (SEMI_ASYNC §3.0).
+signal prepare_fleet_snapshot_received(seat: int, ships: Array)
+signal prepare_clock_armed_changed(armed: bool)
+## SEMI_ASYNC §3.0a — all contestants finished Prepare timer; enter Battle together.
+signal enter_battle_released()
+signal urge_prepare_received()
+signal lobby_notice(message: String)
 
 ## Discovery / announce port (SEMI_ASYNC §7.5 LAN). Game listen = BASE_PORT + code.
-const BASE_PORT := 24567
-const DEFAULT_PORT := BASE_PORT ## Alias: beacon port; do not create_server here.
-const MAX_CLIENTS := 19
-const SEAT_TOTAL := 20
-const TITAN_RACE_SPECTATE := "spectate"
-const TITAN_RACES := ["caldari", "gallente", "minmatar", "amarr"]
-const SECURITY_NULLSEC := "nullsec"
-const SECURITY_LOWSEC := "lowsec"
+const BASE_PORT: int = 24567
+const DEFAULT_PORT: int = BASE_PORT ## Alias: beacon port; do not create_server here.
+const MAX_CLIENTS: int = 19
+const SEAT_TOTAL: int = 20
+const TITAN_RACE_SPECTATE: String = "spectate"
+const TITAN_RACES: Array = ["caldari", "gallente", "minmatar", "amarr"]
+const SECURITY_NULLSEC: String = "nullsec"
+const SECURITY_LOWSEC: String = "lowsec"
 
 signal security_mode_changed(mode: String)
 
 var is_host: bool = false
-var room_code: int = 0 ## 1..9999 public (also private port index)
-var is_private: bool = false
-var private_code: String = ""
+var room_code: int = 0 ## 1..9999
+## SEMI_ASYNC §7 — unified room: empty password = verbal「公开」; set = verbal「私密」.
+var room_password: String = ""
+## Guest-visible flag only (handshake never sends the password).
+var room_has_password: bool = false
 var rules_hash: String = ""
+var pending_join_password: String = ""
+## Optional global IPv6 written into room share (dual-stack).
+var last_known_host_ipv6: String = ""
 ## Host's ship-table digest, learned at handshake. Mismatch warns but never blocks the join.
 var host_ships_hash: String = ""
 var seats: Array = [] ## 20 slots
@@ -59,19 +76,47 @@ var pending_rejoin_seat: int = -1
 var pending_rejoin_secret: String = ""
 var _migrating: bool = false
 var _ticket_heartbeat_acc: float = 0.0
-var _peer: ENetMultiplayerPeer
+var _peer: ENetMultiplayerPeer = null
 var _listen_port: int = 0
 var _beacon: LanBeacon = null
+## seat_id -> nick while waiting for scout reply
+var _pending_scout_nick: Dictionary = {}
+## Prepare fleet cache: seat_id -> Array of ship dicts.
+var _prepare_fleet_cache: Dictionary = {}
+var _fleet_push_log_n: int = -1
+var _fleet_push_log_msec: int = 0
+## First-prepare spend gate (host authority).
+var prepare_clock_armed: bool = true
+var _prepare_spent_seats: Dictionary = {}
+## SEMI_ASYNC §3.0a stage barriers (host authority).
+var _battle_done_seats: Dictionary = {}
+var _prepare_done_seats: Dictionary = {}
+var _battle_done_gate_open: bool = false
+var _prepare_done_gate_open: bool = false
+## Voluntary host transfer (lobby).
+var _pending_transfer_seat: int = -1
+var _pending_transfer_gen: int = 0
+
+
+func _seat_row(seat: int) -> Dictionary:
+	if seat < 0 or seat >= seats.size():
+		return {}
+	var row_v: Variant = seats[seat]
+	if row_v is Dictionary:
+		return row_v
+	return {}
 
 
 static func port_for_code(code: int) -> int:
 	return BASE_PORT + clampi(code, 1, 9999)
 
 
-static func code_for_private(priv: String) -> int:
-	## Fold private code into 1..9999 for listen-port binding.
-	var h := absi(hash(priv.strip_edges().to_lower()))
-	return (h % 9999) + 1
+static func random_room_password(length: int = 6) -> String:
+	var n: int = clampi(length, 4, 8)
+	var out: String = ""
+	for _i: int in range(n):
+		out += str(randi() % 10)
+	return out
 
 
 static func is_player_race(race: String) -> bool:
@@ -126,7 +171,7 @@ func _process(delta: float) -> void:
 
 func _init_empty_seats() -> void:
 	seats.clear()
-	for i in range(SEAT_TOTAL):
+	for i: int in range(SEAT_TOTAL):
 		seats.append({
 			"seat_id": i,
 			"occupied": false,
@@ -142,39 +187,40 @@ func _init_empty_seats() -> void:
 		})
 
 
-func host_public(code: int, nick: String) -> Error:
+func host_room(code: int, nick: String, password: String = "") -> Error:
 	is_host = true
-	is_private = false
-	private_code = ""
 	room_code = clampi(code, 1, 9999)
+	room_password = password.strip_edges()
+	room_has_password = not room_password.is_empty()
 	local_nick = nick
 	host_player_cap = detect_host_player_cap()
 	security_mode = SECURITY_NULLSEC
 	return _start_host()
 
 
-func host_private(code: String, nick: String) -> Error:
-	is_host = true
-	is_private = true
-	private_code = code.strip_edges()
-	room_code = code_for_private(private_code)
-	local_nick = nick
-	host_player_cap = detect_host_player_cap()
-	security_mode = SECURITY_NULLSEC
-	return _start_host()
+## Thin aliases — verbal「公开/私密」= empty / non-empty password (SEMI_ASYNC §7).
+func host_public(code: int, nick: String) -> Error:
+	return host_room(code, nick, "")
 
 
-func join(address: String, port: int, nick: String, expect_hash: String = "") -> Error:
+func host_private(code: int, nick: String, password: String = "") -> Error:
+	var pw: String = password.strip_edges()
+	if pw.is_empty():
+		pw = random_room_password(6)
+	return host_room(code, nick, pw)
+
+
+func join(address: String, port: int, nick: String, expect_hash: String = "", password: String = "") -> Error:
 	## Preserve rejoin credentials across close() (SEMI_ASYNC §5.3a).
-	var keep_seat := pending_rejoin_seat
-	var keep_secret := pending_rejoin_secret
-	var keep_session := session_secret
-	var keep_mid := match_id
-	var keep_plat := opening_host_platform
-	var keep_ships_hash := opening_host_ships_hash
-	var keep_ships := opening_host_ships.duplicate(true)
-	var keep_gen := host_migrate_generation
-	var keep_sec := security_mode
+	var keep_seat: int = pending_rejoin_seat
+	var keep_secret: String = pending_rejoin_secret
+	var keep_session: String = session_secret
+	var keep_mid: String = match_id
+	var keep_plat: String = opening_host_platform
+	var keep_ships_hash: String = opening_host_ships_hash
+	var keep_ships: Dictionary = opening_host_ships.duplicate(true)
+	var keep_gen: int = host_migrate_generation
+	var keep_sec: String = security_mode
 	close()
 	pending_rejoin_seat = keep_seat
 	pending_rejoin_secret = keep_secret
@@ -191,13 +237,16 @@ func join(address: String, port: int, nick: String, expect_hash: String = "") ->
 	match_started = false
 	last_match_payload = {}
 	host_ships_hash = ""
+	pending_join_password = password.strip_edges()
+	room_password = pending_join_password
+	room_has_password = not pending_join_password.is_empty()
 	_listen_port = port
 	last_known_host_ip = address
 	if expect_hash != "" and expect_hash != rules_hash:
-		rejected.emit("rulesHash mismatch")
+		rejected.emit("版本不符 · 房间主持 %s · 本机 %s" % [expect_hash, rules_hash])
 		return ERR_INVALID_PARAMETER
 	_peer = ENetMultiplayerPeer.new()
-	var err := _peer.create_client(address, port)
+	var err: Error = _peer.create_client(address, port)
 	if err != OK:
 		_peer = null
 		return err
@@ -210,16 +259,29 @@ func join(address: String, port: int, nick: String, expect_hash: String = "") ->
 
 
 func _start_host() -> Error:
+	var keep_code: int = room_code
+	var keep_pw: String = room_password
+	var keep_has_pw: bool = room_has_password
+	var keep_nick: String = local_nick
+	var keep_cap: int = host_player_cap
+	var keep_sec: String = security_mode
 	close()
+	room_code = keep_code
+	room_password = keep_pw
+	room_has_password = keep_has_pw
+	local_nick = keep_nick
+	host_player_cap = keep_cap
+	security_mode = keep_sec
 	is_host = true
 	match_started = false
 	last_match_payload = {}
 	_ensure_session_secret()
 	opening_host_platform = detect_local_platform()
 	last_known_host_ip = _best_local_ip()
+	last_known_host_ipv6 = _best_global_ipv6()
 	_listen_port = port_for_code(room_code)
 	_peer = ENetMultiplayerPeer.new()
-	var err := _peer.create_server(_listen_port, MAX_CLIENTS)
+	var err: Error = _peer.create_server(_listen_port, MAX_CLIENTS)
 	if err != OK:
 		_peer = null
 		_listen_port = 0
@@ -230,9 +292,10 @@ func _start_host() -> Error:
 	if not multiplayer.peer_disconnected.is_connected(_on_peer_disconnected):
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	_occupy_seat(0, local_nick, multiplayer.get_unique_id(), false)
-	seats[0]["platform"] = opening_host_platform
-	seats[0]["endpoint_ip"] = last_known_host_ip
-	seats[0]["endpoint_port"] = _listen_port
+	var host_row: Dictionary = _seat_row(0)
+	host_row["platform"] = opening_host_platform
+	host_row["endpoint_ip"] = last_known_host_ip
+	host_row["endpoint_port"] = _listen_port
 	local_seat = 0
 	_start_beacon()
 	_broadcast_seats()
@@ -265,8 +328,8 @@ func _on_peer_connected(id: int) -> void:
 		"rpc_handshake",
 		rules_hash,
 		room_code,
-		is_private,
-		private_code,
+		not room_password.is_empty(),
+		"",
 		host_player_cap,
 		match_started,
 		_authority_ships_hash(),
@@ -280,18 +343,18 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	peer_left.emit(id)
-	for i in range(seats.size()):
-		if int(seats[i].get("peer_id", 0)) == id:
-			if match_started and is_player_race(str(seats[i].get("titan_race", ""))):
+	for i: int in range(seats.size()):
+		if TypedVariant.as_int(_seat_row(i).get("peer_id", 0), 0) == id:
+			if match_started and is_player_race(str(_seat_row(i).get("titan_race", ""))):
 				mark_seat_ghost(i)
 			else:
-				seats[i]["occupied"] = false
-				seats[i]["nick"] = ""
-				seats[i]["peer_id"] = 0
-				seats[i]["ready"] = false
-				seats[i]["is_ai"] = false
-				seats[i]["titan_race"] = ""
-				seats[i]["ghost"] = false
+				_seat_row(i)["occupied"] = false
+				_seat_row(i)["nick"] = ""
+				_seat_row(i)["peer_id"] = 0
+				_seat_row(i)["ready"] = false
+				_seat_row(i)["is_ai"] = false
+				_seat_row(i)["titan_race"] = ""
+				_seat_row(i)["ghost"] = false
 	if not match_started:
 		_sync_lobby_ready_gates()
 	_broadcast_seats()
@@ -307,11 +370,29 @@ func _on_connected_to_server() -> void:
 		rules_hash,
 		detect_local_platform(),
 		pending_rejoin_seat,
-		pending_rejoin_secret
+		pending_rejoin_secret,
+		pending_join_password
 	)
 
 
 func _on_server_disconnected() -> void:
+	if _pending_transfer_seat >= 0:
+		var hip: String = last_known_host_ip
+		var hport: int = port_for_code(room_code)
+		var keep_seat: int = local_seat
+		_teardown_peer_only()
+		pending_rejoin_seat = keep_seat
+		pending_rejoin_secret = session_secret
+		var tree: SceneTree = get_tree()
+		if tree and hip != "":
+			tree.create_timer(0.35).timeout.connect(func() -> void:
+				join(hip, hport, local_nick, rules_hash)
+				_pending_transfer_seat = -1
+			)
+		else:
+			_pending_transfer_seat = -1
+			rejected.emit("server disconnected")
+		return
 	if match_started:
 		_begin_host_migration()
 	else:
@@ -322,8 +403,8 @@ func _on_server_disconnected() -> void:
 func rpc_handshake(
 	server_hash: String,
 	code: int,
-	priv: bool,
-	priv_code: String = "",
+	has_password: bool = false,
+	_compat_unused: String = "",
 	player_cap: int = 20,
 	in_match: bool = false,
 	ships_hash: String = "",
@@ -334,12 +415,12 @@ func rpc_handshake(
 	migrate_gen: int = 0
 ) -> void:
 	if server_hash != rules_hash:
-		rejected.emit("rulesHash mismatch")
+		rejected.emit("版本不符 · 房间主持 %s · 本机 %s" % [server_hash, rules_hash])
 		multiplayer.multiplayer_peer = null
 		return
 	room_code = code
-	is_private = priv
-	private_code = priv_code
+	room_has_password = has_password
+	## Do not accept password over handshake (only via join / room share).
 	host_player_cap = clampi(player_cap, 2, SEAT_TOTAL)
 	match_started = in_match
 	host_ships_hash = ships_hash
@@ -359,13 +440,14 @@ func rpc_request_join(
 	client_hash: String,
 	platform: String = "pc",
 	rejoin_seat: int = -1,
-	secret: String = ""
+	secret: String = "",
+	password: String = ""
 ) -> void:
 	if not is_host:
 		return
-	var sender := multiplayer.get_remote_sender_id()
+	var sender: int = multiplayer.get_remote_sender_id()
 	if client_hash != rules_hash:
-		rpc_id(sender, "rpc_join_rejected", "rulesHash mismatch")
+		rpc_id(sender, "rpc_join_rejected", "版本不符 · 房间主持 %s · 本机 %s" % [rules_hash, client_hash])
 		return
 	## Ghost reclaim (续局票) — seat_id + session_secret.
 	if (
@@ -377,28 +459,32 @@ func rpc_request_join(
 	):
 		rpc_id(sender, "rpc_rejoin_ok", rejoin_seat)
 		rpc_id(sender, "rpc_ships_table", _authority_ships_table(), true)
-		var reclaim_payload := _payload_for_spectate_join()
+		var reclaim_payload: Dictionary = _payload_for_spectate_join()
 		reclaim_payload["mid_join_spectate"] = false
 		reclaim_payload["rejoin"] = true
 		if not reclaim_payload.is_empty():
 			rpc_id(sender, "rpc_match_start", reclaim_payload)
 		_broadcast_seats()
 		return
-	var seat := _first_free_seat()
+	if not room_password.is_empty() and str(password) != room_password:
+		rpc_id(sender, "rpc_join_rejected", "need_password")
+		return
+	var seat: int = _first_free_seat()
 	if seat < 0:
 		rpc_id(sender, "rpc_join_rejected", "room full")
 		return
 	_occupy_seat(seat, nick, sender, false)
-	seats[seat]["platform"] = platform if platform != "" else detect_local_platform()
+	var join_row: Dictionary = _seat_row(seat)
+	join_row["platform"] = platform if platform != "" else detect_local_platform()
 	_capture_peer_endpoint(seat, sender)
 	if match_started:
-		seats[seat]["titan_race"] = TITAN_RACE_SPECTATE
-		seats[seat]["ready"] = true
+		join_row["titan_race"] = TITAN_RACE_SPECTATE
+		join_row["ready"] = true
 		rpc_id(sender, "rpc_join_accepted", seat, true)
 		_broadcast_seats()
 		## Mid-join watcher needs the host table before it simulates anything.
 		rpc_id(sender, "rpc_ships_table", _authority_ships_table(), true)
-		var payload := _payload_for_spectate_join()
+		var payload: Dictionary = _payload_for_spectate_join()
 		if not payload.is_empty():
 			rpc_id(sender, "rpc_match_start", payload)
 		return
@@ -408,7 +494,12 @@ func rpc_request_join(
 
 @rpc("authority", "reliable")
 func rpc_join_rejected(reason: String) -> void:
-	rejected.emit(reason)
+	var r: String = str(reason)
+	if r == "need_password":
+		r = "需要房间密码"
+	elif r == "room full":
+		r = "房间已满"
+	rejected.emit(r)
 
 
 @rpc("authority", "reliable")
@@ -445,24 +536,30 @@ func _broadcast_seats() -> void:
 
 
 func _first_free_seat() -> int:
-	for i in range(mini(SEAT_TOTAL, seats.size())):
-		if not bool(seats[i].get("occupied", false)):
+	for i: int in range(mini(SEAT_TOTAL, seats.size())):
+		if not TypedVariant.as_bool(_seat_row(i).get("occupied", false), false):
 			return i
 	return -1
 
 
 func occupied_count() -> int:
-	var n := 0
-	for s in seats:
-		if bool(s.get("occupied", false)):
+	var n: int = 0
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			continue
+		var s: Dictionary = s_v
+		if TypedVariant.as_bool(s.get("occupied", false), false):
 			n += 1
 	return n
 
 
 func player_count() -> int:
-	var n := 0
-	for s in seats:
-		if not bool(s.get("occupied", false)):
+	var n: int = 0
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			continue
+		var s: Dictionary = s_v
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
 			continue
 		if is_player_race(str(s.get("titan_race", ""))):
 			n += 1
@@ -472,23 +569,26 @@ func player_count() -> int:
 func local_is_spectator() -> bool:
 	if local_seat < 0 or local_seat >= seats.size():
 		return false
-	return is_spectate_race(str(seats[local_seat].get("titan_race", "")))
+	return is_spectate_race(str(_seat_row(local_seat).get("titan_race", "")))
 
 
 func _occupy_seat(seat: int, nick: String, peer_id: int, is_ai: bool) -> void:
-	seats[seat]["occupied"] = true
-	seats[seat]["nick"] = nick
-	seats[seat]["peer_id"] = peer_id
-	seats[seat]["is_ai"] = is_ai
-	seats[seat]["ready"] = false
-	seats[seat]["titan_race"] = ""
-	seats[seat]["ghost"] = false
-	if not seats[seat].has("platform"):
-		seats[seat]["platform"] = ""
-	if not seats[seat].has("endpoint_ip"):
-		seats[seat]["endpoint_ip"] = ""
-	if not seats[seat].has("endpoint_port"):
-		seats[seat]["endpoint_port"] = 0
+	var row: Dictionary = _seat_row(seat)
+	if row.is_empty():
+		return
+	row["occupied"] = true
+	row["nick"] = nick
+	row["peer_id"] = peer_id
+	row["is_ai"] = is_ai
+	row["ready"] = false
+	row["titan_race"] = ""
+	row["ghost"] = false
+	if not row.has("platform"):
+		row["platform"] = ""
+	if not row.has("endpoint_ip"):
+		row["endpoint_ip"] = ""
+	if not row.has("endpoint_port"):
+		row["endpoint_port"] = 0
 
 
 func add_ai_player(nick: String = "人机玩家") -> bool:
@@ -497,7 +597,7 @@ func add_ai_player(nick: String = "人机玩家") -> bool:
 	## Lowsec: may still add seats; ready gate blocks start while >2 titans selected.
 	if not is_lowsec(security_mode) and player_count() >= host_player_cap:
 		return false
-	var seat := _first_free_seat()
+	var seat: int = _first_free_seat()
 	if seat < 0:
 		return false
 	_occupy_seat(seat, nick, 0, true)
@@ -508,7 +608,7 @@ func add_ai_player(nick: String = "人机玩家") -> bool:
 func set_security_mode(mode: String) -> void:
 	if not is_host or match_started:
 		return
-	var next := SECURITY_LOWSEC if is_lowsec(mode) else SECURITY_NULLSEC
+	var next: String = SECURITY_LOWSEC if is_lowsec(mode) else SECURITY_NULLSEC
 	if next == security_mode:
 		return
 	_apply_security_mode(next, true)
@@ -530,14 +630,14 @@ func _clear_ready_when_lowsec_over_cap() -> bool:
 		return false
 	if player_count() <= 2:
 		return false
-	var changed := false
-	for i in range(seats.size()):
-		if not bool(seats[i].get("occupied", false)):
+	var changed: bool = false
+	for i: int in range(seats.size()):
+		if not TypedVariant.as_bool(_seat_row(i).get("occupied", false), false):
 			continue
-		if not is_player_race(str(seats[i].get("titan_race", ""))):
+		if not is_player_race(str(_seat_row(i).get("titan_race", ""))):
 			continue
-		if bool(seats[i].get("ready", false)):
-			seats[i]["ready"] = false
+		if TypedVariant.as_bool(_seat_row(i).get("ready", false), false):
+			_seat_row(i)["ready"] = false
 			changed = true
 	return changed
 
@@ -552,19 +652,19 @@ func _refresh_ai_auto_ready() -> bool:
 		return false
 	if lowsec_ready_blocked():
 		return false
-	var changed := false
-	for i in range(seats.size()):
-		if not bool(seats[i].get("occupied", false)):
+	var changed: bool = false
+	for i: int in range(seats.size()):
+		if not TypedVariant.as_bool(_seat_row(i).get("occupied", false), false):
 			continue
-		if not bool(seats[i].get("is_ai", false)):
+		if not TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
 			continue
-		if bool(seats[i].get("ghost", false)):
+		if TypedVariant.as_bool(_seat_row(i).get("ghost", false), false):
 			continue
-		if not is_player_race(str(seats[i].get("titan_race", ""))):
+		if not is_player_race(str(_seat_row(i).get("titan_race", ""))):
 			continue
-		if bool(seats[i].get("ready", false)):
+		if TypedVariant.as_bool(_seat_row(i).get("ready", false), false):
 			continue
-		seats[i]["ready"] = true
+		_seat_row(i)["ready"] = true
 		changed = true
 	return changed
 
@@ -586,14 +686,14 @@ func kick_seat(seat: int) -> void:
 		return
 	if seat < 0 or seat >= seats.size():
 		return
-	var peer_id := int(seats[seat].get("peer_id", 0))
-	seats[seat]["occupied"] = false
-	seats[seat]["nick"] = ""
-	seats[seat]["peer_id"] = 0
-	seats[seat]["is_ai"] = false
-	seats[seat]["ready"] = false
-	seats[seat]["titan_race"] = ""
-	seats[seat]["ghost"] = false
+	var peer_id: int = TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0)
+	_seat_row(seat)["occupied"] = false
+	_seat_row(seat)["nick"] = ""
+	_seat_row(seat)["peer_id"] = 0
+	_seat_row(seat)["is_ai"] = false
+	_seat_row(seat)["ready"] = false
+	_seat_row(seat)["titan_race"] = ""
+	_seat_row(seat)["ghost"] = false
 	if peer_id > 0 and multiplayer.has_multiplayer_peer() and _peer:
 		_peer.disconnect_peer(peer_id)
 	_sync_lobby_ready_gates()
@@ -604,11 +704,11 @@ func kick_seat(seat: int) -> void:
 func mark_seat_ghost(seat: int) -> void:
 	if seat < 0 or seat >= seats.size():
 		return
-	if not bool(seats[seat].get("occupied", false)):
+	if not TypedVariant.as_bool(_seat_row(seat).get("occupied", false), false):
 		return
-	seats[seat]["ghost"] = true
-	seats[seat]["ready"] = false
-	seats[seat]["peer_id"] = 0
+	_seat_row(seat)["ghost"] = true
+	_seat_row(seat)["ready"] = false
+	_seat_row(seat)["peer_id"] = 0
 	_broadcast_seats()
 
 
@@ -625,24 +725,24 @@ func request_mark_local_ghost() -> void:
 func rpc_mark_ghost(seat: int) -> void:
 	if not is_host:
 		return
-	var sender := multiplayer.get_remote_sender_id()
+	var sender: int = multiplayer.get_remote_sender_id()
 	if seat < 0 or seat >= seats.size():
 		return
-	if int(seats[seat].get("peer_id", 0)) != sender:
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
 		return
 	mark_seat_ghost(seat)
 
 
 func clear_ghosts_after_settlement() -> void:
-	for i in range(seats.size()):
-		if bool(seats[i].get("ghost", false)):
-			seats[i]["occupied"] = false
-			seats[i]["nick"] = ""
-			seats[i]["peer_id"] = 0
-			seats[i]["is_ai"] = false
-			seats[i]["ready"] = false
-			seats[i]["titan_race"] = ""
-			seats[i]["ghost"] = false
+	for i: int in range(seats.size()):
+		if TypedVariant.as_bool(_seat_row(i).get("ghost", false), false):
+			_seat_row(i)["occupied"] = false
+			_seat_row(i)["nick"] = ""
+			_seat_row(i)["peer_id"] = 0
+			_seat_row(i)["is_ai"] = false
+			_seat_row(i)["ready"] = false
+			_seat_row(i)["titan_race"] = ""
+			_seat_row(i)["ghost"] = false
 	_broadcast_seats()
 
 
@@ -655,11 +755,11 @@ func set_local_titan(race: String) -> void:
 func set_seat_titan(seat: int, race: String) -> void:
 	if seat < 0 or seat >= seats.size():
 		return
-	if not bool(seats[seat].get("occupied", false)):
+	if not TypedVariant.as_bool(_seat_row(seat).get("occupied", false), false):
 		return
 	if match_started:
 		return
-	var is_ai := bool(seats[seat].get("is_ai", false))
+	var is_ai: bool = TypedVariant.as_bool(_seat_row(seat).get("is_ai", false), false)
 	if is_host:
 		if seat != local_seat and not is_ai:
 			return
@@ -679,7 +779,7 @@ func _can_apply_titan(seat: int, race: String) -> bool:
 		return true
 	if not is_player_race(race):
 		return false
-	var cur := str(seats[seat].get("titan_race", ""))
+	var cur: String = str(_seat_row(seat).get("titan_race", ""))
 	if is_player_race(cur):
 		return true ## switching titan keeps same player slot
 	## Lowsec: allow >2 titan picks; ready is cleared/blocked until back to 2.
@@ -689,28 +789,28 @@ func _can_apply_titan(seat: int, race: String) -> bool:
 
 
 func _apply_titan(seat: int, race: String) -> void:
-	seats[seat]["titan_race"] = race
+	_seat_row(seat)["titan_race"] = race
 	if race == "":
-		seats[seat]["ready"] = false
+		_seat_row(seat)["ready"] = false
 	elif is_spectate_race(race):
-		seats[seat]["ready"] = true
-	elif bool(seats[seat].get("is_ai", false)) and is_player_race(race):
+		_seat_row(seat)["ready"] = true
+	elif TypedVariant.as_bool(_seat_row(seat).get("is_ai", false), false) and is_player_race(race):
 		## Immediate attempt; `_sync_lobby_ready_gates` re-tries when the gate opens later.
-		seats[seat]["ready"] = not lowsec_ready_blocked()
+		_seat_row(seat)["ready"] = not lowsec_ready_blocked()
 	elif not is_player_race(race):
-		seats[seat]["ready"] = false
+		_seat_row(seat)["ready"] = false
 	_sync_lobby_ready_gates()
 
 
 func set_local_ready(is_ready: bool) -> void:
 	if local_seat < 0:
 		return
-	var race := str(seats[local_seat].get("titan_race", ""))
+	var race: String = str(_seat_row(local_seat).get("titan_race", ""))
 	if is_ready and not is_player_race(race):
 		return
 	if is_ready and lowsec_ready_blocked():
 		return
-	seats[local_seat]["ready"] = is_ready
+	_seat_row(local_seat)["ready"] = is_ready
 	if is_host:
 		_sync_lobby_ready_gates()
 		_broadcast_seats()
@@ -725,10 +825,10 @@ func rpc_set_titan(seat: int, race: String) -> void:
 		return
 	if seat < 0 or seat >= seats.size():
 		return
-	var sender := multiplayer.get_remote_sender_id()
-	if int(seats[seat].get("peer_id", 0)) != sender:
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
 		return
-	if bool(seats[seat].get("is_ai", false)):
+	if TypedVariant.as_bool(_seat_row(seat).get("is_ai", false), false):
 		return
 	if not _can_apply_titan(seat, race):
 		_broadcast_seats() ## bounce UI
@@ -744,13 +844,13 @@ func rpc_set_ready(seat: int, is_ready: bool) -> void:
 		return
 	if seat < 0 or seat >= seats.size():
 		return
-	if is_ready and not is_player_race(str(seats[seat].get("titan_race", ""))):
+	if is_ready and not is_player_race(str(_seat_row(seat).get("titan_race", ""))):
 		return
 	if is_ready and lowsec_ready_blocked():
 		_sync_lobby_ready_gates()
 		_broadcast_seats()
 		return
-	seats[seat]["ready"] = is_ready
+	_seat_row(seat)["ready"] = is_ready
 	_sync_lobby_ready_gates()
 	_broadcast_seats()
 	_try_start()
@@ -760,10 +860,13 @@ func _try_start() -> void:
 	if match_started:
 		return
 	var players: Array = []
-	for s in seats:
-		if not bool(s.get("occupied", false)):
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
 			continue
-		var race := str(s.get("titan_race", ""))
+		var s: Dictionary = s_v
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		var race: String = str(s.get("titan_race", ""))
 		if is_spectate_race(race):
 			continue
 		players.append(s)
@@ -771,21 +874,28 @@ func _try_start() -> void:
 		return
 	if is_lowsec(security_mode) and players.size() != 2:
 		return
-	for s in players:
+	for s_v: Variant in players:
+		if not (s_v is Dictionary):
+			return
+		var s: Dictionary = s_v
 		if not is_player_race(str(s.get("titan_race", ""))):
 			return
-		if not bool(s.get("ready", false)):
+		if not TypedVariant.as_bool(s.get("ready", false), false):
 			return
-	var seed_v := int(Time.get_unix_time_from_system()) ^ hash(room_code)
+	var seed_v: int = int(Time.get_unix_time_from_system()) ^ hash(room_code)
 	var all_occupied: Array = []
-	for s in seats:
-		if bool(s.get("occupied", false)):
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			continue
+		var s: Dictionary = s_v
+		if TypedVariant.as_bool(s.get("occupied", false), false):
 			all_occupied.append(s)
 	_ensure_session_secret()
+	match_loading.emit("正在同步舰船全数据", 0.08)
 	_freeze_opening_host_ships(DataStore.export_ships_table())
 	if match_id == "":
 		match_id = "%d-%s" % [seed_v, session_secret.substr(0, mini(8, session_secret.length()))]
-	var payload := {
+	var payload: Dictionary = {
 		"match_seed": seed_v,
 		"rules_hash": rules_hash,
 		"seats": all_occupied,
@@ -801,8 +911,10 @@ func _try_start() -> void:
 	last_match_payload = payload.duplicate(true)
 	## Ship table travels only on match entry, ahead of the start payload (§3.7 / 1A freeze).
 	rpc("rpc_ships_table", _authority_ships_table(), false)
+	match_loading.emit("正在通知各方开局", 0.18)
 	rpc("rpc_match_start", payload)
 	write_rejoin_ticket()
+	match_loading.emit("正在进入对局场景", 0.25)
 	match_start.emit(payload)
 
 
@@ -834,6 +946,8 @@ func broadcast_ships_table() -> void:
 func rpc_ships_table(table: Dictionary, mid_match: bool = false) -> void:
 	if is_host:
 		return
+	if not mid_match:
+		match_loading.emit("正在同步舰船全数据", 0.12)
 	_freeze_opening_host_ships(table)
 	if DataStore.apply_host_ships_override(table):
 		ships_override_applied.emit(mid_match)
@@ -846,12 +960,15 @@ func store_match_assignments(assignments: Dictionary) -> void:
 
 
 func _payload_for_spectate_join() -> Dictionary:
-	var p := last_match_payload.duplicate(true)
+	var p: Dictionary = last_match_payload.duplicate(true)
 	if p.is_empty():
 		p = {"match_seed": int(Time.get_unix_time_from_system()), "rules_hash": rules_hash}
 	var all_occupied: Array = []
-	for s in seats:
-		if bool(s.get("occupied", false)):
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			continue
+		var s: Dictionary = s_v
+		if TypedVariant.as_bool(s.get("occupied", false), false):
 			all_occupied.append(s)
 	p["seats"] = all_occupied
 	p["mid_join_spectate"] = true
@@ -866,8 +983,9 @@ func rpc_match_start(payload: Dictionary) -> void:
 	match_id = str(payload.get("match_id", match_id))
 	opening_host_platform = str(payload.get("opening_host_platform", opening_host_platform))
 	opening_host_ships_hash = str(payload.get("opening_host_ships_hash", opening_host_ships_hash))
-	host_migrate_generation = int(payload.get("host_migrate_generation", host_migrate_generation))
+	host_migrate_generation = TypedVariant.as_int(payload.get("host_migrate_generation", host_migrate_generation), host_migrate_generation)
 	write_rejoin_ticket()
+	match_loading.emit("正在进入对局场景", 0.25)
 	match_start.emit(payload)
 
 
@@ -924,12 +1042,13 @@ func rpc_anticheat_notice(message: String) -> void:
 
 
 func make_invite_blob() -> String:
-	var ip := last_known_host_ip if last_known_host_ip != "" else _best_local_ip()
+	var ip: String = last_known_host_ip if last_known_host_ip != "" else _best_local_ip()
 	if ip == "" or ip == "0.0.0.0":
 		ip = "127.0.0.1"
-	var room := private_code if is_private else "%04d" % room_code
-	return InviteBlobHelper.encode(ip, listen_port(), room, rules_hash, {
-		"private": is_private,
+	var ipv6: String = last_known_host_ipv6 if last_known_host_ipv6 != "" else _best_global_ipv6()
+	return InviteBlobHelper.encode(ip, listen_port(), "%04d" % room_code, rules_hash, {
+		"password": room_password,
+		"ipv6": ipv6,
 		"security_mode": security_mode,
 	})
 
@@ -945,17 +1064,60 @@ func write_rejoin_ticket() -> void:
 func _ensure_session_secret() -> void:
 	if session_secret != "":
 		return
-	var c := Crypto.new()
+	var c: Crypto = Crypto.new()
 	session_secret = Marshalls.raw_to_base64(c.generate_random_bytes(16))
 
 
 func _best_local_ip() -> String:
-	for a in IP.get_local_addresses():
-		var s := str(a)
-		if s.begins_with("127.") or s.find(":") >= 0:
+	## SEMI_ASYNC §7.2 — prefer home LAN over Hyper-V / APIPA.
+	var best: String = ""
+	var best_score: int = -1
+	for a: String in IP.get_local_addresses():
+		var s: String = str(a)
+		var score: int = _score_local_ipv4(s)
+		if score < 0:
+			continue
+		if score > best_score:
+			best_score = score
+			best = s
+	return best if best != "" else "127.0.0.1"
+
+
+func _best_global_ipv6() -> String:
+	## SEMI_ASYNC §7.2 — global unicast only; skip link-local / ULA / loopback.
+	for a: String in IP.get_local_addresses():
+		var s: String = str(a).strip_edges()
+		if s.find(":") < 0:
+			continue
+		var low: String = s.to_lower()
+		if low == "::1" or low.begins_with("fe80"):
+			continue
+		if low.begins_with("fc") or low.begins_with("fd"):
+			continue
+		## Drop zone id (fe80::1%eth0 style) if any slipped through.
+		if s.find("%") >= 0:
 			continue
 		return s
-	return "127.0.0.1"
+	return ""
+
+
+func _score_local_ipv4(ip: String) -> int:
+	if ip == "" or ip.find(":") >= 0 or ip.begins_with("127."):
+		return -1
+	if ip.begins_with("169.254."):
+		return -1
+	var parts: PackedStringArray = ip.split(".")
+	if parts.size() != 4:
+		return -1
+	var a: int = int(parts[0])
+	var b: int = int(parts[1])
+	if a == 192 and b == 168:
+		return 100
+	if a == 10:
+		return 50
+	if a == 172 and b >= 16 and b <= 31:
+		return 10
+	return 0
 
 
 func _freeze_opening_host_ships(table: Dictionary) -> void:
@@ -985,17 +1147,22 @@ func _capture_peer_endpoint(seat: int, peer_id: int) -> void:
 	var ep: ENetPacketPeer = _peer.get_peer(peer_id) as ENetPacketPeer
 	if ep == null:
 		return
-	seats[seat]["endpoint_ip"] = str(ep.get_remote_address())
-	seats[seat]["endpoint_port"] = int(ep.get_remote_port())
+	var row: Dictionary = _seat_row(seat)
+	if row.is_empty():
+		return
+	row["endpoint_ip"] = str(ep.get_remote_address())
+	row["endpoint_port"] = int(ep.get_remote_port())
 
 
 func _try_reclaim_ghost(seat: int, nick: String, peer_id: int, platform: String) -> bool:
 	if seat < 0 or seat >= seats.size():
 		return false
-	var row: Dictionary = seats[seat]
-	if not bool(row.get("occupied", false)):
+	var row: Dictionary = _seat_row(seat)
+	if row.is_empty():
 		return false
-	if not bool(row.get("ghost", false)):
+	if not TypedVariant.as_bool(row.get("occupied", false), false):
+		return false
+	if not TypedVariant.as_bool(row.get("ghost", false), false):
 		return false
 	row["ghost"] = false
 	row["peer_id"] = peer_id
@@ -1009,58 +1176,62 @@ func _try_reclaim_ghost(seat: int, nick: String, peer_id: int, platform: String)
 static func elect_new_host_seat(seat_rows: Array, opener_plat: String, match_seed: int, generation: int) -> int:
 	## Deterministic election. Returns -1 → terminate (PC opener, no PC left).
 	var candidates: Array = []
-	for s in seat_rows:
-		if typeof(s) != TYPE_DICTIONARY:
+	for s_v: Variant in seat_rows:
+		if not (s_v is Dictionary):
 			continue
-		var row: Dictionary = s
-		if not bool(row.get("occupied", false)):
+		var row: Dictionary = s_v
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
 			continue
-		if bool(row.get("ghost", false)):
+		if TypedVariant.as_bool(row.get("ghost", false), false):
 			continue
-		if bool(row.get("is_ai", false)):
+		if TypedVariant.as_bool(row.get("is_ai", false), false):
 			continue
 		if not is_player_race(str(row.get("titan_race", ""))):
 			continue
-		candidates.append(int(row.get("seat_id", -1)))
-	candidates = candidates.filter(func(x): return int(x) >= 0)
+		candidates.append(TypedVariant.as_int(row.get("seat_id", -1), -1))
+	candidates = candidates.filter(func(x: Variant) -> bool: return TypedVariant.as_int(x, -1) >= 0)
 	if candidates.is_empty():
 		return -1
 	var same: Array = []
-	for sid in candidates:
-		var plat := ""
-		for s in seat_rows:
-			if typeof(s) == TYPE_DICTIONARY and int(s.get("seat_id", -2)) == int(sid):
-				plat = str(s.get("platform", ""))
+	for sid_v: Variant in candidates:
+		var sid: int = TypedVariant.as_int(sid_v, -1)
+		var plat: String = ""
+		for row_v: Variant in seat_rows:
+			if not (row_v is Dictionary):
+				continue
+			var s_row: Dictionary = row_v
+			if TypedVariant.as_int(s_row.get("seat_id", -2), -2) == sid:
+				plat = str(s_row.get("platform", ""))
 				break
 		if plat == str(opener_plat):
-			same.append(int(sid))
+			same.append(sid)
 	if not same.is_empty():
 		candidates = same
 	elif str(opener_plat) == "pc":
 		return -1
 	candidates.sort()
-	var parts := PackedStringArray()
-	for sid in candidates:
-		parts.append(str(int(sid)))
-	var key := "%d|host_migrate|%d|%s" % [int(match_seed), int(generation), ",".join(parts)]
-	var h := absi(hash(key))
-	return int(candidates[h % candidates.size()])
+	var parts: PackedStringArray = PackedStringArray()
+	for sid_v: Variant in candidates:
+		parts.append(str(TypedVariant.as_int(sid_v, -1)))
+	var key: String = "%d|host_migrate|%d|%s" % [int(match_seed), int(generation), ",".join(parts)]
+	var h: int = absi(hash(key))
+	return TypedVariant.as_int(candidates[h % candidates.size()], -1)
 
 
 func _begin_host_migration() -> void:
 	if _migrating:
 		return
 	_migrating = true
-	var old_host := int(last_match_payload.get("host_seat", 0))
+	var old_host: int = TypedVariant.as_int(last_match_payload.get("host_seat", 0), 0)
 	if old_host >= 0 and old_host < seats.size():
-		seats[old_host]["ghost"] = true
-		seats[old_host]["peer_id"] = 0
-		seats[old_host]["ready"] = false
+		_seat_row(old_host)["ghost"] = true
+		_seat_row(old_host)["peer_id"] = 0
+		_seat_row(old_host)["ready"] = false
 	## Drop dead peer sockets but keep lobby/match fields for election.
 	_teardown_peer_only()
-	var gen := host_migrate_generation + 1
-	var seed_v := int(last_match_payload.get("match_seed", 0))
-	var elected := elect_new_host_seat(seats, opening_host_platform, seed_v, gen)
+	var gen: int = host_migrate_generation + 1
+	var seed_v: int = TypedVariant.as_int(last_match_payload.get("match_seed", 0), 0)
+	var elected: int = elect_new_host_seat(seats, opening_host_platform, seed_v, gen)
 	if elected < 0:
 		_terminate_match_host_lost("房主掉线，对局终止")
 		return
@@ -1072,21 +1243,21 @@ func _begin_host_migration() -> void:
 	if elected == local_seat:
 		_promote_self_to_host(elected)
 		return
-	var hip := ""
+	var hip: String = ""
 	if elected >= 0 and elected < seats.size():
-		hip = str(seats[elected].get("endpoint_ip", ""))
+		hip = str(_seat_row(elected).get("endpoint_ip", ""))
 	## New host listens on room code port (not the old client ephemeral source port).
-	var hport := port_for_code(room_code)
+	var hport: int = port_for_code(room_code)
 	if hip == "" or hip == "0.0.0.0":
 		_terminate_match_host_lost("房主掉线，对局终止")
 		return
 	pending_rejoin_seat = local_seat
 	pending_rejoin_secret = session_secret
-	var nick := local_nick
-	var keep_seat := local_seat
-	var keep_payload := last_match_payload.duplicate(true)
-	var keep_seats := seats.duplicate(true)
-	var err := join(hip, hport, nick, rules_hash)
+	var nick: String = local_nick
+	var keep_seat: int = local_seat
+	var keep_payload: Dictionary = last_match_payload.duplicate(true)
+	var keep_seats: Array = seats.duplicate(true)
+	var err: Error = join(hip, hport, nick, rules_hash)
 	last_match_payload = keep_payload
 	seats = keep_seats
 	match_started = true
@@ -1106,7 +1277,7 @@ func _promote_self_to_host(new_host_seat: int) -> void:
 	_listen_port = port_for_code(room_code)
 	last_known_host_ip = _best_local_ip()
 	_peer = ENetMultiplayerPeer.new()
-	var err := _peer.create_server(_listen_port, MAX_CLIENTS)
+	var err: Error = _peer.create_server(_listen_port, MAX_CLIENTS)
 	if err != OK:
 		_peer = null
 		_listen_port = 0
@@ -1117,13 +1288,13 @@ func _promote_self_to_host(new_host_seat: int) -> void:
 		multiplayer.peer_connected.connect(_on_peer_connected)
 	if not multiplayer.peer_disconnected.is_connected(_on_peer_disconnected):
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	var uid := multiplayer.get_unique_id()
+	var uid: int = multiplayer.get_unique_id()
 	if local_seat >= 0 and local_seat < seats.size():
-		seats[local_seat]["peer_id"] = uid
-		seats[local_seat]["ghost"] = false
-		seats[local_seat]["platform"] = detect_local_platform()
-		seats[local_seat]["endpoint_ip"] = last_known_host_ip
-		seats[local_seat]["endpoint_port"] = _listen_port
+		_seat_row(local_seat)["peer_id"] = uid
+		_seat_row(local_seat)["ghost"] = false
+		_seat_row(local_seat)["platform"] = detect_local_platform()
+		_seat_row(local_seat)["endpoint_ip"] = last_known_host_ip
+		_seat_row(local_seat)["endpoint_port"] = _listen_port
 	if not opening_host_ships.is_empty():
 		DataStore.apply_host_ships_override(opening_host_ships)
 	_start_beacon()
@@ -1209,9 +1380,558 @@ func close() -> void:
 	opening_host_platform = "pc"
 	host_migrate_generation = 0
 	last_known_host_ip = ""
+	last_known_host_ipv6 = ""
 	pending_rejoin_seat = -1
 	pending_rejoin_secret = ""
+	pending_join_password = ""
+	room_password = ""
+	room_has_password = false
 	_migrating = false
 	_ticket_heartbeat_acc = 0.0
 	DataStore.clear_host_ships_override()
 	_init_empty_seats()
+
+
+## --- Prepare fleet sync (SEMI_ASYNC §3.0) ---
+
+func push_prepare_fleet_snapshot(ships: Array) -> void:
+	if local_seat < 0:
+		return
+	_prepare_fleet_cache[local_seat] = ships
+	var n: int = ships.size()
+	var has_peer: bool = multiplayer.has_multiplayer_peer()
+	## Avoid logcat flood — only note size changes / rare heartbeat.
+	var now: int = Time.get_ticks_msec()
+	if n != _fleet_push_log_n or (now - _fleet_push_log_msec) > 3000:
+		_fleet_push_log_n = n
+		_fleet_push_log_msec = now
+		print("[mp.diag] fleet_push seat=%d n=%d host=%s peer=%s" % [local_seat, n, is_host, has_peer])
+		SessionDiagnostics.log("mp.fleet_push", "seat=%d n=%d" % [local_seat, n])
+	if not has_peer:
+		return
+	if is_host:
+		rpc("rpc_prepare_fleet_snapshot", local_seat, ships)
+	else:
+		rpc_id(1, "rpc_prepare_fleet_report", local_seat, ships)
+
+
+@rpc("any_peer", "reliable")
+func rpc_prepare_fleet_report(seat: int, ships: Array) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] fleet_report REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	_prepare_fleet_cache[seat] = ships
+	print("[mp.diag] fleet_report seat=%d n=%d → broadcast" % [seat, ships.size()])
+	SessionDiagnostics.log("mp.fleet_report", "seat=%d n=%d" % [seat, ships.size()])
+	rpc("rpc_prepare_fleet_snapshot", seat, ships)
+	## Host does not receive authority rpc locally — apply here.
+	prepare_fleet_snapshot_received.emit(seat, ships)
+
+
+@rpc("authority", "reliable")
+func rpc_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
+	_prepare_fleet_cache[seat] = ships
+	print("[mp.diag] fleet_snap_rx seat=%d n=%d" % [seat, ships.size()])
+	SessionDiagnostics.log("mp.fleet_snap_rx", "seat=%d n=%d" % [seat, ships.size()])
+	prepare_fleet_snapshot_received.emit(seat, ships)
+
+
+func request_prepare_fleet_snapshot(seat: int) -> void:
+	if seat < 0:
+		return
+	print("[mp.diag] fleet_request seat=%d host=%s" % [seat, is_host])
+	SessionDiagnostics.log("mp.fleet_request", "seat=%d" % seat)
+	if is_host or not multiplayer.has_multiplayer_peer():
+		@warning_ignore("unsafe_cast")
+		var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
+		print("[mp.diag] fleet_request_local seat=%d n=%d" % [seat, cached.size()])
+		prepare_fleet_snapshot_received.emit(seat, cached)
+		return
+	rpc_id(1, "rpc_request_prepare_fleet", seat)
+
+
+@rpc("any_peer", "reliable")
+func rpc_request_prepare_fleet(seat: int) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	@warning_ignore("unsafe_cast")
+	var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
+	rpc_id(sender, "rpc_prepare_fleet_snapshot", seat, cached)
+
+
+## --- First-prepare spend clock ---
+
+func begin_prepare_spend_gate() -> void:
+	## R1 Prepare: freeze until all contestant seats spend once.
+	## Clients only mirror freeze; host owns the set + arm broadcast.
+	## IMPORTANT: session default prepare_clock_armed=true — must NOT treat that as
+	## "already armed" or guests skip the gate and solo-run the timer (stuck async).
+	var has_peer: bool = multiplayer.has_multiplayer_peer()
+	print("[mp.diag] spend_gate_begin host=%s peer=%s local_seat=%d seats=%d armed_was=%s" % [
+		is_host, has_peer, local_seat, seats.size(), prepare_clock_armed
+	])
+	SessionDiagnostics.log(
+		"mp.spend_gate_begin",
+		"host=%s peer=%s seat=%d n=%d" % [is_host, has_peer, local_seat, seats.size()]
+	)
+	## Always clear local arm first — only host rpc_prepare_clock_armed may re-arm peers.
+	prepare_clock_armed = false
+	prepare_clock_armed_changed.emit(false)
+	if not is_host and has_peer:
+		print("[mp.diag] spend_gate_begin client freeze (await host arm)")
+		return
+	_prepare_spent_seats.clear()
+	var contestants: PackedStringArray = PackedStringArray()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			continue
+		if TypedVariant.as_bool(row.get("ghost", false), false):
+			continue
+		if not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		var is_ai: bool = TypedVariant.as_bool(row.get("is_ai", false), false)
+		if is_ai:
+			_prepare_spent_seats[i] = true
+		contestants.append("%d:%s" % [i, "AI" if is_ai else "H"])
+	print("[mp.diag] spend_gate_contestants [%s] spent=%s" % [
+		",".join(contestants), str(_prepare_spent_seats.keys())
+	])
+	SessionDiagnostics.log("mp.spend_gate_seats", ",".join(contestants))
+	_check_prepare_clock_ready()
+
+
+func report_local_prepare_spend() -> void:
+	if prepare_clock_armed or local_seat < 0:
+		return
+	print("[mp.diag] spend_report seat=%d host=%s" % [local_seat, is_host])
+	SessionDiagnostics.log("mp.spend_report", "seat=%d" % local_seat)
+	if is_host or not multiplayer.has_multiplayer_peer():
+		_mark_prepare_spend(local_seat)
+	else:
+		rpc_id(1, "rpc_prepare_first_spend", local_seat)
+
+
+@rpc("any_peer", "reliable")
+func rpc_prepare_first_spend(seat: int) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] spend_rpc REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	print("[mp.diag] spend_rpc ACCEPT seat=%d sender=%d" % [seat, sender])
+	_mark_prepare_spend(seat)
+
+
+func _mark_prepare_spend(seat: int) -> void:
+	if prepare_clock_armed:
+		return
+	_prepare_spent_seats[seat] = true
+	print("[mp.diag] spend_marked seat=%d spent=%s" % [seat, str(_prepare_spent_seats.keys())])
+	SessionDiagnostics.log("mp.spend_marked", "seat=%d" % seat)
+	_check_prepare_clock_ready()
+
+
+func _check_prepare_clock_ready() -> void:
+	if prepare_clock_armed:
+		return
+	var missing: PackedStringArray = PackedStringArray()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			continue
+		if TypedVariant.as_bool(row.get("ghost", false), false):
+			continue
+		if not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		if not TypedVariant.as_bool(_prepare_spent_seats.get(i, false), false):
+			missing.append(str(i))
+	if not missing.is_empty():
+		print("[mp.diag] spend_gate_wait missing=[%s]" % ",".join(missing))
+		return
+	print("[mp.diag] spend_gate_ALL_READY → arm")
+	_arm_prepare_clock()
+
+
+func _arm_prepare_clock() -> void:
+	if prepare_clock_armed:
+		return
+	prepare_clock_armed = true
+	## New prepare clock → clear prior round's prepare-done marks.
+	_prepare_done_seats.clear()
+	_prepare_done_gate_open = false
+	print("[mp.diag] net_clock_ARMED host=%s → rpc" % is_host)
+	SessionDiagnostics.log("mp.net_clock_armed", "host=%s" % is_host)
+	if is_host and multiplayer.has_multiplayer_peer():
+		rpc("rpc_prepare_clock_armed")
+	prepare_clock_armed_changed.emit(true)
+
+
+@rpc("authority", "reliable")
+func rpc_prepare_clock_armed() -> void:
+	prepare_clock_armed = true
+	print("[mp.diag] rpc_prepare_clock_armed received")
+	SessionDiagnostics.log("mp.rpc_clock_armed", "")
+	prepare_clock_armed_changed.emit(true)
+
+
+## --- SEMI_ASYNC §3.0a: battle-done → prepare clock; prepare-done → enter battle ---
+
+func needs_stage_barrier() -> bool:
+	## Remote peer present → keep stages locked together.
+	if not multiplayer.has_multiplayer_peer():
+		return false
+	return multiplayer.get_peers().size() >= 1
+
+
+func _iter_contestant_seats() -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			continue
+		if TypedVariant.as_bool(row.get("ghost", false), false):
+			continue
+		if not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		out.append(i)
+	return out
+
+
+func _auto_mark_ai_seats(into: Dictionary) -> void:
+	for i: int in _iter_contestant_seats():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			into[i] = true
+
+
+func begin_battle_done_clock_gate() -> void:
+	## After a battle: freeze Prepare clocks until every contestant finishes combat.
+	if not needs_stage_barrier():
+		return
+	var has_peer: bool = multiplayer.has_multiplayer_peer()
+	print("[mp.diag] battle_done_gate_begin host=%s peer=%s open=%s" % [
+		is_host, has_peer, _battle_done_gate_open
+	])
+	## Always freeze local clock; host owns the seat set.
+	prepare_clock_armed = false
+	prepare_clock_armed_changed.emit(false)
+	if not is_host and has_peer:
+		SessionDiagnostics.log("mp.battle_done_gate", "client_freeze")
+		return
+	if _battle_done_gate_open:
+		## Guest may have reported first — keep existing marks.
+		_check_battle_done_ready()
+		return
+	_battle_done_gate_open = true
+	_battle_done_seats.clear()
+	_auto_mark_ai_seats(_battle_done_seats)
+	SessionDiagnostics.log("mp.battle_done_gate", "host_open")
+	_check_battle_done_ready()
+
+
+func report_local_battle_done() -> void:
+	if not needs_stage_barrier() or local_seat < 0:
+		return
+	if not _battle_done_gate_open and is_host:
+		begin_battle_done_clock_gate()
+	print("[mp.diag] battle_done_report seat=%d host=%s" % [local_seat, is_host])
+	SessionDiagnostics.log("mp.battle_done_report", "seat=%d" % local_seat)
+	if is_host or not multiplayer.has_multiplayer_peer():
+		_mark_battle_done(local_seat)
+	else:
+		## Guest may finish first — host opens gate on first RPC.
+		rpc_id(1, "rpc_round_battle_done", local_seat)
+
+
+@rpc("any_peer", "reliable")
+func rpc_round_battle_done(seat: int) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] battle_done REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	if not _battle_done_gate_open:
+		begin_battle_done_clock_gate()
+	print("[mp.diag] battle_done ACCEPT seat=%d" % seat)
+	_mark_battle_done(seat)
+
+
+func _mark_battle_done(seat: int) -> void:
+	_battle_done_seats[seat] = true
+	_check_battle_done_ready()
+
+
+func _check_battle_done_ready() -> void:
+	if not is_host or not _battle_done_gate_open:
+		return
+	var missing: PackedStringArray = PackedStringArray()
+	for i: int in _iter_contestant_seats():
+		if not TypedVariant.as_bool(_battle_done_seats.get(i, false), false):
+			missing.append(str(i))
+	if not missing.is_empty():
+		print("[mp.diag] battle_done_wait missing=[%s]" % ",".join(missing))
+		return
+	_battle_done_gate_open = false
+	print("[mp.diag] battle_done_ALL_READY -> arm clock")
+	SessionDiagnostics.log("mp.battle_done_all", "")
+	_arm_prepare_clock()
+
+
+func begin_prepare_done_gate() -> void:
+	## Prepare timers running: collect who finished; release enter-battle together.
+	if not needs_stage_barrier():
+		return
+	if not is_host and multiplayer.has_multiplayer_peer():
+		_prepare_done_gate_open = true
+		print("[mp.diag] prep_done_gate client wait")
+		return
+	if _prepare_done_gate_open:
+		_check_prepare_done_ready()
+		return
+	_prepare_done_gate_open = true
+	_prepare_done_seats.clear()
+	_auto_mark_ai_seats(_prepare_done_seats)
+	print("[mp.diag] prep_done_gate_begin host=%s" % is_host)
+	SessionDiagnostics.log("mp.prep_done_gate", "begin")
+	_check_prepare_done_ready()
+
+
+func report_local_prepare_done() -> void:
+	if not needs_stage_barrier() or local_seat < 0:
+		return
+	## Do not advance prepare→battle barrier before the prepare clock has armed
+	## (R1 spend-gate / post-battle wait). Early reports caused host/guest deadlock.
+	if not prepare_clock_armed:
+		print("[mp.diag] prep_done_report IGNORE (clock not armed) seat=%d" % local_seat)
+		return
+	if TypedVariant.as_bool(_prepare_done_seats.get(local_seat, false), false):
+		print("[mp.diag] prep_done_report SKIP duplicate seat=%d" % local_seat)
+		return
+	if not _prepare_done_gate_open:
+		begin_prepare_done_gate()
+	print("[mp.diag] prep_done_report seat=%d host=%s" % [local_seat, is_host])
+	SessionDiagnostics.log("mp.prep_done_report", "seat=%d" % local_seat)
+	if is_host or not multiplayer.has_multiplayer_peer():
+		_mark_prepare_done(local_seat)
+	else:
+		## Mark locally so duplicate HOLD callback/signal does not re-RPC.
+		_prepare_done_seats[local_seat] = true
+		rpc_id(1, "rpc_prepare_stage_done", local_seat)
+
+
+@rpc("any_peer", "reliable")
+func rpc_prepare_stage_done(seat: int) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] prep_done REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	if not prepare_clock_armed:
+		print("[mp.diag] prep_done REJECT (host clock not armed) seat=%d" % seat)
+		return
+	if not _prepare_done_gate_open:
+		begin_prepare_done_gate()
+	print("[mp.diag] prep_done ACCEPT seat=%d" % seat)
+	_mark_prepare_done(seat)
+
+
+func _mark_prepare_done(seat: int) -> void:
+	_prepare_done_seats[seat] = true
+	_check_prepare_done_ready()
+
+
+## Host-authoritative fallback: if host timer finished and every *other*
+## contestant already reported, mark self and release even if local report raced.
+func _check_prepare_done_ready() -> void:
+	if not is_host or not _prepare_done_gate_open:
+		return
+	var missing: PackedStringArray = PackedStringArray()
+	for i: int in _iter_contestant_seats():
+		if not TypedVariant.as_bool(_prepare_done_seats.get(i, false), false):
+			missing.append(str(i))
+	if not missing.is_empty():
+		print("[mp.diag] prep_done_wait missing=[%s]" % ",".join(missing))
+		return
+	_prepare_done_gate_open = false
+	print("[mp.diag] prep_done_ALL_READY -> enter_battle")
+	SessionDiagnostics.log("mp.prep_done_all", "")
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_enter_battle")
+	enter_battle_released.emit()
+
+
+@rpc("authority", "reliable")
+func rpc_enter_battle() -> void:
+	print("[mp.diag] rpc_enter_battle received")
+	SessionDiagnostics.log("mp.rpc_enter_battle", "")
+	enter_battle_released.emit()
+
+
+## --- Lobby seat「功能」: transfer / urge ---
+
+func transfer_host_to_seat(seat: int) -> void:
+	if not is_host:
+		return
+	if seat < 0 or seat >= seats.size() or seat == local_seat:
+		return
+	var row: Dictionary = _seat_row(seat)
+	if not TypedVariant.as_bool(row.get("occupied", false), false):
+		return
+	if TypedVariant.as_bool(row.get("ghost", false), false):
+		return
+	if TypedVariant.as_bool(row.get("is_ai", false), false):
+		lobby_notice.emit("不能转移房主给人机")
+		return
+	var plat: String = str(row.get("platform", "pc"))
+	if plat == "mobile" and not is_lowsec(security_mode) and player_count() > 5:
+		lobby_notice.emit("手机新房主参赛超过 5 人，无法转让")
+		return
+	var peer_id: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+	var hip: String = str(row.get("endpoint_ip", ""))
+	if peer_id <= 0 or hip == "" or hip == "0.0.0.0":
+		lobby_notice.emit("目标端点不可用")
+		return
+	host_migrate_generation += 1
+	_pending_transfer_seat = seat
+	_pending_transfer_gen = host_migrate_generation
+	if last_match_payload.is_empty():
+		last_match_payload = {}
+	last_match_payload["host_seat"] = seat
+	last_match_payload["host_migrate_generation"] = host_migrate_generation
+	var hport: int = port_for_code(room_code)
+	rpc("rpc_host_transfer_pending", seat, host_migrate_generation, hip, hport)
+	rpc_id(peer_id, "rpc_transfer_host_promote", host_migrate_generation, seat)
+	call_deferred("_complete_outgoing_host_transfer", hip, hport)
+
+
+@rpc("any_peer", "reliable")
+func rpc_host_transfer_pending(seat: int, generation: int, host_ip: String, host_port: int) -> void:
+	_pending_transfer_seat = seat
+	_pending_transfer_gen = generation
+	host_migrate_generation = generation
+	if host_ip != "":
+		last_known_host_ip = host_ip
+	if last_match_payload.is_empty():
+		last_match_payload = {}
+	last_match_payload["host_seat"] = seat
+	last_match_payload["host_migrate_generation"] = generation
+	## host_port reserved for clients that reconnect on disconnect.
+	if host_port > 0:
+		pass
+
+
+@rpc("any_peer", "reliable")
+func rpc_transfer_host_promote(generation: int, seat: int) -> void:
+	if local_seat != seat:
+		return
+	host_migrate_generation = generation
+	opening_host_platform = detect_local_platform()
+	host_player_cap = detect_host_player_cap()
+	_promote_self_to_host(seat)
+	_pending_transfer_seat = -1
+
+
+func _complete_outgoing_host_transfer(hip: String, hport: int) -> void:
+	is_host = false
+	var keep_seat: int = local_seat
+	_teardown_peer_only()
+	pending_rejoin_seat = keep_seat
+	pending_rejoin_secret = session_secret
+	var tree: SceneTree = get_tree()
+	if tree == null or hip == "":
+		_pending_transfer_seat = -1
+		return
+	tree.create_timer(0.35).timeout.connect(func() -> void:
+		var err: Error = join(hip, hport, local_nick, rules_hash)
+		_pending_transfer_seat = -1
+		if err != OK:
+			lobby_notice.emit("转让后重连失败")
+	)
+
+
+func urge_prepare(seat: int) -> void:
+	if not is_host:
+		return
+	if seat < 0 or seat >= seats.size() or seat == local_seat:
+		return
+	var row: Dictionary = _seat_row(seat)
+	if not TypedVariant.as_bool(row.get("occupied", false), false):
+		return
+	if TypedVariant.as_bool(row.get("ghost", false), false):
+		return
+	if is_spectate_race(str(row.get("titan_race", ""))):
+		return
+	if TypedVariant.as_bool(row.get("ready", false), false):
+		return
+	if TypedVariant.as_bool(row.get("is_ai", false), false):
+		## AI auto-ready; nudge is a no-op notice locally.
+		lobby_notice.emit("已催促人机席（人机会自动准备）")
+		return
+	var peer_id: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+	if peer_id <= 0:
+		return
+	rpc_id(peer_id, "rpc_urge_prepare")
+	lobby_notice.emit("已催促席位 %02d" % (seat + 1))
+
+
+@rpc("authority", "reliable")
+func rpc_urge_prepare() -> void:
+	urge_prepare_received.emit()
+	lobby_notice.emit("房主催促准备")
+
+
+## Ask target seat for economy/fleet summary (MULTIPLAYER_PVP §4.2.2).
+func request_scout_intel(target_seat: int, from_seat: int, from_nick: String, scout_ship_name: String) -> void:
+	var row: Dictionary = _seat_row(target_seat)
+	if row.is_empty() or not TypedVariant.as_bool(row.get("occupied", false), false):
+		scout_intel_received.emit(target_seat, "?", {})
+		return
+	var target_nick: String = str(row.get("nick", "?"))
+	var is_ai: bool = TypedVariant.as_bool(row.get("is_ai", false), false)
+	var peer_id: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+	## Local / AI / missing peer → host answers (or this client if alone).
+	if is_ai or peer_id <= 0 or target_seat == local_seat:
+		if is_host or not multiplayer.has_multiplayer_peer():
+			scout_intel_asked.emit(from_seat, from_nick, scout_ship_name, multiplayer.get_unique_id() if multiplayer.has_multiplayer_peer() else 0, target_seat)
+		else:
+			rpc_id(1, "rpc_scout_intel_ask", from_seat, from_nick, scout_ship_name, target_seat)
+		return
+	if peer_id == multiplayer.get_unique_id():
+		scout_intel_asked.emit(from_seat, from_nick, scout_ship_name, peer_id, target_seat)
+		return
+	rpc_id(peer_id, "rpc_scout_intel_ask", from_seat, from_nick, scout_ship_name, target_seat)
+	## Keep nick for reply formatting if peer never answers.
+	_pending_scout_nick[target_seat] = target_nick
+
+
+@rpc("any_peer", "reliable")
+func rpc_scout_intel_ask(from_seat: int, from_nick: String, scout_ship_name: String, target_seat: int) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	## Host may be asked to answer for AI seats.
+	if is_host and TypedVariant.as_bool(_seat_row(target_seat).get("is_ai", false), false):
+		scout_intel_asked.emit(from_seat, from_nick, scout_ship_name, sender, target_seat)
+		return
+	if target_seat != local_seat:
+		return
+	scout_intel_asked.emit(from_seat, from_nick, scout_ship_name, sender, target_seat)
+
+
+func reply_scout_intel(to_peer: int, target_seat: int, target_nick: String, summary: Dictionary) -> void:
+	if to_peer <= 0 or not multiplayer.has_multiplayer_peer() or to_peer == multiplayer.get_unique_id():
+		scout_intel_received.emit(target_seat, target_nick, summary)
+		return
+	rpc_id(to_peer, "rpc_scout_intel_reply", target_seat, target_nick, summary)
+
+
+@rpc("any_peer", "reliable")
+func rpc_scout_intel_reply(target_seat: int, target_nick: String, summary: Dictionary) -> void:
+	var nick: String = target_nick if target_nick != "" else str(_pending_scout_nick.get(target_seat, "?"))
+	_pending_scout_nick.erase(target_seat)
+	scout_intel_received.emit(target_seat, nick, summary)

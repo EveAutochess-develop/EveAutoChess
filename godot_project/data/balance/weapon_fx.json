@@ -57,6 +57,58 @@
       "width": 0.055,
       "duration_scale": 1.0,
       "_comment": "Visual-only strip-miner beam; each shot retargets a random MiningAnchor; CD rand (0,10]s; no combat damage"
+    },
+    "nos": {
+      "evemu_effect": "energyNosferatuFalloff",
+      "style": "beam",
+      "color": [1.0, 0.18, 0.12, 0.95],
+      "width": 0.09,
+      "duration_scale": 1.0,
+      "_comment": "Red beam + spiral feel (UniWiki Energy Vampire)"
+    },
+    "neut": {
+      "evemu_effect": "energyNeutralizerFalloff",
+      "style": "beam",
+      "color": [0.55, 0.35, 1.0, 0.92],
+      "width": 0.09,
+      "duration_scale": 1.0,
+      "_comment": "Blue-pink vs gold remote_cap (UniWiki Energy Destabilizer)"
+    },
+    "remote_cap": {
+      "evemu_effect": "energyTransfer",
+      "style": "beam",
+      "color": [1.0, 0.82, 0.25, 0.95],
+      "width": 0.08,
+      "duration_scale": 1.0
+    },
+    "sensor_damp": {
+      "evemu_effect": "remoteSensorDampFalloff",
+      "style": "beam",
+      "color": [0.25, 0.95, 0.85, 0.9],
+      "width": 0.1,
+      "duration_scale": 1.0
+    },
+    "tracking_disrupt": {
+      "evemu_effect": "shipModuleTrackingDisruptor",
+      "style": "beam",
+      "color": [0.85, 0.25, 0.95, 0.92],
+      "width": 0.1,
+      "duration_scale": 1.0
+    },
+    "guidance_disrupt": {
+      "evemu_effect": "shipModuleGuidanceDisruptor",
+      "style": "beam",
+      "color": [1.0, 0.55, 0.15, 0.92],
+      "width": 0.1,
+      "duration_scale": 1.0
+    },
+    "target_painter": {
+      "evemu_effect": "targetPainter",
+      "style": "beam",
+      "color": [1.0, 1.0, 0.95, 0.98],
+      "width": 0.07,
+      "duration_scale": 1.0,
+      "_comment": "Bright paint laser (UniWiki Target Painter)"
     }
   }
 }

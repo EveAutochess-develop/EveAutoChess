@@ -4,22 +4,22 @@ class_name TitanBerth
 ## Hangar-span width, bow toward opposing half, bow tangent to dust-belt ×1.5,
 ## hull top clamped below deck plane. Decorative ShipUnit (not on board).
 
-const RACE_SHIP_ID := {
+const RACE_SHIP_ID: Dictionary = {
 	"caldari": 202,
 	"gallente": 203,
 	"minmatar": 204,
 	"amarr": 201,
 }
 ## TQ titan meshes point their bow at +长轴 end; flip so the bow faces the enemy half.
-const BOW_FLIP := PI
+const BOW_FLIP: float = PI
 ## Pull the stern anchor slightly inboard so bar/badge don't float off the hull.
-const STERN_INSET_FRAC := 0.08
+const STERN_INSET_FRAC: float = 0.08
 ## Same tonnage sizing ladder as ship hulls (UI_ICONS §6.1): icon+bg 1/2, corner badge 1/3.
-const _ShipHealthBar := preload("res://scripts/ship/ship_health_bar.gd")
-const TONNAGE_WORLD_SIZE := _ShipHealthBar.BADGE_WORLD_SIZE
-const OVERLAY_BG_WORLD_SIZE := _ShipHealthBar.OVERLAY_BG_WORLD_SIZE
-const OVERLAY_TAG_WORLD_SIZE := _ShipHealthBar.OVERLAY_TAG_WORLD_SIZE
-const OVERLAY_TAG_OFFSET := _ShipHealthBar.OVERLAY_TAG_OFFSET
+const _ShipHealthBar: GDScript = preload("res://scripts/ship/ship_health_bar.gd")
+const TONNAGE_WORLD_SIZE: float = _ShipHealthBar.BADGE_WORLD_SIZE
+const OVERLAY_BG_WORLD_SIZE: float = _ShipHealthBar.OVERLAY_BG_WORLD_SIZE
+const OVERLAY_TAG_WORLD_SIZE: float = _ShipHealthBar.OVERLAY_TAG_WORLD_SIZE
+const OVERLAY_TAG_OFFSET: float = _ShipHealthBar.OVERLAY_TAG_OFFSET
 
 ## Race of the parked titan ("" = seat picked none → nothing spawned).
 var race: String = ""
@@ -42,7 +42,7 @@ var _engine_trail: EngineBoosterTrail = null
 
 
 static func ship_id_for(p_race: String) -> int:
-	return int(RACE_SHIP_ID.get(p_race.to_lower(), 0))
+	return TypedVariant.as_int(RACE_SHIP_ID.get(p_race.to_lower(), 0), 0)
 
 
 func build(p_race: String, belt_box: AABB, p_home_side: bool = true) -> bool:
@@ -78,8 +78,9 @@ func set_race(p_race: String) -> bool:
 	_attach_key_light()
 	_engine_trail = EngineBoosterTrail.ensure_on(unit, home_side)
 	## Trails only while the hull is sliding in (§2.5). Parked / teleport / doomsday = off.
-	EngineBoosterTrail.set_idle_plume_on(unit, 0.0)
-	EngineBoosterTrail.set_emitting_on(unit, false)
+	if _engine_trail:
+		EngineBoosterTrail.set_idle_plume_on(unit, 0.0)
+		EngineBoosterTrail.set_emitting_on(unit, false)
 	set_meta("titan_ship_id", ship_id)
 	set_meta("titan_race", race)
 	set_meta("titan_home_side", home_side)
@@ -90,7 +91,7 @@ func set_race(p_race: String) -> bool:
 func hull_top_y() -> float:
 	if unit == null or not is_instance_valid(unit):
 		return global_position.y
-	var box := _world_aabb(unit)
+	var box: AABB = _world_aabb(unit)
 	return box.position.y + box.size.y
 
 
@@ -107,9 +108,9 @@ func _solve_stern_local() -> void:
 	if unit == null or not is_instance_valid(unit):
 		_stern_local = Vector3.ZERO
 		return
-	var hull := _world_aabb(unit)
-	var inset := hull.size.z * STERN_INSET_FRAC
-	var z := (hull.position.z + hull.size.z - inset) if home_side else (hull.position.z + inset)
+	var hull: AABB = _world_aabb(unit)
+	var inset: float = hull.size.z * STERN_INSET_FRAC
+	var z: float = (hull.position.z + hull.size.z - inset) if home_side else (hull.position.z + inset)
 	_stern_local = to_local(Vector3(hull.get_center().x, hull.position.y + hull.size.y, z))
 
 
@@ -124,18 +125,18 @@ func fire_point() -> Vector3:
 func pick_hits_ray(origin: Vector3, dir: Vector3) -> bool:
 	if not visible or unit == null or not is_instance_valid(unit):
 		return false
-	var box := _world_aabb(unit)
+	var box: AABB = _world_aabb(unit)
 	if box.size.length() < 0.01:
 		return false
 	box = box.grow(1.2)
-	var nd := dir.normalized()
-	var center := box.get_center()
-	var t := (center - origin).dot(nd)
+	var nd: Vector3 = dir.normalized()
+	var center: Vector3 = box.get_center()
+	var t: float = (center - origin).dot(nd)
 	if t < 0.0:
 		return false
-	var closest := origin + nd * t
-	var d := closest - center
-	var half := box.size * 0.5
+	var closest: Vector3 = origin + nd * t
+	var d: Vector3 = closest - center
+	var half: Vector3 = box.size * 0.5
 	return absf(d.x) <= half.x and absf(d.y) <= half.y and absf(d.z) <= half.z
 
 
@@ -149,6 +150,8 @@ func set_engine_trail_emitting(on: bool) -> void:
 		return
 	if _engine_trail == null or not is_instance_valid(_engine_trail):
 		_engine_trail = EngineBoosterTrail.ensure_on(unit, home_side)
+	if _engine_trail == null:
+		return
 	EngineBoosterTrail.set_emitting_on(unit, on)
 
 
@@ -161,49 +164,52 @@ func _orient_bow_at_opposing_half() -> void:
 		return
 	## Base yaw puts the modelled bow at the enemy half; measured hulls came out
 	## back-to-front, so BOW_FLIP swaps the ends (bow away from own half).
-	var yaw := BOW_FLIP if home_side else BOW_FLIP + PI
+	var yaw: float = BOW_FLIP if home_side else BOW_FLIP + PI
 	unit.rotation.y = yaw
-	var box := _world_aabb(unit)
+	var box: AABB = _world_aabb(unit)
 	if box.size.x > box.size.z:
 		unit.rotation.y = yaw + PI * 0.5
 
 
 func _target_width() -> float:
 	## Hangar silhouette ≡ field_span_x (BoardController hangar_step default).
-	var span := BoardController.field_span_x()
-	var k := float(DataStore.visual.get("titan_berth_width_scale", 1.0))
+	var span: float = BoardController.field_span_x()
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var k: float = TypedVariant.as_float(v.get("titan_berth_width_scale", 1.0), 1.0)
 	return maxf(span * k, 1.0)
 
 
 func _max_length_z() -> float:
 	## Keep the hull from stretching across the whole scene once width-matched.
-	var b: Dictionary = DataStore.board
-	var fh := float(b.get("field_height", 6))
-	var hoz := absf(float(b.get("hex_offset_z", -2.5)))
-	var default_max := maxf(fh * hoz * 1.6, 8.0)
-	return maxf(float(DataStore.visual.get("titan_berth_max_length_z", default_max)), 1.0)
+	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
+	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
+	var hoz: float = absf(TypedVariant.as_float(b.get("hex_offset_z", -2.5), -2.5))
+	var default_max: float = maxf(float(fh) * hoz * 1.6, 8.0)
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	return maxf(TypedVariant.as_float(v.get("titan_berth_max_length_z", default_max), default_max), 1.0)
 
 
 func _fit_scale() -> void:
 	## Hangar-span width (MULTIPLAYER_PVP §2.4a), capped by the length budget.
-	var box := _world_aabb(unit)
+	var box: AABB = _world_aabb(unit)
 	if box.size.x < 0.0001 or box.size.z < 0.0001:
 		return
-	var k_width := _target_width() / box.size.x
-	var k_len := _max_length_z() / box.size.z
+	var k_width: float = _target_width() / box.size.x
+	var k_len: float = _max_length_z() / box.size.z
 	unit.scale = unit.scale * minf(k_width, k_len)
 
 
 func _pin_bow_to_belt() -> void:
-	var expand := float(DataStore.visual.get("titan_berth_belt_expand", 1.5))
-	var center := _belt_box.get_center()
-	var half := _belt_box.size * 0.5 * expand
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var expand: float = TypedVariant.as_float(v.get("titan_berth_belt_expand", 1.5), 1.5)
+	var center: Vector3 = _belt_box.get_center()
+	var half: Vector3 = _belt_box.size * 0.5 * expand
 	pin_box = AABB(center - half, half * 2.0)
 	position = Vector3.ZERO
-	var hull := _world_aabb(unit)
-	var hull_center := hull.get_center()
+	var hull: AABB = _world_aabb(unit)
+	var hull_center: Vector3 = hull.get_center()
 	## Prefer belt-band Y, then clamp so hull top stays under the deck.
-	var y := float(DataStore.visual.get("titan_berth_y", center.y))
+	var y: float = TypedVariant.as_float(v.get("titan_berth_y", center.y), center.y)
 	## Home: bow (−Z face) tangent to player-side (+Z) wall of expanded box.
 	## Rival: bow (+Z face) tangent to AI-side (−Z) wall.
 	var bow_z: float
@@ -228,11 +234,12 @@ func _sink_below_deck() -> void:
 	## Hard constraint: hull AABB top ≤ deck_y − clearance (MULTIPLAYER_PVP §2.4a).
 	if unit == null or not is_instance_valid(unit):
 		return
-	var clearance := float(DataStore.visual.get("titan_berth_deck_clearance", 0.35))
-	var deck_y := float(DataStore.visual.get("board_center_y", 0.0))
-	var hull := _world_aabb(unit)
-	var top := hull.position.y + hull.size.y
-	var max_top := deck_y - clearance
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var clearance: float = TypedVariant.as_float(v.get("titan_berth_deck_clearance", 0.35), 0.35)
+	var deck_y: float = TypedVariant.as_float(v.get("board_center_y", 0.0), 0.0)
+	var hull: AABB = _world_aabb(unit)
+	var top: float = hull.position.y + hull.size.y
+	var max_top: float = deck_y - clearance
 	if top > max_top:
 		position.y -= (top - max_top)
 
@@ -247,9 +254,13 @@ func _attach_tonnage_badge() -> void:
 	add_child(_tonnage_overlay_root)
 	_tonnage_overlay_root.top_level = true
 
-	var set_key := "fleet" if home_side else "enemy"
+	var set_key: String = "fleet" if home_side else "enemy"
 	var set_tex: Dictionary = UiAssets.tonnage_overlay_set(set_key)
-	var bg_tex: Texture2D = set_tex.get("bg")
+	var bg_v: Variant = set_tex.get("bg")
+	var bg_tex: Texture2D = null
+	if bg_v is Texture2D:
+		@warning_ignore("unsafe_cast")
+		bg_tex = bg_v as Texture2D
 	if bg_tex:
 		_tonnage_bg = _make_tonnage_sprite(bg_tex, OVERLAY_BG_WORLD_SIZE, 19, "TonnageBackground")
 		_tonnage_bg.position = Vector3(0, 0, 0.02)
@@ -259,7 +270,11 @@ func _attach_tonnage_badge() -> void:
 	_tonnage_badge.position = Vector3(0, 0, 0.04)
 	_tonnage_overlay_root.add_child(_tonnage_badge)
 
-	var tag_tex: Texture2D = set_tex.get("badge")
+	var tag_v: Variant = set_tex.get("badge")
+	var tag_tex: Texture2D = null
+	if tag_v is Texture2D:
+		@warning_ignore("unsafe_cast")
+		tag_tex = tag_v as Texture2D
 	if tag_tex:
 		_tonnage_tag = _make_tonnage_sprite(tag_tex, OVERLAY_TAG_WORLD_SIZE, 21, "TonnageCornerBadge")
 		## Overlay root faces the camera; local -X/-Y is screen right/bottom.
@@ -269,11 +284,11 @@ func _attach_tonnage_badge() -> void:
 
 
 func _make_tonnage_sprite(tex: Texture2D, world_size: float, priority: int, node_name: String) -> Sprite3D:
-	var spr := Sprite3D.new()
+	var spr: Sprite3D = Sprite3D.new()
 	spr.name = node_name
 	spr.texture = tex
 	spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	var longest := float(maxi(tex.get_width(), tex.get_height()))
+	var longest: float = float(maxi(tex.get_width(), tex.get_height()))
 	spr.pixel_size = world_size / maxf(longest, 1.0)
 	spr.centered = true
 	spr.shaded = false
@@ -286,9 +301,11 @@ func _make_tonnage_sprite(tex: Texture2D, world_size: float, priority: int, node
 func _place_tonnage_badge() -> void:
 	if _tonnage_overlay_root == null or not is_instance_valid(_tonnage_overlay_root):
 		return
-	var margin := float(DataStore.visual.get("titan_badge_stern_margin", 4.0))
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var margin: float = TypedVariant.as_float(v.get("titan_badge_stern_margin", 4.0), 4.0)
 	_tonnage_overlay_root.global_position = stern_top_point() + Vector3.UP * margin
-	var cam := get_viewport().get_camera_3d() if get_viewport() else null
+	var vp: Viewport = get_viewport()
+	var cam: Camera3D = vp.get_camera_3d() if vp else null
 	if cam and cam.global_position.distance_squared_to(_tonnage_overlay_root.global_position) > 0.0001:
 		_tonnage_overlay_root.look_at(cam.global_position, Vector3.UP)
 
@@ -305,7 +322,7 @@ func _clear_tonnage_badge() -> void:
 	_tonnage_bg = null
 	_tonnage_badge = null
 	_tonnage_tag = null
-	var old := get_node_or_null("TonnageOverlay")
+	var old: Node = get_node_or_null("TonnageOverlay")
 	if old:
 		old.queue_free()
 
@@ -313,13 +330,14 @@ func _clear_tonnage_badge() -> void:
 func _attach_key_light() -> void:
 	if get_node_or_null("BerthLight"):
 		return
-	var energy := float(DataStore.visual.get("titan_berth_light_energy", 2.4))
+	var v: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var energy: float = TypedVariant.as_float(v.get("titan_berth_light_energy", 2.4), 2.4)
 	if energy <= 0.001:
 		return
-	var light := OmniLight3D.new()
+	var light: OmniLight3D = OmniLight3D.new()
 	light.name = "BerthLight"
 	light.light_energy = energy
-	light.omni_range = float(DataStore.visual.get("titan_berth_light_range", 34.0))
+	light.omni_range = TypedVariant.as_float(v.get("titan_berth_light_range", 34.0), 34.0)
 	light.light_color = Color(0.95, 0.95, 1.0)
 	light.shadow_enabled = false
 	light.position = Vector3(0, 8.0, 6.0 if home_side else -6.0)
@@ -329,12 +347,12 @@ func _attach_key_light() -> void:
 func _world_aabb(root: Node3D) -> AABB:
 	if root == null or not is_instance_valid(root):
 		return AABB()
-	var out := AABB()
-	var first := true
-	for mi in _meshes(root):
+	var out: AABB = AABB()
+	var first: bool = true
+	for mi: MeshInstance3D in _meshes(root):
 		var box: AABB = mi.get_aabb()
-		var xf := mi.global_transform
-		for i in range(8):
+		var xf: Transform3D = mi.global_transform
+		for i: int in range(8):
 			var p: Vector3 = xf * box.get_endpoint(i)
 			if first:
 				out = AABB(p, Vector3.ZERO)
@@ -347,7 +365,8 @@ func _world_aabb(root: Node3D) -> AABB:
 func _meshes(node: Node) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
 	if node is MeshInstance3D:
+		@warning_ignore("unsafe_cast")
 		out.append(node as MeshInstance3D)
-	for c in node.get_children():
+	for c: Node in node.get_children():
 		out.append_array(_meshes(c))
 	return out

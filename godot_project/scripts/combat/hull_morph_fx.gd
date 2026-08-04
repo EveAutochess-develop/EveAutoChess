@@ -4,26 +4,26 @@
 class_name HullMorphFx
 extends Node3D
 
-const DEFAULT_START_CLIPS := ["StartSiege", "Normal2Siege", "start_siege", "normal2siege"]
-const DEFAULT_LOOP_CLIPS := ["SiegeLoop", "SiegeMode", "InSiegeMode", "siege_loop", "siege_mode"]
+const DEFAULT_START_CLIPS: Array[String] = ["StartSiege", "Normal2Siege", "start_siege", "normal2siege"]
+const DEFAULT_LOOP_CLIPS: Array[String] = ["SiegeLoop", "SiegeMode", "InSiegeMode", "siege_loop", "siege_mode"]
 
 
 var _ship: ShipUnit = null
-var _elapsed := 0.0
-var _duration := 10.0
-var _kind := "siege"
-var _done := false
-var _base_scale := Vector3.ONE
-var _base_model_rot := Vector3.ZERO
+var _elapsed: float = 0.0
+var _duration: float = 10.0
+var _kind: String = "siege"
+var _done: bool = false
+var _base_scale: Vector3 = Vector3.ONE
+var _base_model_rot: Vector3 = Vector3.ZERO
 var _model: Node3D = null
 var _ring: MeshInstance3D = null
 var _light: OmniLight3D = null
 var _sparks: CPUParticles3D = null
 var _anim: AnimationPlayer = null
-var _using_anim := false
-var _loop_clip := ""
+var _using_anim: bool = false
+var _loop_clip: String = ""
 var _addon: Node3D = null
-var _addon_base_scale := Vector3.ONE
+var _addon_base_scale: Vector3 = Vector3.ONE
 
 
 func play(ship: ShipUnit, kind: String = "siege", duration: float = 10.0) -> void:
@@ -53,12 +53,15 @@ func _process(delta: float) -> void:
 	if _ship == null or not is_instance_valid(_ship) or _ship.is_destroyed:
 		_finish(false)
 		return
-	var mul := 1.0
-	var root := get_tree().get_first_node_in_group("match_root")
+	var mul: float = 1.0
+	var root: Node = get_tree().get_first_node_in_group("match_root")
 	if root and root.get("match_ctrl"):
-		mul = float(root.match_ctrl.speed_multiplier)
+		var mc: Variant = root.get("match_ctrl")
+		if mc != null and mc is Object:
+			@warning_ignore("unsafe_cast")
+			mul = TypedVariant.as_float((mc as Object).get("speed_multiplier"), 1.0)
 	_elapsed += delta * mul
-	var t := clampf(_elapsed / _duration, 0.0, 1.0)
+	var t: float = clampf(_elapsed / _duration, 0.0, 1.0)
 	if _using_anim:
 		_tick_anim(t)
 	else:
@@ -69,42 +72,43 @@ func _process(delta: float) -> void:
 
 func _tick_anim(t: float) -> void:
 	if _anim and not _loop_clip.is_empty():
-		var cur := String(_anim.current_animation)
+		var cur: String = String(_anim.current_animation)
 		if cur != _loop_clip and not _anim.is_playing():
 			_anim.play(_loop_clip)
 	global_position = _ship.visual_center_world()
 	_ship.apply_hull_morph_emission(lerpf(0.08, 0.35, t), _kind)
 	if _addon:
 		_addon.visible = true
-		var a := lerpf(0.15, 1.0, t)
+		var a: float = lerpf(0.15, 1.0, t)
 		_addon.scale = _addon_base_scale * a
 
 
 func _tick_proxy(t: float, delta: float, mul: float) -> void:
 	## Slow open then settle (TQ Normal2Siege / StartSiege feel).
-	var open := sin(t * PI)
-	var settle := t * t * (3.0 - 2.0 * t)
+	var open: float = sin(t * PI)
+	var settle: float = t * t * (3.0 - 2.0 * t)
 	if _model:
 		if _kind == "industrial":
 			## Rorqual "stand up": pitch model toward upright (bow lifts).
-			var pitch := lerpf(0.0, -0.55, settle)  ## radians, nose up in Godot if −Z bow
+			var pitch: float = lerpf(0.0, -0.55, settle)  ## radians, nose up in Godot if −Z bow
 			_model.rotation = Vector3(_base_model_rot.x + pitch, _base_model_rot.y, _base_model_rot.z)
-			var stretch := 1.0 + open * 0.06
+			var stretch: float = 1.0 + open * 0.06
 			_model.scale = Vector3(_base_scale.x * stretch, _base_scale.y * (1.0 + settle * 0.12), _base_scale.z * stretch)
 		else:
-			var stretch2 := 1.0 + open * 0.12
-			var flatten := 1.0 - open * 0.04
+			var stretch2: float = 1.0 + open * 0.12
+			var flatten: float = 1.0 - open * 0.04
 			_model.scale = Vector3(_base_scale.x * stretch2, _base_scale.y * flatten, _base_scale.z * stretch2)
 	if _addon:
 		_addon.visible = true
-		var ascl := lerpf(0.05, 1.0, settle)
+		var ascl: float = lerpf(0.05, 1.0, settle)
 		_addon.scale = _addon_base_scale * ascl
 	global_position = _ship.visual_center_world()
 	if _ring:
 		_ring.rotation.y += delta * mul * (1.2 + open * 2.0)
-		var rs := lerpf(0.55, 1.35, settle) * (1.0 + open * 0.25)
+		var rs: float = lerpf(0.55, 1.35, settle) * (1.0 + open * 0.25)
 		_ring.scale = Vector3(rs, rs, rs)
-		var mat := _ring.material_override as StandardMaterial3D
+		@warning_ignore("unsafe_cast")
+		var mat: StandardMaterial3D = _ring.material_override as StandardMaterial3D
 		if mat:
 			mat.albedo_color.a = lerpf(0.15, 0.75, open) * (1.0 - settle * 0.35)
 			mat.emission_energy_multiplier = lerpf(1.2, 4.5, open)
@@ -142,10 +146,10 @@ func _finish(completed: bool) -> void:
 func _try_start_state_machine() -> bool:
 	if _anim == null:
 		return false
-	var cfg := _load_hull_morph_cfg()
-	var starts: Array = cfg.get("start_clips", DEFAULT_START_CLIPS)
-	var loops: Array = cfg.get("loop_clips", DEFAULT_LOOP_CLIPS)
-	var start_name := _first_existing_clip(starts)
+	var cfg: Dictionary = _load_hull_morph_cfg()
+	var starts: Array = TypedVariant.as_array(cfg.get("start_clips", DEFAULT_START_CLIPS))
+	var loops: Array = TypedVariant.as_array(cfg.get("loop_clips", DEFAULT_LOOP_CLIPS))
+	var start_name: String = _first_existing_clip(starts)
 	_loop_clip = _first_existing_clip(loops)
 	if start_name.is_empty() and _loop_clip.is_empty():
 		return false
@@ -163,14 +167,14 @@ func _try_start_state_machine() -> bool:
 func _first_existing_clip(names: Array) -> String:
 	if _anim == null:
 		return ""
-	for n in names:
-		var s := str(n)
+	for n: Variant in names:
+		var s: String = str(n)
 		if s.is_empty():
 			continue
 		if _anim.has_animation(s):
 			return s
 		## Godot 4 libraries: animation names may be library/clip.
-		for lib_name in _anim.get_animation_library_list():
+		for lib_name: StringName in _anim.get_animation_library_list():
 			var lib: AnimationLibrary = _anim.get_animation_library(lib_name)
 			if lib and lib.has_animation(s):
 				return "%s/%s" % [lib_name, s] if not str(lib_name).is_empty() else s
@@ -181,9 +185,11 @@ func _find_animation_player(root: Node) -> AnimationPlayer:
 	if root == null:
 		return null
 	if root is AnimationPlayer:
+		@warning_ignore("unsafe_cast")
 		return root as AnimationPlayer
-	var direct := root.find_child("AnimationPlayer", true, false)
+	var direct: Node = root.find_child("AnimationPlayer", true, false)
 	if direct is AnimationPlayer:
+		@warning_ignore("unsafe_cast")
 		return direct as AnimationPlayer
 	return null
 
@@ -191,8 +197,10 @@ func _find_animation_player(root: Node) -> AnimationPlayer:
 func _resolve_addon() -> void:
 	if _model == null:
 		return
+	@warning_ignore("unsafe_cast")
 	_addon = _model.get_node_or_null("SiegeAddon") as Node3D
 	if _addon == null:
+		@warning_ignore("unsafe_cast")
 		_addon = _model.find_child("SiegeAddon", true, false) as Node3D
 	if _addon == null:
 		return
@@ -204,18 +212,18 @@ func _resolve_addon() -> void:
 func _load_hull_morph_cfg() -> Dictionary:
 	if _ship == null or DataStore == null:
 		return {}
-	var key := str(DataStore.get_ship(_ship.ship_id).get("model_key", ""))
+	var key: String = str(DataStore.get_ship(_ship.ship_id).get("model_key", ""))
 	if key.is_empty():
 		return {}
-	var path := "res://assets/models/ships/%s/hull_morph.json" % key
+	var path: String = "res://assets/models/ships/%s/hull_morph.json" % key
 	if not FileAccess.file_exists(path):
 		return {}
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
-	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	return TypedVariant.as_dict(parsed)
 
 
 func _build_proxy_fx() -> void:
-	var col := Color(1.0, 0.45, 0.18, 0.7) if _kind != "industrial" else Color(0.35, 0.95, 0.55, 0.7)
+	var col: Color = Color(1.0, 0.45, 0.18, 0.7) if _kind != "industrial" else Color(0.35, 0.95, 0.55, 0.7)
 	top_level = true
 	if _ship:
 		global_position = _ship.visual_center_world()
@@ -230,7 +238,7 @@ func _build_proxy_fx() -> void:
 
 	_ring = MeshInstance3D.new()
 	_ring.name = "MorphRing"
-	var tor := TorusMesh.new()
+	var tor: TorusMesh = TorusMesh.new()
 	tor.inner_radius = 0.65
 	tor.outer_radius = 1.45
 	tor.rings = 14
@@ -259,7 +267,7 @@ func _build_proxy_fx() -> void:
 
 
 func _mat(color: Color, emission_e: float, billboard: bool = false) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD

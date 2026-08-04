@@ -2,14 +2,14 @@ extends Node3D
 class_name CynoChannelFx
 ## Covert cyno activation VFX (EVE cyno glow textures). Follows a ship in world space.
 
-const SOFT := "res://assets/vfx/cyno/cynojammerglow_g.png"
-const CONE := "res://assets/vfx/cyno/cynoconegradient_01.png"
-const ICON := "res://assets/vfx/cyno/effectcyno.png"
-const FALLBACK_SOFT := "res://assets/vfx/cyno/cyno_soft.png"
-const FALLBACK_CONE := "res://assets/vfx/cyno/cyno_cone.png"
+const SOFT: String = "res://assets/vfx/cyno/cynojammerglow_g.png"
+const CONE: String = "res://assets/vfx/cyno/cynoconegradient_01.png"
+const ICON: String = "res://assets/vfx/cyno/effectcyno.png"
+const FALLBACK_SOFT: String = "res://assets/vfx/cyno/cyno_soft.png"
+const FALLBACK_CONE: String = "res://assets/vfx/cyno/cyno_cone.png"
 
 var follow: Node3D = null
-var _spin := 0.0
+var _spin: float = 0.0
 
 
 func setup(follow_ship: Node3D) -> void:
@@ -22,7 +22,7 @@ func setup(follow_ship: Node3D) -> void:
 func _process(delta: float) -> void:
 	_spin += delta * 1.2
 	_sync_pos()
-	var ring := get_node_or_null("CynoRingQuad") as Node3D
+	var ring: Node3D = get_node_or_null("CynoRingQuad") as Node3D
 	if ring:
 		ring.rotation.y = _spin
 
@@ -35,11 +35,11 @@ func _sync_pos() -> void:
 
 
 func _build() -> void:
-	var soft := _tex(SOFT, FALLBACK_SOFT)
-	var cone := _tex(CONE, FALLBACK_CONE)
-	var icon := _tex(ICON, FALLBACK_SOFT)
+	var soft: Texture2D = _tex(SOFT, FALLBACK_SOFT)
+	var cone: Texture2D = _tex(CONE, FALLBACK_CONE)
+	var icon: Texture2D = _tex(ICON, FALLBACK_SOFT)
 
-	var light := OmniLight3D.new()
+	var light: OmniLight3D = OmniLight3D.new()
 	light.name = "CynoLight"
 	light.light_color = Color(0.4, 0.85, 1.0)
 	light.light_energy = 4.0
@@ -48,9 +48,9 @@ func _build() -> void:
 	add_child(light)
 
 	## Vertical beam — always visible even if particles fail.
-	var beam := MeshInstance3D.new()
+	var beam: MeshInstance3D = MeshInstance3D.new()
 	beam.name = "CynoBeam"
-	var cyl := CylinderMesh.new()
+	var cyl: CylinderMesh = CylinderMesh.new()
 	cyl.top_radius = 0.12
 	cyl.bottom_radius = 0.85
 	cyl.height = 5.5
@@ -60,9 +60,9 @@ func _build() -> void:
 	add_child(beam)
 
 	## Ground glow disc.
-	var disc := MeshInstance3D.new()
+	var disc: MeshInstance3D = MeshInstance3D.new()
 	disc.name = "CynoDisc"
-	var plane := QuadMesh.new()
+	var plane: QuadMesh = QuadMesh.new()
 	plane.size = Vector2(3.2, 3.2)
 	disc.mesh = plane
 	disc.rotation_degrees = Vector3(-90, 0, 0)
@@ -71,9 +71,9 @@ func _build() -> void:
 	add_child(disc)
 
 	## Spinning ring billboard (XZ).
-	var ring := MeshInstance3D.new()
+	var ring: MeshInstance3D = MeshInstance3D.new()
 	ring.name = "CynoRingQuad"
-	var rq := QuadMesh.new()
+	var rq: QuadMesh = QuadMesh.new()
 	rq.size = Vector2(2.4, 2.4)
 	ring.mesh = rq
 	ring.rotation_degrees = Vector3(-90, 0, 0)
@@ -82,7 +82,7 @@ func _build() -> void:
 	add_child(ring)
 
 	## Rising sparks.
-	var column := CPUParticles3D.new()
+	var column: CPUParticles3D = CPUParticles3D.new()
 	column.name = "CynoColumn"
 	column.amount = 36
 	column.lifetime = 1.4
@@ -102,7 +102,7 @@ func _build() -> void:
 
 
 func _add_mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = false) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -120,11 +120,11 @@ func _add_mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool =
 
 func _tex(primary: String, fallback: String) -> Texture2D:
 	if ResourceLoader.exists(primary):
-		var t := load(primary)
+		var t: Variant = load(primary)
 		if t is Texture2D:
 			return t
 	if ResourceLoader.exists(fallback):
-		var t2 := load(fallback)
+		var t2: Variant = load(fallback)
 		if t2 is Texture2D:
 			return t2
 	return null
