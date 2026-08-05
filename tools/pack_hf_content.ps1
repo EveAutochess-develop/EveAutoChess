@@ -82,7 +82,7 @@ foreach ($def in $packDefs) {
   $manifestFiles += $entry
 }
 
-$ver = "202608.4.5"
+$ver = "202608.6.2"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{

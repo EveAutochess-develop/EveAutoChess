@@ -27,6 +27,9 @@ var _copy_key_btn: Button
 var _copy_share_btn: Button
 var _ships_lbl: Label
 var _mobile_cap: int = 20
+var _urge_count: int = 0
+var _urge_until_ms: int = 0
+var _urge_holding: bool = false
 
 func setup(net: NullsecNetSession) -> void:
 	session = net
@@ -162,15 +165,16 @@ func _build() -> void:
 	_ready_btn.text = "准备好了"
 	_ready_btn.pressed.connect(_toggle_ready)
 	bar.add_child(_ready_btn)
+	var leave: Button = Button.new()
+	leave.text = "离开房间"
+	leave.pressed.connect(func() -> void: leave_room.emit())
+	bar.add_child(leave)
 	_wait_lbl = Label.new()
 	_wait_lbl.name = "ReadyWait"
 	_wait_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_wait_lbl.modulate = Color(0.75, 0.82, 0.9, 1.0)
 	bar.add_child(_wait_lbl)
-	var leave: Button = Button.new()
-	leave.text = "离开房间"
-	leave.pressed.connect(func() -> void: leave_room.emit())
-	bar.add_child(leave)
+	set_process(true)
 
 func _code_text() -> String:
 	if session == null:
@@ -302,8 +306,31 @@ func _on_lobby_notice(message: String) -> void:
 
 
 func _on_urge_prepare() -> void:
-	if _wait_lbl:
+	if _wait_lbl == null:
+		return
+	var now: int = Time.get_ticks_msec()
+	if _urge_holding and now < _urge_until_ms:
+		_urge_count += 1
+	else:
+		_urge_count = 1
+	_urge_holding = true
+	_urge_until_ms = now + 3000
+	if _urge_count <= 1:
 		_wait_lbl.text = "房主催促准备"
+	else:
+		_wait_lbl.text = "房主催促准备*%d" % _urge_count
+
+
+func _process(_delta: float) -> void:
+	if not _urge_holding:
+		return
+	if Time.get_ticks_msec() < _urge_until_ms:
+		return
+	_urge_holding = false
+	_urge_count = 0
+	_urge_until_ms = 0
+	if session != null:
+		_refresh_wait_label(session.seats)
 
 
 func _make_seat_cell(idx: int) -> PanelContainer:
@@ -483,7 +510,14 @@ func _on_seats(seats: Array) -> void:
 			mark = "观"
 		var ai: String = " [人机]" if is_ai else ""
 		var ghost: String = "（分身）" if TypedVariant.as_bool(s.get("ghost", false), false) else ""
-		nick.text = "%s%s%s %s" % [str(s.get("nick", "")), ai, ghost, mark]
+		var raw_nick: String = str(s.get("nick", ""))
+		var shown: String = NickCodec.display_short(raw_nick)
+		var rtt: int = TypedVariant.as_int(s.get("rtt_ms", -1), -1)
+		var rtt_s: String = ""
+		if not is_ai:
+			rtt_s = " —" if rtt < 0 else (" %dms" % rtt)
+		nick.text = "%s%s%s%s %s" % [shown, rtt_s, ai, ghost, mark]
+		nick.tooltip_text = NickCodec.tooltip_full(raw_nick)
 		var sel: int = _opt_index_from_race(race)
 		opt.set_block_signals(true)
 		opt.select(sel)
@@ -564,7 +598,7 @@ func _refresh_wait_label(seats: Array) -> void:
 func _on_ships_mismatch(host_hash: String) -> void:
 	if _ships_lbl == null:
 		return
-	_ships_lbl.text = "全舰船数据与房主不一致（房主 %s）· 进入对局后将临时应用房主舰船数据" % host_hash.substr(0, 8)
+	_ships_lbl.text = "全舰船数据与房主不一致（房主 %s）· 进入对局后将临时使用（不覆盖本地）" % host_hash.substr(0, 8)
 	_ships_lbl.visible = true
 
 

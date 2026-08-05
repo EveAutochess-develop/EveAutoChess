@@ -23,15 +23,52 @@ func pending_count() -> int:
 func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int) -> int:
 	_serial += 1
 	var seeds: Dictionary = match_rng.begin_battle(_serial) if match_rng else {}
+	var deputy: int = pick_deputy_seat(
+		int(match_rng.match_seed) if match_rng else 0,
+		_serial,
+		seat_a,
+		seat_b,
+		false,
+		false
+	)
 	_pending.append({
 		"serial": _serial,
 		"kind": "pvp",
 		"seat_a": seat_a,
 		"seat_b": seat_b,
 		"home_seat": home_seat,
+		"deputy_seat": deputy,
 		"seeds": seeds,
 	})
+	NetSessionDebug.log_event(
+		"net.deputy.pick",
+		"serial=%d a=%d b=%d deputy=%d" % [_serial, seat_a, seat_b, deputy]
+	)
 	return _serial
+
+
+## SEMI_ASYNC §3.2 — deterministic deputy from the two combatant seats.
+static func pick_deputy_seat(
+	match_seed: int,
+	round_or_serial: int,
+	seat_a: int,
+	seat_b: int,
+	a_is_ai: bool = false,
+	b_is_ai: bool = false
+) -> int:
+	if a_is_ai and not b_is_ai:
+		return seat_b
+	if b_is_ai and not a_is_ai:
+		return seat_a
+	if a_is_ai and b_is_ai:
+		return -1 ## Room host must simulate.
+	var lo: int = mini(seat_a, seat_b)
+	var hi: int = maxi(seat_a, seat_b)
+	var key: String = "%d|deputy|%d|%d|%d" % [match_seed, round_or_serial, lo, hi]
+	var h: int = hash(key)
+	if h < 0:
+		h = -h
+	return lo if (h % 2) == 0 else hi
 
 
 func enqueue_pve(seat: int, task: String) -> int:
@@ -82,9 +119,22 @@ func _simulate_job(job: Dictionary) -> Dictionary:
 		"kind": kind,
 		"result": result,
 		"job": job,
+		"deputy_seat": TypedVariant.as_int(job.get("deputy_seat", -1), -1),
 		"state_hash": "%08x" % hash("%s:%s:%.4f:%.4f" % [kind, result, roll_a, roll_b]),
 		"spot_sample": [{"kind": kind, "a": roll_a, "b": roll_b}],
 	}
+
+
+## Opponent / host short check before ingesting deputy report (no silent cheat).
+static func rival_spot_check(report: Dictionary, local_hash: String, local_result: String) -> Dictionary:
+	var rh: String = str(report.get("state_hash", ""))
+	var rr: String = str(report.get("result", ""))
+	var gap: bool = false
+	if local_hash != "" and rh != "" and local_hash != rh:
+		gap = true
+	if local_result != "" and rr != "" and local_result != rr:
+		gap = true
+	return {"gap": gap, "report_hash": rh, "local_hash": local_hash}
 
 
 func flush_round() -> Array:

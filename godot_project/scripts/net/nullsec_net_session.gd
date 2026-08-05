@@ -15,7 +15,11 @@ signal ships_mismatch(host_hash: String)
 signal ships_override_applied(mid_match: bool)
 ## SEMI_ASYNC §3 authority stream (combat + spectate).
 signal authority_snapshot_received(snap: Dictionary)
+## SEMI_ASYNC §3.3B — light pos/lock/fire·repair @ ~0.2s.
+signal authority_light_received(pkt: Dictionary)
 signal battle_report_received(report: Dictionary)
+## SEMI_ASYNC §3.1a — host Battle ended; watch peers must force-complete.
+signal battle_ended_received(host_result: String, host_seat: int, reason: String)
 signal anticheat_notice_received(message: String)
 ## SEMI_ASYNC §5.3a — rejoin / host migrate.
 signal host_migrated(generation: int, new_host_seat: int)
@@ -31,6 +35,14 @@ signal prepare_clock_armed_changed(armed: bool)
 signal enter_battle_released()
 signal urge_prepare_received()
 signal lobby_notice(message: String)
+## SEMI_ASYNC §4.5 — any seat finished this round → remaining battles 4× + wall-clock draw.
+signal seat_battle_finished(seat: int)
+## MULTIPLAYER_PVP §7 — combined end-of-match report (settlement rows + §7.1 titles).
+signal match_report_received(report: Dictionary)
+## SEMI_ASYNC §4.5 — speed vote from a seat (after host validation).
+signal speed_vote_received(seat: int, speed: float)
+## MULTIPLAYER_PVP §6 — host-authoritative doomsday play cue.
+signal doomsday_play_received(attacker_seat: int, loser_seat: int, logic_tick: int)
 
 ## Discovery / announce port (SEMI_ASYNC §7.5 LAN). Game listen = BASE_PORT + code.
 const BASE_PORT: int = 24567
@@ -76,6 +88,9 @@ var pending_rejoin_seat: int = -1
 var pending_rejoin_secret: String = ""
 var _migrating: bool = false
 var _ticket_heartbeat_acc: float = 0.0
+var _probe_acc: float = 0.0
+var _rtt_ui_acc: float = 0.0
+var _probe_sent_msec: int = 0
 var _peer: ENetMultiplayerPeer = null
 var _listen_port: int = 0
 var _beacon: LanBeacon = null
@@ -87,14 +102,33 @@ var _fleet_push_log_n: int = -1
 var _fleet_push_log_msec: int = 0
 ## First-prepare spend gate (host authority).
 var prepare_clock_armed: bool = true
+## R1 first-spend gate open (MATCH_FLOW §2.1) — pulse must not force-arm while true.
+var _prepare_spend_gate_open: bool = false
 var _prepare_spent_seats: Dictionary = {}
 ## SEMI_ASYNC §3.0a stage barriers (host authority).
 var _battle_done_seats: Dictionary = {}
 var _prepare_done_seats: Dictionary = {}
 var _battle_done_gate_open: bool = false
 var _prepare_done_gate_open: bool = false
+## Guest: prepare_done rejected while clock frozen → retry after arm.
+var _pending_prepare_done_report: bool = false
+## Guest: already RPC'd prepare_done this clock (avoid HOLD spam); cleared on arm.
+var _local_prep_done_sent: bool = false
+## Host: prep_done arrived before clock armed → flush on arm.
+var _early_prep_done_seats: Dictionary = {}
+## Seats that finished battle this round — prepare→battle barrier cohort only.
+var _sync_cohort: PackedInt32Array = PackedInt32Array()
+var _barrier_diag_acc: float = 0.0
+## Wall clock while battle_done / prep_done gate open (SEMI_ASYNC §3.0a pulse escape).
+var _barrier_open_wall_ms: int = 0
+const BARRIER_FORCE_ESCAPE_MS: int = 20000
+## §7 end-of-match report collection (host authority; solo/no-peer emits immediately).
+var _match_report_gate_open: bool = false
+var _match_report_seats: Dictionary = {}
+var _match_report_summaries: Dictionary = {}
 ## Voluntary host transfer (lobby).
 var _pending_transfer_seat: int = -1
+var _kicked_local: bool = false
 var _pending_transfer_gen: int = 0
 
 
@@ -160,6 +194,18 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_probe_acc += delta
+	_rtt_ui_acc += delta
+	if multiplayer and multiplayer.has_multiplayer_peer() and _probe_acc >= 1.0:
+		_probe_acc = 0.0
+		_send_probe()
+	## SEMI_ASYNC §3.0a — while stuck on barrier, emit mp.barrier every 2s.
+	if is_host and needs_stage_barrier() and (_battle_done_gate_open or _prepare_done_gate_open):
+		_barrier_diag_acc += delta
+		if _barrier_diag_acc >= 2.0:
+			_barrier_diag_acc = 0.0
+			var phase: String = "prep_done" if _prepare_done_gate_open else "battle_done"
+			_log_barrier_state(phase, _barrier_missing_now(phase))
 	if not match_started or _migrating:
 		return
 	_ticket_heartbeat_acc += delta
@@ -184,6 +230,7 @@ func _init_empty_seats() -> void:
 			"platform": "",
 			"endpoint_ip": "",
 			"endpoint_port": 0,
+			"rtt_ms": -1,
 		})
 
 
@@ -376,6 +423,10 @@ func _on_connected_to_server() -> void:
 
 
 func _on_server_disconnected() -> void:
+	if _kicked_local:
+		_kicked_local = false
+		rejected.emit("kicked")
+		return
 	if _pending_transfer_seat >= 0:
 		var hip: String = last_known_host_ip
 		var hport: int = port_for_code(room_code)
@@ -397,6 +448,15 @@ func _on_server_disconnected() -> void:
 		_begin_host_migration()
 	else:
 		rejected.emit("server disconnected")
+
+
+@rpc("authority", "reliable")
+func rpc_you_were_kicked() -> void:
+	## Host eject — must not take host-migration path (MULTIPLAYER_MATCH_FLOW §2.1a).
+	_kicked_local = true
+	rejected.emit("kicked")
+	if multiplayer.has_multiplayer_peer():
+		multiplayer.multiplayer_peer = null
 
 
 @rpc("any_peer", "reliable")
@@ -577,21 +637,26 @@ func _occupy_seat(seat: int, nick: String, peer_id: int, is_ai: bool) -> void:
 	if row.is_empty():
 		return
 	row["occupied"] = true
-	row["nick"] = nick
+	row["nick"] = NickCodec.sanitize(nick) if is_ai else NickCodec.decode_from_wire(NickCodec.encode_for_wire(nick))
 	row["peer_id"] = peer_id
 	row["is_ai"] = is_ai
 	row["ready"] = false
 	row["titan_race"] = ""
 	row["ghost"] = false
+	row["rtt_ms"] = 0 if (multiplayer and peer_id == multiplayer.get_unique_id()) else (-1 if not is_ai else -1)
 	if not row.has("platform"):
 		row["platform"] = ""
 	if not row.has("endpoint_ip"):
 		row["endpoint_ip"] = ""
 	if not row.has("endpoint_port"):
 		row["endpoint_port"] = 0
+	NetSessionDebug.log_event(
+		"net.seat.occupy",
+		"seat=%d nick=%s peer=%d ai=%s" % [seat, NickCodec.display_short(str(row["nick"])), peer_id, is_ai]
+	)
 
 
-func add_ai_player(nick: String = "人机玩家") -> bool:
+func add_ai_player(nick: String = "") -> bool:
 	if not is_host or match_started:
 		return false
 	## Lowsec: may still add seats; ready gate blocks start while >2 titans selected.
@@ -600,7 +665,10 @@ func add_ai_player(nick: String = "人机玩家") -> bool:
 	var seat: int = _first_free_seat()
 	if seat < 0:
 		return false
-	_occupy_seat(seat, nick, 0, true)
+	var use_nick: String = NickCodec.sanitize(nick)
+	if use_nick == "":
+		use_nick = EveStyleNameGenerator.roll()
+	_occupy_seat(seat, use_nick, 0, true)
 	_broadcast_seats()
 	return true
 
@@ -695,6 +763,7 @@ func kick_seat(seat: int) -> void:
 	_seat_row(seat)["titan_race"] = ""
 	_seat_row(seat)["ghost"] = false
 	if peer_id > 0 and multiplayer.has_multiplayer_peer() and _peer:
+		rpc_id(peer_id, "rpc_you_were_kicked")
 		_peer.disconnect_peer(peer_id)
 	_sync_lobby_ready_gates()
 	_broadcast_seats()
@@ -909,6 +978,24 @@ func _try_start() -> void:
 	}
 	match_started = true
 	last_match_payload = payload.duplicate(true)
+	## Opening pack (ships + seeds) with hash ACK path for lowsec confirm-chain logging.
+	var seeds_payload: Dictionary = {
+		"match_seed": seed_v,
+		"rules_hash": rules_hash,
+		"match_id": match_id,
+		"session_secret": session_secret,
+		"security_mode": security_mode,
+	}
+	var pack: Dictionary = OpeningPack.build(_authority_ships_table(), seeds_payload)
+	NetSessionDebug.log_pack("opening", {
+		"ships_hash": str(pack.get("ships_hash", "")),
+		"pack_hash": str(pack.get("pack_hash", "")),
+		"rules_hash": rules_hash,
+		"bytes": TypedVariant.as_int(pack.get("byte_len", 0), 0),
+		"security_mode": security_mode,
+	})
+	if is_lowsec(security_mode) and multiplayer.has_multiplayer_peer():
+		rpc("rpc_opening_pack", pack.get("bytes", PackedByteArray()), str(pack.get("pack_hash", "")))
 	## Ship table travels only on match entry, ahead of the start payload (§3.7 / 1A freeze).
 	rpc("rpc_ships_table", _authority_ships_table(), false)
 	match_loading.emit("正在通知各方开局", 0.18)
@@ -916,6 +1003,7 @@ func _try_start() -> void:
 	write_rejoin_ticket()
 	match_loading.emit("正在进入对局场景", 0.25)
 	match_start.emit(payload)
+	NetSessionDebug.log_event("net.match_start", "id=%s seed=%d mode=%s" % [match_id, seed_v, security_mode])
 
 
 ## Lobby-stage edit: guests only need the new digest, the table still waits for match entry.
@@ -1002,6 +1090,19 @@ func rpc_authority_snapshot(snap: Dictionary) -> void:
 	authority_snapshot_received.emit(snap)
 
 
+func broadcast_authority_light(pkt: Dictionary) -> void:
+	if not is_host or not multiplayer.has_multiplayer_peer():
+		return
+	rpc("rpc_authority_light", pkt)
+
+
+@rpc("authority", "reliable")
+func rpc_authority_light(pkt: Dictionary) -> void:
+	if is_host:
+		return
+	authority_light_received.emit(pkt)
+
+
 func broadcast_battle_report(report: Dictionary) -> void:
 	if not is_host or not multiplayer.has_multiplayer_peer():
 		return
@@ -1013,6 +1114,20 @@ func rpc_battle_report(report: Dictionary) -> void:
 	if is_host:
 		return
 	battle_report_received.emit(report)
+
+
+## SEMI_ASYNC §3.1a — authority seat finished Battle; watch peers end from this.
+func broadcast_battle_ended(host_result: String, host_seat: int, reason: String = "wipe") -> void:
+	if not is_host or not multiplayer.has_multiplayer_peer():
+		return
+	rpc("rpc_battle_ended", str(host_result), host_seat, str(reason))
+
+
+@rpc("authority", "reliable")
+func rpc_battle_ended(host_result: String, host_seat: int, reason: String) -> void:
+	if is_host:
+		return
+	battle_ended_received.emit(str(host_result), host_seat, str(reason))
 
 
 func broadcast_anticheat_notice(message: String) -> void:
@@ -1111,6 +1226,18 @@ func _score_local_ipv4(ip: String) -> int:
 		return -1
 	var a: int = int(parts[0])
 	var b: int = int(parts[1])
+	var c: int = int(parts[2])
+	var d: int = int(parts[3])
+	## Android emulator AndroidWifi peers 10.0.2.16–31 — reachable across AVDs (SEMI_ASYNC §7).
+	## eth0 10.0.2.15 is isolated NAT per AVD — never advertise it as the join endpoint.
+	if a == 10 and b == 0 and c == 2:
+		if d == 15:
+			return -1
+		if d >= 16 and d <= 31:
+			return 95
+	## Legacy -shared-net-id backplane 10.1.2.N
+	if a == 10 and b == 1 and c == 2 and d >= 1 and d <= 32:
+		return 90
 	if a == 192 and b == 168:
 		return 100
 	if a == 10:
@@ -1388,7 +1515,7 @@ func close() -> void:
 	room_has_password = false
 	_migrating = false
 	_ticket_heartbeat_acc = 0.0
-	DataStore.clear_host_ships_override()
+	DataStore.end_match_host_ships_material()
 	_init_empty_seats()
 
 
@@ -1466,10 +1593,11 @@ func rpc_request_prepare_fleet(seat: int) -> void:
 ## --- First-prepare spend clock ---
 
 func begin_prepare_spend_gate() -> void:
-	## R1 Prepare: freeze until all contestant seats spend once.
+	## R1 Prepare only: freeze until all contestant seats spend once.
 	## Clients only mirror freeze; host owns the set + arm broadcast.
 	## IMPORTANT: session default prepare_clock_armed=true — must NOT treat that as
 	## "already armed" or guests skip the gate and solo-run the timer (stuck async).
+	## MATCH_FLOW: never open spend-gate after battle_game_stage_count > 0 (caller must guard).
 	var has_peer: bool = multiplayer.has_multiplayer_peer()
 	print("[mp.diag] spend_gate_begin host=%s peer=%s local_seat=%d seats=%d armed_was=%s" % [
 		is_host, has_peer, local_seat, seats.size(), prepare_clock_armed
@@ -1480,6 +1608,7 @@ func begin_prepare_spend_gate() -> void:
 	)
 	## Always clear local arm first — only host rpc_prepare_clock_armed may re-arm peers.
 	prepare_clock_armed = false
+	_prepare_spend_gate_open = true
 	prepare_clock_armed_changed.emit(false)
 	if not is_host and has_peer:
 		print("[mp.diag] spend_gate_begin client freeze (await host arm)")
@@ -1562,22 +1691,151 @@ func _arm_prepare_clock() -> void:
 	if prepare_clock_armed:
 		return
 	prepare_clock_armed = true
+	_prepare_spend_gate_open = false
+	_barrier_open_wall_ms = 0
 	## New prepare clock → clear prior round's prepare-done marks.
 	_prepare_done_seats.clear()
 	_prepare_done_gate_open = false
+	_local_prep_done_sent = false
 	print("[mp.diag] net_clock_ARMED host=%s → rpc" % is_host)
 	SessionDiagnostics.log("mp.net_clock_armed", "host=%s" % is_host)
 	if is_host and multiplayer.has_multiplayer_peer():
 		rpc("rpc_prepare_clock_armed")
 	prepare_clock_armed_changed.emit(true)
+	## Flush prep_done that arrived while frozen (SEMI_ASYNC §3.0a 重报).
+	if is_host and not _early_prep_done_seats.is_empty():
+		var early: Array = _early_prep_done_seats.keys()
+		_early_prep_done_seats.clear()
+		begin_prepare_done_gate()
+		for s_v: Variant in early:
+			_mark_prepare_done(TypedVariant.as_int(s_v, -1))
+	if _pending_prepare_done_report:
+		_pending_prepare_done_report = false
+		call_deferred("report_local_prepare_done")
+
+
+func is_battle_done_gate_open() -> bool:
+	return _battle_done_gate_open
+
+
+func is_prepare_done_gate_open() -> bool:
+	return _prepare_done_gate_open
+
+
+func is_prepare_spend_gate_pending() -> bool:
+	## R1 first-spend freeze still open — pulse escape must NOT force-arm (MATCH_FLOW §2.1).
+	return _prepare_spend_gate_open and not prepare_clock_armed
+
+
+## SEMI_ASYNC §3.0a — wall-clock heal / force for prepare freeze & barrier deadlock.
+## Returns comma-joined action tags (empty if idle).
+## Never force-arms while R1 spend gate is still waiting for every contestant.
+func pulse_prepare_escape() -> String:
+	if not needs_stage_barrier():
+		_barrier_open_wall_ms = 0
+		return ""
+	var actions: PackedStringArray = PackedStringArray()
+	var now: int = Time.get_ticks_msec()
+	if prepare_clock_armed and _pending_prepare_done_report:
+		_pending_prepare_done_report = false
+		call_deferred("report_local_prepare_done")
+		actions.append("flush_pending_prep_done")
+	if is_host:
+		if _battle_done_gate_open:
+			_check_battle_done_ready()
+			actions.append("recheck_battle_done")
+		if _prepare_done_gate_open:
+			_check_prepare_done_ready()
+			actions.append("recheck_prep_done")
+		## Host stuck as sole missing prep_done while clock already armed.
+		if _prepare_done_gate_open and prepare_clock_armed and local_seat >= 0:
+			var miss: PackedStringArray = _barrier_missing_now("prep_done")
+			if miss.size() == 1 and miss[0] == str(local_seat):
+				_mark_prepare_done(local_seat)
+				actions.append("host_self_prep_done")
+	var gate_open: bool = _battle_done_gate_open or _prepare_done_gate_open
+	if gate_open:
+		if _barrier_open_wall_ms <= 0:
+			_barrier_open_wall_ms = now
+		elif is_host and now - _barrier_open_wall_ms >= BARRIER_FORCE_ESCAPE_MS:
+			_force_barrier_escape()
+			actions.append("force_barrier_escape")
+			_barrier_open_wall_ms = 0
+	else:
+		_barrier_open_wall_ms = 0
+	return ",".join(actions)
+
+
+## Host: clear stuck battle_done / prep_done and release (last-resort).
+func force_barrier_escape() -> void:
+	_force_barrier_escape()
+
+
+func _force_barrier_escape() -> void:
+	if not is_host:
+		return
+	print("[mp.diag] prep_pulse_escape FORCE barrier open_bd=%s open_pd=%s" % [
+		_battle_done_gate_open, _prepare_done_gate_open
+	])
+	SessionDiagnostics.log("mp.prep_pulse_escape", "force_barrier")
+	if _battle_done_gate_open:
+		for i: int in _iter_barrier_seats():
+			if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+				continue
+			_battle_done_seats[i] = true
+		_check_battle_done_ready()
+		if _battle_done_gate_open:
+			_battle_done_gate_open = false
+			_arm_prepare_clock()
+	if _prepare_done_gate_open:
+		for i: int in _iter_prepare_cohort():
+			if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+				continue
+			_prepare_done_seats[i] = true
+		_check_prepare_done_ready()
+		if _prepare_done_gate_open:
+			_prepare_done_gate_open = false
+			if multiplayer.has_multiplayer_peer():
+				rpc("rpc_enter_battle")
+			enter_battle_released.emit()
+
+
+## Host last-resort: force arm even if local net flag already true (re-emit to peers).
+## Forbidden while R1 spend gate still waits for first spends (MATCH_FLOW §2.1).
+func force_arm_prepare_clock_escape() -> void:
+	if not is_host:
+		return
+	if is_prepare_spend_gate_pending():
+		print("[mp.diag] prep_pulse_escape force_arm BLOCKED spend_gate")
+		SessionDiagnostics.log("mp.prep_pulse_escape", "force_arm_blocked_spend_gate")
+		return
+	print("[mp.diag] prep_pulse_escape force_arm was_armed=%s" % prepare_clock_armed)
+	SessionDiagnostics.log("mp.prep_pulse_escape", "force_arm")
+	_battle_done_gate_open = false
+	_barrier_open_wall_ms = 0
+	if prepare_clock_armed:
+		## Re-broadcast so guests that missed rpc_prepare_clock_armed catch up.
+		if multiplayer.has_multiplayer_peer():
+			rpc("rpc_prepare_clock_armed")
+		prepare_clock_armed_changed.emit(true)
+		if _pending_prepare_done_report:
+			_pending_prepare_done_report = false
+			call_deferred("report_local_prepare_done")
+		return
+	_arm_prepare_clock()
 
 
 @rpc("authority", "reliable")
 func rpc_prepare_clock_armed() -> void:
 	prepare_clock_armed = true
+	_prepare_spend_gate_open = false
+	_local_prep_done_sent = false
 	print("[mp.diag] rpc_prepare_clock_armed received")
 	SessionDiagnostics.log("mp.rpc_clock_armed", "")
 	prepare_clock_armed_changed.emit(true)
+	if _pending_prepare_done_report:
+		_pending_prepare_done_report = false
+		call_deferred("report_local_prepare_done")
 
 
 ## --- SEMI_ASYNC §3.0a: battle-done → prepare clock; prepare-done → enter battle ---
@@ -1603,10 +1861,153 @@ func _iter_contestant_seats() -> PackedInt32Array:
 	return out
 
 
+## Seats that must report for §3.0a barriers (excludes ghost / spectate / dead peers).
+func _iter_barrier_seats() -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	var peers: PackedInt32Array = PackedInt32Array()
+	if multiplayer.has_multiplayer_peer():
+		peers = multiplayer.get_peers()
+	var self_id: int = multiplayer.get_unique_id() if multiplayer.has_multiplayer_peer() else 0
+	for i: int in _iter_contestant_seats():
+		var row: Dictionary = _seat_row(i)
+		if TypedVariant.as_bool(row.get("is_ai", false), false):
+			## AI auto-marked; still listed so auto-mark path finds them.
+			out.append(i)
+			continue
+		if is_spectate_race(str(row.get("titan_race", ""))):
+			continue
+		var peer: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+		if peer <= 0:
+			## No live peer — do not block (orphaned / mid-migrate).
+			continue
+		if peer != self_id and peers.size() > 0 and not (peer in peers):
+			## Disconnected human — skip so 1v1/MVP cannot softlock.
+			continue
+		out.append(i)
+	return out
+
+
 func _auto_mark_ai_seats(into: Dictionary) -> void:
 	for i: int in _iter_contestant_seats():
 		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
 			into[i] = true
+
+
+func _auto_mark_inactive_barrier_seats(into: Dictionary) -> void:
+	## Mark everyone who must NOT block: AI + seats absent from barrier list.
+	_auto_mark_ai_seats(into)
+	var need: Dictionary = {}
+	for i: int in _iter_barrier_seats():
+		need[i] = true
+	for i: int in _iter_contestant_seats():
+		if not TypedVariant.as_bool(need.get(i, false), false):
+			into[i] = true
+
+
+func _iter_prepare_cohort() -> PackedInt32Array:
+	if _sync_cohort.is_empty():
+		return _iter_barrier_seats()
+	return _sync_cohort
+
+
+func _auto_mark_cohort_inactive(into: Dictionary) -> void:
+	_auto_mark_ai_seats(into)
+	var need: Dictionary = {}
+	for i: int in _iter_prepare_cohort():
+		need[i] = true
+	for i: int in _iter_contestant_seats():
+		if not TypedVariant.as_bool(need.get(i, false), false):
+			into[i] = true
+	## Also mark cohort seats whose peer dropped mid-prepare.
+	var peers: PackedInt32Array = PackedInt32Array()
+	if multiplayer.has_multiplayer_peer():
+		peers = multiplayer.get_peers()
+	var self_id: int = multiplayer.get_unique_id() if multiplayer.has_multiplayer_peer() else 0
+	for i: int in _iter_prepare_cohort():
+		var row: Dictionary = _seat_row(i)
+		if TypedVariant.as_bool(row.get("is_ai", false), false):
+			into[i] = true
+			continue
+		if TypedVariant.as_bool(row.get("ghost", false), false):
+			into[i] = true
+			continue
+		var peer: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+		if peer <= 0:
+			into[i] = true
+			continue
+		if peer != self_id and peers.size() > 0 and not (peer in peers):
+			into[i] = true
+
+
+func _cohort_csv() -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for i: int in _iter_prepare_cohort():
+		parts.append(str(i))
+	return ",".join(parts)
+
+
+func _barrier_missing_now(phase: String) -> PackedStringArray:
+	var missing: PackedStringArray = PackedStringArray()
+	var marks: Dictionary = _prepare_done_seats if phase == "prep_done" else _battle_done_seats
+	var seats_iter: PackedInt32Array = _iter_prepare_cohort() if phase == "prep_done" else _iter_barrier_seats()
+	for i: int in seats_iter:
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
+		if not TypedVariant.as_bool(marks.get(i, false), false):
+			missing.append(str(i))
+	return missing
+
+
+func _barrier_missing_nicks(phase: String) -> PackedStringArray:
+	var nicks: PackedStringArray = PackedStringArray()
+	for s: String in _barrier_missing_now(phase):
+		var seat: int = int(s) if s.is_valid_int() else -1
+		var row: Dictionary = _seat_row(seat)
+		var nick: String = NickCodec.display_short(str(row.get("nick", "")))
+		if nick == "" or nick == "?":
+			nick = "席%d" % seat
+		nicks.append(nick)
+	return nicks
+
+
+## HUD copy for prepare freeze / peer-hold (MATCH_FLOW §2.1).
+func barrier_wait_hud_text(phase: String) -> String:
+	var nicks: PackedStringArray = _barrier_missing_nicks(phase)
+	if nicks.is_empty():
+		return "等待对齐" if phase == "prep_done" else "等待开战钟"
+	var who: String = "、".join(nicks)
+	if phase == "battle_done":
+		return "等待 %s 结束战斗" % who
+	return "等待 %s" % who
+
+
+func _log_barrier_state(phase: String, missing: PackedStringArray) -> void:
+	var marked: PackedStringArray = PackedStringArray()
+	var peers_info: PackedStringArray = PackedStringArray()
+	var marks: Dictionary = _prepare_done_seats if phase == "prep_done" else _battle_done_seats
+	var seats_iter: PackedInt32Array = _iter_prepare_cohort() if phase == "prep_done" else _iter_barrier_seats()
+	for i: int in seats_iter:
+		var row: Dictionary = _seat_row(i)
+		peers_info.append("%d:p%d:ai%d:g%d" % [
+			i,
+			TypedVariant.as_int(row.get("peer_id", 0), 0),
+			1 if TypedVariant.as_bool(row.get("is_ai", false), false) else 0,
+			1 if TypedVariant.as_bool(row.get("ghost", false), false) else 0,
+		])
+		if TypedVariant.as_bool(marks.get(i, false), false):
+			marked.append(str(i))
+	var detail: String = "phase=%s host=%s armed=%s cohort=[%s] marked=[%s] missing=[%s] missing_nicks=[%s] seats=[%s]" % [
+		phase,
+		is_host,
+		prepare_clock_armed,
+		_cohort_csv(),
+		",".join(marked),
+		",".join(missing),
+		",".join(_barrier_missing_nicks(phase)),
+		";".join(peers_info),
+	]
+	print("[mp.barrier] %s" % detail)
+	SessionDiagnostics.log("mp.barrier", detail)
 
 
 func begin_battle_done_clock_gate() -> void:
@@ -1629,7 +2030,8 @@ func begin_battle_done_clock_gate() -> void:
 		return
 	_battle_done_gate_open = true
 	_battle_done_seats.clear()
-	_auto_mark_ai_seats(_battle_done_seats)
+	_sync_cohort = PackedInt32Array()
+	_auto_mark_inactive_barrier_seats(_battle_done_seats)
 	SessionDiagnostics.log("mp.battle_done_gate", "host_open")
 	_check_battle_done_ready()
 
@@ -1664,23 +2066,234 @@ func rpc_round_battle_done(seat: int) -> void:
 
 func _mark_battle_done(seat: int) -> void:
 	_battle_done_seats[seat] = true
+	## §4.5: notify every peer so remaining tables go 4× and start 2min wall clock.
+	if multiplayer.has_multiplayer_peer() and is_host:
+		rpc("rpc_seat_battle_finished", seat)
+	else:
+		seat_battle_finished.emit(seat)
 	_check_battle_done_ready()
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_seat_battle_finished(seat: int) -> void:
+	print("[mp.diag] seat_battle_finished seat=%d" % seat)
+	SessionDiagnostics.log("mp.seat_battle_finished", "seat=%d" % seat)
+	seat_battle_finished.emit(seat)
 
 
 func _check_battle_done_ready() -> void:
 	if not is_host or not _battle_done_gate_open:
 		return
+	_auto_mark_inactive_barrier_seats(_battle_done_seats)
 	var missing: PackedStringArray = PackedStringArray()
-	for i: int in _iter_contestant_seats():
+	for i: int in _iter_barrier_seats():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
 		if not TypedVariant.as_bool(_battle_done_seats.get(i, false), false):
 			missing.append(str(i))
+	_log_barrier_state("battle_done", missing)
 	if not missing.is_empty():
 		print("[mp.diag] battle_done_wait missing=[%s]" % ",".join(missing))
 		return
 	_battle_done_gate_open = false
-	print("[mp.diag] battle_done_ALL_READY -> arm clock")
-	SessionDiagnostics.log("mp.battle_done_all", "")
+	## Cohort for prepare→battle = seats that finished this battle (not whole room).
+	_sync_cohort = PackedInt32Array()
+	for i: int in _iter_barrier_seats():
+		if TypedVariant.as_bool(_battle_done_seats.get(i, false), false) \
+			or TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			_sync_cohort.append(i)
+	if _sync_cohort.is_empty():
+		for i: int in _iter_barrier_seats():
+			_sync_cohort.append(i)
+	print("[mp.diag] battle_done_ALL_READY -> arm clock cohort=[%s]" % _cohort_csv())
+	SessionDiagnostics.log("mp.barrier", "battle_done_all cohort=[%s]" % _cohort_csv())
 	_arm_prepare_clock()
+
+
+## --- MULTIPLAYER_PVP §7 end-of-match report (settlement rows + §7.1 titles) ---
+
+## Public entry point: submit this seat's own settlement summary (host stores it directly;
+## guest ships it to the host via RPC). Thin alias over `begin_match_report_collection` so
+## callers can read intent from the call site.
+func submit_local_match_summary(summary: Dictionary) -> void:
+	begin_match_report_collection(summary)
+
+
+## Every contestant submits its own local settlement summary; host stitches them into
+## one combined report and broadcasts it. Solo / no-live-peer tables have nothing to
+## collect, so they just emit locally right away.
+func begin_match_report_collection(local_summary: Dictionary) -> void:
+	if not needs_stage_barrier():
+		match_report_received.emit(NullsecSettlement.make_match_report(match_id, local_seat, [local_summary]))
+		return
+	if local_seat >= 0:
+		local_summary["seat_id"] = local_seat
+	if not is_host:
+		rpc_id(1, "rpc_seat_match_summary", local_summary)
+		return
+	if not _match_report_gate_open:
+		_match_report_gate_open = true
+		_match_report_seats.clear()
+		_match_report_summaries.clear()
+		_auto_mark_inactive_barrier_seats(_match_report_seats)
+		## Never let a dropped peer hang the settlement screen forever.
+		get_tree().create_timer(8.0).timeout.connect(_finish_match_report_collection, CONNECT_ONE_SHOT)
+	_ingest_match_summary(local_seat, local_summary)
+
+
+@rpc("any_peer", "reliable")
+func rpc_seat_match_summary(summary: Dictionary) -> void:
+	if not is_host:
+		return
+	var seat: int = TypedVariant.as_int(summary.get("seat_id", -1), -1)
+	var sender: int = multiplayer.get_remote_sender_id()
+	if seat < 0 or TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] match_summary REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	if not _match_report_gate_open:
+		_match_report_gate_open = true
+		_match_report_seats.clear()
+		_match_report_summaries.clear()
+		_auto_mark_inactive_barrier_seats(_match_report_seats)
+		get_tree().create_timer(8.0).timeout.connect(_finish_match_report_collection, CONNECT_ONE_SHOT)
+	_ingest_match_summary(seat, summary)
+
+
+func _ingest_match_summary(seat: int, summary: Dictionary) -> void:
+	if seat < 0:
+		return
+	_match_report_seats[seat] = true
+	_match_report_summaries[seat] = summary
+	_check_match_report_ready()
+
+
+func _check_match_report_ready() -> void:
+	if not is_host or not _match_report_gate_open:
+		return
+	for i: int in _iter_barrier_seats():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
+		if not TypedVariant.as_bool(_match_report_seats.get(i, false), false):
+			return
+	_finish_match_report_collection()
+
+
+func _finish_match_report_collection() -> void:
+	if not _match_report_gate_open:
+		return
+	_match_report_gate_open = false
+	var players: Array = []
+	var seen: Dictionary = {}
+	## Prefer live summaries; fill every contestant seat (AI / absent / disconnected).
+	for i: int in _iter_contestant_seats_including_ghosts():
+		var summary_v: Variant = _match_report_summaries.get(i, null)
+		if typeof(summary_v) == TYPE_DICTIONARY:
+			var s: Dictionary = summary_v
+			s["seat_id"] = i
+			players.append(s)
+			seen[i] = true
+			continue
+		players.append(_synthesize_absent_summary(i))
+		seen[i] = true
+	## Also keep any extra summaries that somehow weren't in contestant iter.
+	for seat_v: Variant in _match_report_summaries.keys():
+		var sid: int = TypedVariant.as_int(seat_v, -1)
+		if sid < 0 or TypedVariant.as_bool(seen.get(sid, false), false):
+			continue
+		players.append(_match_report_summaries[seat_v])
+	print("[mp.diag] match_report_ready players=%d" % players.size())
+	rpc("rpc_match_report", NullsecSettlement.make_match_report(match_id, local_seat, players))
+
+
+## Contestants for end report — includes ghost / eliminated (still listed).
+func _iter_contestant_seats_including_ghosts() -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			## Ghost seats may clear occupied; still include if titan race was a player.
+			if not is_player_race(str(row.get("titan_race", ""))):
+				continue
+		elif is_spectate_race(str(row.get("titan_race", ""))):
+			continue
+		elif not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		out.append(i)
+	return out
+
+
+func _synthesize_absent_summary(seat: int) -> Dictionary:
+	var row: Dictionary = _seat_row(seat)
+	var nick: String = str(row.get("nick", "席位%d" % seat))
+	var is_ai: bool = TypedVariant.as_bool(row.get("is_ai", false), false)
+	var ghost: bool = TypedVariant.as_bool(row.get("ghost", false), false)
+	var result: String = "淘汰" if ghost else "—"
+	var summary: Dictionary = NullsecSettlement.make_row(nick, 1, 0, result, [], [], seat)
+	summary["absent"] = true
+	summary["is_ai"] = is_ai
+	summary["ghost"] = ghost
+	summary["titan_race"] = str(row.get("titan_race", ""))
+	return summary
+
+
+func push_speed_vote(speed: float) -> void:
+	if local_seat < 0:
+		return
+	if not multiplayer.has_multiplayer_peer() or not needs_stage_barrier():
+		speed_vote_received.emit(local_seat, speed)
+		return
+	if is_host:
+		rpc("rpc_speed_vote_apply", local_seat, speed)
+	else:
+		rpc_id(1, "rpc_speed_vote", local_seat, speed)
+
+
+@rpc("any_peer", "reliable")
+func rpc_speed_vote(seat: int, speed: float) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] speed_vote REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	rpc("rpc_speed_vote_apply", seat, speed)
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_speed_vote_apply(seat: int, speed: float) -> void:
+	speed_vote_received.emit(seat, speed)
+
+
+func broadcast_doomsday_play(attacker_seat: int, loser_seat: int, logic_tick: int) -> void:
+	if not is_host:
+		return
+	if multiplayer.has_multiplayer_peer() and needs_stage_barrier():
+		rpc("rpc_doomsday_play", attacker_seat, loser_seat, logic_tick)
+	else:
+		doomsday_play_received.emit(attacker_seat, loser_seat, logic_tick)
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_doomsday_play(attacker_seat: int, loser_seat: int, logic_tick: int) -> void:
+	doomsday_play_received.emit(attacker_seat, loser_seat, logic_tick)
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_match_report(report: Dictionary) -> void:
+	match_report_received.emit(report)
+
+
+## Host-only escape hatch: caller already assembled every contestant's row (e.g. merged
+## locally instead of via the per-seat summary gate) — build the §7 report and broadcast
+## it directly, skipping `begin_match_report_collection`'s barrier/timeout bookkeeping.
+func host_build_and_broadcast_match_report(players: Array) -> void:
+	if not is_host:
+		return
+	var report: Dictionary = NullsecSettlement.make_match_report(match_id, local_seat, players)
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_match_report", report)
+	else:
+		match_report_received.emit(report)
 
 
 func begin_prepare_done_gate() -> void:
@@ -1696,9 +2309,9 @@ func begin_prepare_done_gate() -> void:
 		return
 	_prepare_done_gate_open = true
 	_prepare_done_seats.clear()
-	_auto_mark_ai_seats(_prepare_done_seats)
-	print("[mp.diag] prep_done_gate_begin host=%s" % is_host)
-	SessionDiagnostics.log("mp.prep_done_gate", "begin")
+	_auto_mark_cohort_inactive(_prepare_done_seats)
+	print("[mp.diag] prep_done_gate_begin host=%s cohort=[%s]" % [is_host, _cohort_csv()])
+	SessionDiagnostics.log("mp.barrier", "prep_done_begin cohort=[%s]" % _cohort_csv())
 	_check_prepare_done_ready()
 
 
@@ -1708,20 +2321,22 @@ func report_local_prepare_done() -> void:
 	## Do not advance prepare→battle barrier before the prepare clock has armed
 	## (R1 spend-gate / post-battle wait). Early reports caused host/guest deadlock.
 	if not prepare_clock_armed:
-		print("[mp.diag] prep_done_report IGNORE (clock not armed) seat=%d" % local_seat)
+		_pending_prepare_done_report = true
+		print("[mp.diag] prep_done_report PENDING (clock not armed) seat=%d" % local_seat)
 		return
-	if TypedVariant.as_bool(_prepare_done_seats.get(local_seat, false), false):
+	_pending_prepare_done_report = false
+	if _local_prep_done_sent:
 		print("[mp.diag] prep_done_report SKIP duplicate seat=%d" % local_seat)
 		return
 	if not _prepare_done_gate_open:
 		begin_prepare_done_gate()
 	print("[mp.diag] prep_done_report seat=%d host=%s" % [local_seat, is_host])
 	SessionDiagnostics.log("mp.prep_done_report", "seat=%d" % local_seat)
+	_local_prep_done_sent = true
 	if is_host or not multiplayer.has_multiplayer_peer():
 		_mark_prepare_done(local_seat)
 	else:
-		## Mark locally so duplicate HOLD callback/signal does not re-RPC.
-		_prepare_done_seats[local_seat] = true
+		## Do NOT mark host-side completion locally — wait for rpc_enter_battle.
 		rpc_id(1, "rpc_prepare_stage_done", local_seat)
 
 
@@ -1734,7 +2349,9 @@ func rpc_prepare_stage_done(seat: int) -> void:
 		print("[mp.diag] prep_done REJECT seat=%d sender=%d" % [seat, sender])
 		return
 	if not prepare_clock_armed:
-		print("[mp.diag] prep_done REJECT (host clock not armed) seat=%d" % seat)
+		## Queue — never drop; flush on arm (fixes 1v1 softlock).
+		_early_prep_done_seats[seat] = true
+		print("[mp.diag] prep_done QUEUED (host clock not armed) seat=%d" % seat)
 		return
 	if not _prepare_done_gate_open:
 		begin_prepare_done_gate()
@@ -1752,16 +2369,20 @@ func _mark_prepare_done(seat: int) -> void:
 func _check_prepare_done_ready() -> void:
 	if not is_host or not _prepare_done_gate_open:
 		return
+	_auto_mark_cohort_inactive(_prepare_done_seats)
 	var missing: PackedStringArray = PackedStringArray()
-	for i: int in _iter_contestant_seats():
+	for i: int in _iter_prepare_cohort():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
 		if not TypedVariant.as_bool(_prepare_done_seats.get(i, false), false):
 			missing.append(str(i))
+	_log_barrier_state("prep_done", missing)
 	if not missing.is_empty():
-		print("[mp.diag] prep_done_wait missing=[%s]" % ",".join(missing))
+		print("[mp.diag] prep_done_wait missing=[%s] cohort=[%s]" % [",".join(missing), _cohort_csv()])
 		return
 	_prepare_done_gate_open = false
-	print("[mp.diag] prep_done_ALL_READY -> enter_battle")
-	SessionDiagnostics.log("mp.prep_done_all", "")
+	print("[mp.diag] prep_done_ALL_READY -> enter_battle cohort=[%s]" % _cohort_csv())
+	SessionDiagnostics.log("mp.barrier", "prep_done_all cohort=[%s]" % _cohort_csv())
 	if multiplayer.has_multiplayer_peer():
 		rpc("rpc_enter_battle")
 	enter_battle_released.emit()
@@ -1935,3 +2556,68 @@ func rpc_scout_intel_reply(target_seat: int, target_nick: String, summary: Dicti
 	var nick: String = target_nick if target_nick != "" else str(_pending_scout_nick.get(target_seat, "?"))
 	_pending_scout_nick.erase(target_seat)
 	scout_intel_received.emit(target_seat, nick, summary)
+
+
+## --- SEMI_ASYNC §3.0b opening pack + §3.0c probe ---
+
+@rpc("authority", "reliable")
+func rpc_opening_pack(bytes: PackedByteArray, pack_hash: String) -> void:
+	if is_host:
+		return
+	var unpacked: Dictionary = OpeningPack.unpack(bytes)
+	var got: String = str(unpacked.get("pack_hash", ""))
+	NetSessionDebug.log_pack("opening_rx", {
+		"pack_hash": pack_hash,
+		"got_hash": got,
+		"bytes": bytes.size(),
+		"ships_hash": str(unpacked.get("ships_hash", "")),
+	})
+	if got != "" and got == pack_hash:
+		rpc_id(1, "rpc_opening_pack_ack", pack_hash)
+	else:
+		NetSessionDebug.log_event("net.ack.opening_fail", "expected=%s got=%s" % [pack_hash, got])
+
+
+@rpc("any_peer", "reliable")
+func rpc_opening_pack_ack(pack_hash: String) -> void:
+	if not is_host:
+		return
+	NetSessionDebug.log_event(
+		"net.ack.opening",
+		"from=%d hash=%s" % [multiplayer.get_remote_sender_id(), pack_hash.substr(0, mini(16, pack_hash.length()))]
+	)
+
+
+func _send_probe() -> void:
+	if not multiplayer or not multiplayer.has_multiplayer_peer():
+		return
+	_probe_sent_msec = Time.get_ticks_msec()
+	if is_host:
+		for p: int in multiplayer.get_peers():
+			rpc_id(p, "rpc_probe_ping", _probe_sent_msec)
+	else:
+		rpc_id(1, "rpc_probe_ping", _probe_sent_msec)
+
+
+@rpc("any_peer", "unreliable")
+func rpc_probe_ping(sent_msec: int) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	rpc_id(sender, "rpc_probe_pong", sent_msec)
+
+
+@rpc("any_peer", "unreliable")
+func rpc_probe_pong(sent_msec: int) -> void:
+	var rtt: int = maxi(0, Time.get_ticks_msec() - sent_msec)
+	var sender: int = multiplayer.get_remote_sender_id()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if TypedVariant.as_int(row.get("peer_id", 0), 0) == sender:
+			row["rtt_ms"] = rtt
+			break
+	if local_seat >= 0 and not is_host and sender == 1:
+		_seat_row(local_seat)["rtt_ms"] = rtt
+	elif local_seat >= 0 and is_host:
+		_seat_row(local_seat)["rtt_ms"] = 0
+	if is_host and _rtt_ui_acc >= 2.0:
+		_rtt_ui_acc = 0.0
+		_broadcast_seats()

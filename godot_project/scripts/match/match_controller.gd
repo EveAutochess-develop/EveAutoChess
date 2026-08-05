@@ -24,6 +24,8 @@ var prepare_clock_armed: bool = true
 ## Nullsec MP: hold Prepare→Battle until host rpc_enter_battle.
 var hold_prepare_to_battle: bool = false
 var _prepare_hold_reported: bool = false
+## SEMI_ASYNC §3.1a — guest watch-only: no local CombatResolver; wait for authority end.
+var remote_watch_only: bool = false
 ## Set by MatchRoot — more reliable than signal alone under RPC flood.
 var prepare_hold_callback: Callable = Callable()
 ## Diag: throttle prepare-freeze heartbeats (logcat).
@@ -54,6 +56,8 @@ var kills_this_round_ai: int = 0
 ## field hull before `stage_changed(PREPARE)` fires, so listeners must never re-count the
 ## board to decide who won (that read every PVP round as a draw → winner ate a doomsday).
 var last_round_result: String = "draw"  ## win | lose | draw, from the player's side
+## Set when the just-finished round opened with an empty side (phantom wipe).
+var last_round_empty_open: bool = false
 var last_round_player_field: int = 0
 var last_round_ai_field: int = 0
 var last_round_freighter_alive: bool = false
@@ -77,6 +81,10 @@ func bind(board: BoardController, shop: ShopController, combat: CombatResolver, 
 	_cyno = CynoController.new()
 	_cyno.bind(board, self, combat)
 	AdminBus.after_handoff.connect(_on_admin_after)
+
+func bind_cyno_rng(rng: MatchRng, serial: int = 1) -> void:
+	if _cyno:
+		_cyno.bind_match_rng(rng, serial)
 
 func start_match(p_mode: String) -> void:
 	mode = p_mode
@@ -147,30 +155,42 @@ func _process(delta: float) -> void:
 	elif stage == Stage.BATTLE:
 		var fixed: float = maxf(0.001, TypedVariant.as_float(mf.get("sim_fixed_step_s", 0.05), 0.05))
 		var max_steps: int = maxi(1, TypedVariant.as_int(mf.get("sim_max_steps_per_frame", 8), 8))
-		_sim_accum += sim_delta
-		var steps: int = 0
-		while _sim_accum >= fixed and steps < max_steps:
-			var tc: int = Time.get_ticks_usec()
-			_combat.tick(fixed)
-			SessionDiagnostics.add_usec(&"combat", Time.get_ticks_usec() - tc)
-			if _cyno:
-				var ty: int = Time.get_ticks_usec()
-				_cyno.tick(_combat.sim_time())
-				SessionDiagnostics.add_usec(&"cyno", Time.get_ticks_usec() - ty)
-			_sim_accum -= fixed
-			steps += 1
-		if steps > 0:
-			SessionDiagnostics.note_sim_steps(steps)
+		## SEMI_ASYNC §3.1a — watch peers render from authority snaps only.
+		if not remote_watch_only:
+			_sim_accum += sim_delta
+			var steps: int = 0
+			while _sim_accum >= fixed and steps < max_steps:
+				var tc: int = Time.get_ticks_usec()
+				_combat.tick(fixed)
+				SessionDiagnostics.add_usec(&"combat", Time.get_ticks_usec() - tc)
+				if _cyno:
+					var ty: int = Time.get_ticks_usec()
+					_cyno.tick(_combat.sim_time())
+					SessionDiagnostics.add_usec(&"cyno", Time.get_ticks_usec() - ty)
+				_sim_accum -= fixed
+				steps += 1
+			if steps > 0:
+				SessionDiagnostics.note_sim_steps(steps)
+		else:
+			_sim_accum = 0.0
 		## Leftover accum waits for next render frame — do not burn FPS catching up.
 		var bdur: float = TypedVariant.as_float(mf.get("battle_duration_s", 1800), 1800.0)
 		## Opened empty (either side): skip wait — same rule for player and AI. Mid-fight wipe still uses min_battle.
+		## Nullsec human PVP: hold longer so late fleet sync can land before a phantom wipe.
 		var min_b: float = 0.0 if _battle_opened_empty else TypedVariant.as_float(mf.get("min_battle_duration_s", 1.25), 1.25)
-		if timer >= bdur:
-			notice.emit("战斗未能在时限内结束")
-			_on_combat_complete("timeout")
-		elif timer >= min_b and _board.is_one_side_cleared():
-			## Cleared field ends the round at once (CAPITAL_AND_CYNO §2): channels never hold it open.
-			_on_combat_complete("wipe")
+		if _battle_opened_empty and mode == "nullsec":
+			min_b = maxf(min_b, 12.0)
+		## Watch-only: never self-end — host rpc_battle_ended drives complete.
+		if not remote_watch_only:
+			if timer >= bdur:
+				notice.emit("战斗未能在时限内结束")
+				_on_combat_complete("timeout")
+			elif timer >= min_b and _board.is_one_side_cleared():
+				## Cleared field ends the round at once (CAPITAL_AND_CYNO §2): channels never hold it open.
+				_on_combat_complete("wipe")
+			elif timer >= min_b and _board.both_sides_no_offense():
+				## Neither side can finish the other off (all remaining hulls unarmed) — call it early.
+				_on_combat_complete("draw_no_offense")
 		## Glow countdown uses scaled battle time (same clock as HUD), not render FPS / substep catch-up.
 		if _board:
 			for s: ShipUnit in _board.all_ships():
@@ -232,13 +252,15 @@ func cycle_speed() -> void:
 	_save_preferred_battle_speed()
 	hud_refresh.emit()
 
-func set_battle_speed(speed: float) -> void:
+func set_battle_speed(speed: float, persist_preferred: bool = true) -> void:
+	## persist_preferred=false: auto finish floor (SEMI_ASYNC §4.5) — runtime only.
 	if stage == Stage.PREPARE:
 		return
 	speed_multiplier = maxf(0.05, speed)
-	_preferred_battle_speed = speed_multiplier
 	Engine.time_scale = 1.0
-	_save_preferred_battle_speed()
+	if persist_preferred:
+		_preferred_battle_speed = speed_multiplier
+		_save_preferred_battle_speed()
 	hud_refresh.emit()
 
 func force_draw_battle() -> void:
@@ -359,6 +381,7 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 	_abort_cyno_channels()
 	var was_empty_open: bool = _battle_opened_empty
 	_battle_opened_empty = false
+	last_round_empty_open = was_empty_open
 	var pf: int = _board.count_alive_field(ShipUnit.TEAM_PLAYER) if _board else 0
 	var af: int = _board.count_alive_field(ShipUnit.TEAM_AI) if _board else 0
 	print("[match] combat complete reason=%s player_field=%d ai_field=%d round=%d-%d" % [
@@ -385,19 +408,96 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 		"mp.round_result",
 		"%s p=%d a=%d" % [last_round_result, last_round_player_field, last_round_ai_field]
 	)
-	_resolve_citadel_and_income()
+	## Empty-open phantom rounds: do not settle titan / income — just roll into prepare recovery.
+	if not was_empty_open:
+		_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
+	_board.force_full_hp_all_ships()
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
+	## Fetter passives can rescale max — pin full pipes again (MATCH_FLOW Battle→Prepare 满血).
+	_board.force_full_hp_all_ships()
 	## Star merges wait for Prepare (`try_upgrades_all` is prepare-gated).
 	if not shop_locked:
 		_shop.refresh_shop(true)
-	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-	_ai.after_round()
+	if not was_empty_open:
+		_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
+		_ai.after_round()
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
 		_end_match()
 		return
 	_enter_prepare()
+
+
+## SEMI_ASYNC §3.1a — watch peer: end Battle from host result (seat-perspective already mapped).
+func force_authority_combat_complete(mapped_result: String, reason: String = "authority") -> void:
+	if stage != Stage.BATTLE:
+		return
+	_combat.stop_combat()
+	_abort_cyno_channels()
+	var was_empty_open: bool = _battle_opened_empty
+	_battle_opened_empty = false
+	last_round_empty_open = was_empty_open
+	print("[mp.diag] combat_complete_authority reason=%s result=%s" % [reason, mapped_result])
+	SessionDiagnostics.log("mp.combat_complete_auth", "reason=%s result=%s" % [reason, mapped_result])
+	battle_game_stage_count += 1
+	round_phase_value += 1
+	var max_rp: int = TypedVariant.as_int(DataStore.match_flow.get("max_round_phase_value", 5), 5)
+	if round_phase_value > max_rp:
+		round_phase_value = 1
+		battle_phase_value += 1
+	last_round_player_field = _board.count_alive_field(ShipUnit.TEAM_PLAYER) if _board else 0
+	last_round_ai_field = _board.count_alive_field(ShipUnit.TEAM_AI) if _board else 0
+	last_round_result = mapped_result if mapped_result in ["win", "lose", "draw"] else "draw"
+	last_round_freighter_alive = false
+	if _board:
+		for s: ShipUnit in _board.all_ships():
+			if s == null or not is_instance_valid(s) or not s.is_protect_target:
+				continue
+			if not s.is_destroyed and float(s.structure_hp) > 0.01:
+				last_round_freighter_alive = true
+				break
+	if not was_empty_open:
+		_resolve_citadel_and_income()
+	_board.reset_ships_after_round()
+	_board.force_full_hp_all_ships()
+	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	_board.recalculate_fetters(ShipUnit.TEAM_AI)
+	_board.force_full_hp_all_ships()
+	if not shop_locked:
+		_shop.refresh_shop(true)
+	if not was_empty_open:
+		_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
+		_ai.after_round()
+	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
+		_end_match()
+		return
+	_enter_prepare()
+
+
+func is_battle_opened_empty() -> bool:
+	return _battle_opened_empty
+
+
+func clear_battle_opened_empty() -> void:
+	_battle_opened_empty = false
+
+
+## After late rival fleet lands during an empty-open hold, resume real combat.
+func resume_combat_after_empty_fleet() -> void:
+	if stage != Stage.BATTLE or not _running:
+		return
+	_battle_opened_empty = false
+	timer = 0.0
+	_sim_accum = 0.0
+	if _combat:
+		_combat.start_combat()
+	if _cyno:
+		_cyno.on_battle_start(0.0)
+	print("[mp.diag] resume_combat_after_empty_fleet")
+	SessionDiagnostics.log("mp.resume_after_empty", "ok")
+	notice.emit("对手舰队已同步 · 开战")
+	hud_refresh.emit()
 
 ## Freeze who was standing at the final combat tick, before hulls are reloaded.
 func _snapshot_round_outcome() -> void:
@@ -445,6 +545,8 @@ func _citadel_ship_damage_sum(team: int) -> int:
 
 func _resolve_citadel_and_income() -> void:
 	## §11.1: total = round base + Σ surviving piece damage
+	## Nullsec / lowsec MP: lives are titan pipes — skip citadel damage + 主堡播报 (MULTIPLAYER_PVP §2.4).
+	var skip_citadel: bool = mode == "nullsec"
 	var base: int = _citadel_base_damage()
 	var p_alive: int = _board.count_alive_field(ShipUnit.TEAM_PLAYER)
 	var ai_alive: int = _board.count_alive_field(ShipUnit.TEAM_AI)
@@ -456,18 +558,19 @@ func _resolve_citadel_and_income() -> void:
 		a_dmg = base + _citadel_ship_damage_sum(ShipUnit.TEAM_AI)
 	var player_won: bool = p_alive > 0 and ai_alive == 0
 	var ai_won: bool = ai_alive > 0 and p_alive == 0
-	if a_dmg > 0 and ai_alive > 0:
-		var cit: Dictionary = {"source_team": ShipUnit.TEAM_AI, "target_team": ShipUnit.TEAM_PLAYER, "damage": a_dmg, "alive_ships": ai_alive}
-		var r: Dictionary = AdminBus.request(&"citadel.damage", cit)
-		if TypedVariant.as_bool(r.get("accepted", true), true):
-			var p2: Dictionary = TypedVariant.as_dict(r.get("payload", cit))
-			_take_player_damage(TypedVariant.as_int(p2.get("damage", a_dmg), a_dmg))
-	if mode != "endless" and p_dmg > 0 and p_alive > 0:
-		var cit_ai: Dictionary = {"source_team": ShipUnit.TEAM_PLAYER, "target_team": ShipUnit.TEAM_AI, "damage": p_dmg, "alive_ships": p_alive}
-		var r_ai: Dictionary = AdminBus.request(&"citadel.damage", cit_ai)
-		if TypedVariant.as_bool(r_ai.get("accepted", true), true):
-			var a2: Dictionary = TypedVariant.as_dict(r_ai.get("payload", cit_ai))
-			_take_ai_damage(TypedVariant.as_int(a2.get("damage", p_dmg), p_dmg))
+	if not skip_citadel:
+		if a_dmg > 0 and ai_alive > 0:
+			var cit: Dictionary = {"source_team": ShipUnit.TEAM_AI, "target_team": ShipUnit.TEAM_PLAYER, "damage": a_dmg, "alive_ships": ai_alive}
+			var r: Dictionary = AdminBus.request(&"citadel.damage", cit)
+			if TypedVariant.as_bool(r.get("accepted", true), true):
+				var p2: Dictionary = TypedVariant.as_dict(r.get("payload", cit))
+				_take_player_damage(TypedVariant.as_int(p2.get("damage", a_dmg), a_dmg))
+		if mode != "endless" and p_dmg > 0 and p_alive > 0:
+			var cit_ai: Dictionary = {"source_team": ShipUnit.TEAM_PLAYER, "target_team": ShipUnit.TEAM_AI, "damage": p_dmg, "alive_ships": p_alive}
+			var r_ai: Dictionary = AdminBus.request(&"citadel.damage", cit_ai)
+			if TypedVariant.as_bool(r_ai.get("accepted", true), true):
+				var a2: Dictionary = TypedVariant.as_dict(r_ai.get("payload", cit_ai))
+				_take_ai_damage(TypedVariant.as_int(a2.get("damage", p_dmg), p_dmg))
 	_update_streaks(player_won)
 	if _ai and _ai.has_method("update_streaks"):
 		_ai.update_streaks(ai_won)
@@ -500,7 +603,7 @@ func _base_income_for_round() -> int:
 		return TypedVariant.as_int(by_r[r - 1], 0)
 	return TypedVariant.as_int(eco.get("base_gold_income", 5), 5)
 
-func _apply_income(team: int, won: bool, kills: int) -> void:
+func _apply_income(team: int, won: bool, _kills: int) -> void:
 	var eco: Dictionary = DataStore.economy
 	var gold_ref: int = player_gold if team == ShipUnit.TEAM_PLAYER else (int(_ai.ai_gold) if _ai else 0)
 	var interest: int = floori(float(gold_ref) / TypedVariant.as_float(eco.get("interest_divisor", 10), 10.0))
@@ -513,7 +616,9 @@ func _apply_income(team: int, won: bool, kills: int) -> void:
 	if not won:
 		streak = loss_streak if team == ShipUnit.TEAM_PLAYER else (_ai.loss_streak if _ai else 0)
 	var streak_g: int = _streak_bonus(streak)
-	var kill_g: int = kills * TypedVariant.as_int(eco.get("kill_gold_per_ship", 1), 1)
+	## Kill gold is now granted the instant a kill lands (see `_on_admin_after`) — never
+	## re-paid here, or a player kill would be counted twice at round-end income.
+	var kill_g: int = 0
 	var mining_g: int = _mining_gold_for_team(team)
 	var income: int = base + interest + win_g + streak_g + kill_g + mining_g
 	## Dev: same AI income ×mul on combat part only (mining stays raw).
@@ -599,10 +704,21 @@ func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionar
 		return
 	if src.team_id == ShipUnit.TEAM_PLAYER:
 		kills_this_round_player += 1
+		## Kill gold pays out the instant the kill lands (feel-good realtime pop);
+		## `_apply_income` forces kill_g=0 at round-end so this is never re-paid.
+		var kill_gold: int = TypedVariant.as_int(DataStore.economy.get("kill_gold_per_ship", 1), 1)
+		if kill_gold > 0:
+			player_gold += kill_gold
+			player_gold_earned += kill_gold
+			notice.emit("击毁获得 %d 黄币" % kill_gold)
+			hud_refresh.emit()
 	elif src.team_id == ShipUnit.TEAM_AI:
 		kills_this_round_ai += 1
 
 func _take_player_damage(amount: int) -> void:
+	## Nullsec lives use titan pipes — never emit 主堡 battle-log lines.
+	if mode == "nullsec":
+		return
 	var dmg: int = amount
 	## Soften only when Settings → 开发者调试 → 我方扣血软化 is on (default off).
 	if GameSession and GameSession.player_citadel_soften_active():
@@ -612,6 +728,8 @@ func _take_player_damage(amount: int) -> void:
 	notice.emit("主堡受到 %d 伤害" % dmg)
 
 func _take_ai_damage(amount: int) -> void:
+	if mode == "nullsec":
+		return
 	## Developer soften never applies to AI; full formula always.
 	var dmg: int = maxi(0, amount)
 	ai_hp = maxi(0, ai_hp - dmg)

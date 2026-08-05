@@ -9,6 +9,8 @@ var team_id: int = 0
 var slot_type: String = "hangar"  # hangar | field
 var grid_x: int = 0
 var grid_z: int = 0
+## Cross-peer stable id for authority snapshots (SEMI_ASYNC §3.2a). Empty until assigned.
+var net_uid: String = ""
 var is_destroyed: bool = false
 var is_logistic: bool = false
 var is_mining_ship: bool = false
@@ -445,8 +447,10 @@ func restore_team_yaw() -> void:
 func _ensure_mesh() -> void:
 	if _model_root or _mesh:
 		return
+	## Berth titans keep GLB even in no-model (UI_AND_SHELL: 泰坦停泊仍加载).
+	var berth_decor: bool = get_parent() is TitanBerth
 	## Performance mode: skip GLB load; keep empty node for transforms / health bar.
-	if GameSession and TypedVariant.as_bool(GameSession.get("no_model_perf_mode")):
+	if (not berth_decor) and GameSession and TypedVariant.as_bool(GameSession.get("no_model_perf_mode")):
 		_model_root = Node3D.new()
 		_model_root.name = "NoModelPlaceholder"
 		add_child(_model_root)
@@ -467,6 +471,19 @@ func _ensure_mesh() -> void:
 			return
 	## Missing model: leave empty (no placeholder box). Drop-in §0 bundle restores mesh.
 	_muzzle_local = Vector3(0.0, 0.3, -0.9)
+
+
+## UI_AND_SHELL no-model toggle: drop or rebuild hull mesh on an already-spawned unit.
+func refresh_visual_for_no_model_mode() -> void:
+	## Titan berth decor never strips/rebuilds for no-model (keeps TitanHpBar stern anchor).
+	if get_parent() is TitanBerth:
+		return
+	if _model_root != null and is_instance_valid(_model_root):
+		_model_root.queue_free()
+	_model_root = null
+	_mesh = null
+	_ensure_mesh()
+	rebuild_health_bar()
 
 
 func _cache_model_rest_pose() -> void:
@@ -1180,6 +1197,8 @@ func try_fit_function_module(module_id: String, slot_index: int = -1) -> Diction
 		return {"ok": false, "reason": "cyno_hull"}
 	if not FunctionFit.size_allowed_for_ship(ship_data, def):
 		return {"ok": false, "reason": "size"}
+	if TypedVariant.as_bool(def.get("implant", false), false) and _function_fit_has_implant():
+		return {"ok": false, "reason": "implant_taken"}
 	if _function_fit.size() >= FunctionFit.MAX_SLOTS:
 		return {"ok": false, "reason": "full"}
 	var target: int = slot_index
@@ -1196,6 +1215,19 @@ func try_fit_function_module(module_id: String, slot_index: int = -1) -> Diction
 		_plugin_modules.append(def.duplicate(true))
 	reload_stats()
 	return {"ok": true, "reason": ""}
+
+
+func _function_fit_has_implant() -> bool:
+	for entry: Variant in _function_fit:
+		var e: Dictionary = TypedVariant.as_dict(entry)
+		var d: Dictionary = TypedVariant.as_dict(e.get("def", {}))
+		if TypedVariant.as_bool(d.get("implant", false), false):
+			return true
+		var fid: String = str(e.get("id", "")).strip_edges()
+		if fid != "" and TypedVariant.as_bool(DataStore.get_function_module(fid).get("implant", false), false):
+			return true
+	return false
+
 
 ## Prepare unequip. Returns removed module id (empty if miss).
 func unequip_function_at(slot_index: int) -> String:
@@ -1216,6 +1248,7 @@ func unequip_function_at(slot_index: int) -> String:
 func set_function_fit(entries: Array) -> void:
 	_function_fit.clear()
 	_plugin_modules.clear()
+	var saw_implant: bool = false
 	for entry: Variant in entries:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
@@ -1226,6 +1259,12 @@ func set_function_fit(entries: Array) -> void:
 		var def: Dictionary = TypedVariant.as_dict(e.get("def", DataStore.get_function_module(fid)))
 		if def.is_empty():
 			continue
+		var is_implant: bool = TypedVariant.as_bool(def.get("implant", false), false)
+		if is_implant and saw_implant:
+			SessionDiagnostics.log("equip.implant_clamp", "drop extra implant=%s ship=%d" % [fid, ship_id])
+			continue
+		if is_implant:
+			saw_implant = true
 		_function_fit.append({"id": fid, "def": def.duplicate(true)})
 		if FunctionFit.is_cyno_def(def):
 			_plugin_modules.append(def.duplicate(true))

@@ -7,7 +7,7 @@ class_name ShipDataEditor
 ## even when no ship JSON moved.
 signal closed(changed_ids: Array, equipment_changed: bool)
 
-enum Tab { SHIPS, MODULES, FUNCTION_MODULES, DAMAGE, HEALTH }
+enum Tab { SHIPS, MODULES, FUNCTION_MODULES, DAMAGE, HEALTH, MATCH_CONTROL, COMBAT_EVAL }
 
 const _CANCEL_HINT: String = "退出即自动保存；改动写入 content_runtime，删除该文件即回滚基线。"
 const EXPORT_SHIPS_FILE: String = "eveac_ships_table.csv"
@@ -73,6 +73,8 @@ var _working_function_modules: Dictionary = {}
 var _dirty_ships: Dictionary = {}
 var _dirty_modules: bool = false
 var _dirty_function_modules: bool = false
+var _working_titan_pvp: Dictionary = {}
+var _dirty_titan_pvp: bool = false
 var _fn_ids: Array[String] = []
 var _filtered_fn: Array[String] = []
 var _current_fn_id: String = ""
@@ -129,6 +131,8 @@ func open(pause_game: bool = true) -> void:
 	_dirty_ships.clear()
 	_dirty_modules = false
 	_dirty_function_modules = false
+	_working_titan_pvp = DataStore.titan_pvp.duplicate(true) if "titan_pvp" in DataStore else {}
+	_dirty_titan_pvp = false
 	_current_fn_id = ""
 	visible = true
 	if pause_game and not _pause_owner:
@@ -335,17 +339,17 @@ func _build() -> void:
 		[Tab.FUNCTION_MODULES, "副装备"],
 		[Tab.DAMAGE, "伤害"],
 		[Tab.HEALTH, "血量"],
+		[Tab.MATCH_CONTROL, "对局控制参数"],
+		[Tab.COMBAT_EVAL, "战评"],
 	]:
 		var b: Button = Button.new()
 		b.text = str(pair[1])
 		b.toggle_mode = true
 		b.button_pressed = TypedVariant.as_int(pair[0], 0) == int(Tab.SHIPS)
 		UiAssets.apply_button_font(b, UiLayout.font_size(15, self))
-		var tab_v: Variant = pair[0]
-		var t: Tab = Tab.SHIPS
-		if tab_v is Tab:
-			t = tab_v
-		b.pressed.connect(func() -> void: _set_tab(t, false))
+		## Enum values inside Array become ints — do not use `is Tab` (always false).
+		var tab_idx: int = TypedVariant.as_int(pair[0], 0)
+		b.pressed.connect(func() -> void: _set_tab(tab_idx as Tab, false))
 		tabs.add_child(b)
 		_tab_btns.append(b)
 
@@ -375,6 +379,7 @@ func _build() -> void:
 	UiAssets.apply_label_font(_title, true, UiLayout.font_size(18, self))
 	right.add_child(_title)
 	_field_scroll = ScrollContainer.new()
+	_field_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_field_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_field_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(_field_scroll)
@@ -407,11 +412,21 @@ func _set_tab(tab: Tab, force: bool) -> void:
 	for i: int in range(_tab_btns.size()):
 		_tab_btns[i].button_pressed = (i == int(tab))
 	var visual: bool = tab == Tab.DAMAGE or tab == Tab.HEALTH
-	_left_panel.visible = not visual
+	_left_panel.visible = not visual and tab != Tab.MATCH_CONTROL and tab != Tab.COMBAT_EVAL
 	## Visualization tables are vertical so a normal mouse wheel traverses all hulls.
 	_field_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_grid.columns = 1 if visual or tab == Tab.FUNCTION_MODULES else 2
+	_grid.columns = 1 if visual or tab == Tab.FUNCTION_MODULES or tab == Tab.MATCH_CONTROL or tab == Tab.COMBAT_EVAL else 2
 	_search.text = ""
+	if tab == Tab.MATCH_CONTROL:
+		_current_id = -1
+		_current_fn_id = ""
+		_build_match_control_fields()
+		return
+	if tab == Tab.COMBAT_EVAL:
+		_current_id = -1
+		_current_fn_id = ""
+		_build_combat_eval_fields()
+		return
 	if visual:
 		_current_id = -1
 		_current_fn_id = ""
@@ -599,6 +614,118 @@ func _ensure_working_fn(item_id: String) -> Dictionary:
 	if not _working_function_modules.has(item_id):
 		_working_function_modules[item_id] = DataStore.get_function_module(item_id).duplicate(true)
 	return _working_function_modules[item_id]
+
+
+func _build_match_control_fields() -> void:
+	for c: Node in _grid.get_children():
+		c.queue_free()
+	_title.text = "对局控制参数（泰坦三管 / 末日伤）"
+	if _working_titan_pvp.is_empty():
+		_working_titan_pvp = {
+			"pipe_shield_max": 100,
+			"pipe_armor_max": 100,
+			"pipe_structure_max": 100,
+			"pvp_loss_damage": 20,
+			"lowsec_pvp_loss_mul": 0.25,
+		}
+	var keys: Array[String] = [
+		"pipe_shield_max", "pipe_armor_max", "pipe_structure_max",
+		"pvp_loss_damage", "lowsec_pvp_loss_mul",
+	]
+	var labels: Dictionary = {
+		"pipe_shield_max": "盾管上限",
+		"pipe_armor_max": "甲管上限",
+		"pipe_structure_max": "构管上限",
+		"pvp_loss_damage": "失败/平局扣血",
+		"lowsec_pvp_loss_mul": "低安伤倍率",
+	}
+	for k: String in keys:
+		var row: HBoxContainer = HBoxContainer.new()
+		_grid.add_child(row)
+		var lab: Label = Label.new()
+		lab.text = str(labels.get(k, k))
+		lab.custom_minimum_size = Vector2(220, 0)
+		row.add_child(lab)
+		var edit: LineEdit = LineEdit.new()
+		edit.text = str(_working_titan_pvp.get(k, 0))
+		edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var key_cap: String = k
+		edit.text_submitted.connect(func(t: String) -> void:
+			var parsed: Variant = 0
+			if key_cap.ends_with("mul"):
+				parsed = float(t)
+			else:
+				parsed = int(t)
+			_working_titan_pvp[key_cap] = parsed
+			_dirty_titan_pvp = true
+		)
+		edit.focus_exited.connect(func() -> void:
+			var parsed2: Variant = 0
+			if key_cap.ends_with("mul"):
+				parsed2 = float(edit.text)
+			else:
+				parsed2 = int(edit.text)
+			_working_titan_pvp[key_cap] = parsed2
+			_dirty_titan_pvp = true
+		)
+		row.add_child(edit)
+	if _status:
+		_status.text = "改完点保存并退出 · 写入 balance/titan_pvp.json"
+
+
+func _build_combat_eval_fields() -> void:
+	for c: Node in _grid.get_children():
+		c.queue_free()
+	_title.text = "战评称号目录（只读 · MULTIPLAYER_PVP §7.1）"
+	_grid.columns = 1
+	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var items: Array = TypedVariant.as_array(DataStore.get("combat_evals"))
+	## Shell Autoload may lag content — fall back to balance JSON directly.
+	if items.is_empty():
+		var raw: Dictionary = ContentRuntimeData.load_json_prefer_runtime("balance/combat_evals.json")
+		items = TypedVariant.as_array(raw.get("items", []))
+	var eval_wrap: VBoxContainer = VBoxContainer.new()
+	eval_wrap.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	eval_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_grid.add_child(eval_wrap)
+	## Autowrap Labels collapse to a 1-glyph strip unless the scroll width is known.
+	var panel_w: float = maxf(_field_scroll.size.x, size.x * 0.72)
+	if panel_w < 120.0:
+		panel_w = float(UiLayout.px(520, self))
+	eval_wrap.custom_minimum_size = Vector2(panel_w, 0)
+	if items.is_empty():
+		var empty: Label = Label.new()
+		empty.text = "（无 combat_evals.json 条目）"
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eval_wrap.add_child(empty)
+		if _status:
+			_status.text = "只读 · 不可编辑"
+		return
+	for item_v: Variant in items:
+		var item: Dictionary = TypedVariant.as_dict(item_v)
+		var row: VBoxContainer = VBoxContainer.new()
+		row.add_theme_constant_override("separation", 2)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eval_wrap.add_child(row)
+		var name_l: Label = Label.new()
+		name_l.text = str(item.get("name", item.get("id", "?")))
+		name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		UiAssets.apply_label_font(name_l, true, UiLayout.font_size(16, self))
+		row.add_child(name_l)
+		var cond: Label = Label.new()
+		cond.text = str(item.get("condition", ""))
+		cond.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cond.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cond.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
+		UiAssets.apply_label_font(cond, false, UiLayout.font_size(13, self))
+		row.add_child(cond)
+		var sep: HSeparator = HSeparator.new()
+		sep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eval_wrap.add_child(sep)
+	if _status:
+		_status.text = "只读 · 条件文案来自 balance/combat_evals.json · 不可编辑"
 
 
 func _select_id(item_id: int) -> void:
@@ -1657,6 +1784,10 @@ func _save_all() -> Array:
 		if DataStore.save_function_modules_table(_working_function_modules):
 			equip_dirty = true
 		_dirty_function_modules = false
+	if _dirty_titan_pvp and DataStore.has_method("save_balance_file"):
+		if DataStore.save_balance_file("titan_pvp.json", _working_titan_pvp):
+			equip_dirty = true
+		_dirty_titan_pvp = false
 	_last_equipment_saved = equip_dirty
 	if not changed.is_empty() or equip_dirty:
 		DataStore.reload_all()

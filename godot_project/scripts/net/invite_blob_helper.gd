@@ -18,7 +18,7 @@ static func encode(host_ip: String, port: int, room_hint: String, rules_hash: St
 
 
 static func decode(blob: String) -> Dictionary:
-	var raw := blob.strip_edges()
+	var raw := sanitize_paste(blob)
 	if raw.is_empty():
 		return {}
 	## Legacy Base64 JSON.
@@ -40,8 +40,24 @@ static func decode(blob: String) -> Dictionary:
 	return {}
 
 
+## Strip BOM / zero-width / whitespace junk from Android clipboard pastes.
+static func sanitize_paste(raw: String) -> String:
+	var s := str(raw)
+	if s.is_empty():
+		return ""
+	var out := ""
+	for i in range(s.length()):
+		var code := s.unicode_at(i)
+		if code <= 32:
+			continue
+		if code == 0xFEFF or code == 0x200B or code == 0x200C or code == 0x200D or code == 0x2060 or code == 0x00A0:
+			continue
+		out += String.chr(code)
+	return out
+
+
 static func classify(raw: String) -> String:
-	var s := raw.strip_edges()
+	var s := sanitize_paste(raw)
 	if s.is_empty():
 		return KIND_INVALID
 	if s.to_upper().begins_with(PREFIX) or s.begins_with(LEGACY_PREFIX):

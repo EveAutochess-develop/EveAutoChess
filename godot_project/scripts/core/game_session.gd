@@ -83,10 +83,10 @@ func set_no_model_perf_mode(on: bool) -> void:
 	no_model_perf_mode = on
 	save_settings()
 	SessionDiagnostics.log("settings", "nomodel=%d fps_cap=%d" % [1 if on else 0, target_fps])
-	if on:
-		var tree: SceneTree = get_tree()
-		if tree:
-			tree.call_group("match_root", "apply_no_model_perf_cleanup")
+	var tree: SceneTree = get_tree()
+	if tree:
+		## UI_AND_SHELL: toggle must refresh existing units + asteroids (on and off).
+		tree.call_group("match_root", "apply_no_model_perf_mode_changed")
 
 func set_target_fps(fps: int) -> void:
 	target_fps = maxi(0, fps)

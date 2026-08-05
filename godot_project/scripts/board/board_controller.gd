@@ -535,6 +535,8 @@ func swap_sides_center_symmetric() -> Dictionary:
 		)
 		var occ2: Dictionary = _hangar_occupied if ship3.slot_type == "hangar" else _field_occupied
 		occ2[_key(ship3.slot_type, new_team, ship3.grid_x, ship3.grid_z)] = ship3
+		if ship3.has_method("rebuild_health_bar"):
+			ship3.rebuild_health_bar()
 	refresh_cross_team_cell_offsets(true)
 	recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	recalculate_fetters(ShipUnit.TEAM_AI)
@@ -735,6 +737,31 @@ func disarm_visual_follow() -> void:
 func is_one_side_cleared() -> bool:
 	return count_alive_field(ShipUnit.TEAM_PLAYER) == 0 or count_alive_field(ShipUnit.TEAM_AI) == 0
 
+## True when neither side can ever finish the other off: both still have ≥1 alive
+## manned field ship, but none of those ships carry offensive damage (e.g. all pure
+## logistics/utility). Freighters and unmanned hulls are excluded like `count_alive_field`.
+func both_sides_no_offense() -> bool:
+	var player_alive: int = 0
+	var ai_alive: int = 0
+	var player_has_offense: bool = false
+	var ai_has_offense: bool = false
+	for s: ShipUnit in _ships:
+		if s == null or not is_instance_valid(s):
+			continue
+		if s.is_protect_target or s.is_unmanned:
+			continue
+		if s.slot_type != "field" or s.is_destroyed:
+			continue
+		if s.team_id == ShipUnit.TEAM_PLAYER:
+			player_alive += 1
+			if s.has_offensive_damage():
+				player_has_offense = true
+		elif s.team_id == ShipUnit.TEAM_AI:
+			ai_alive += 1
+			if s.has_offensive_damage():
+				ai_has_offense = true
+	return player_alive >= 1 and ai_alive >= 1 and not player_has_offense and not ai_has_offense
+
 func try_upgrades_all() -> void:
 	## 3-of-a-kind star merges only in Prepare (ECONOMY_AND_SHOP §5) — never mid-battle.
 	if not _prepare_mode:
@@ -834,14 +861,29 @@ func _purge_freed_ships() -> void:
 		_drag_ship = null
 
 func reset_ships_after_round() -> void:
+	## MATCH_FLOW: heal every hull (field + hangar), not only field.
 	for s: ShipUnit in _ships:
+		if s == null or not is_instance_valid(s):
+			continue
+		s.reload_stats()
 		if s.slot_type == "field":
-			s.reload_stats()
 			var side: int = ship_world_side(s)
 			s.global_position = cell_to_world("field", side, s.grid_x, s.grid_z)
 			s.restore_team_yaw()
 			s.set_combat_tint(false)
 	refresh_cross_team_cell_offsets()
+
+
+## Explicit full pipes after Battle (covers hangar + post-fetter max rescale).
+func force_full_hp_all_ships() -> void:
+	for s: ShipUnit in _ships:
+		if s == null or not is_instance_valid(s):
+			continue
+		s.is_destroyed = false
+		s.visible = true
+		s.shield_hp = s.max_shield
+		s.armor_hp = s.max_armor
+		s.structure_hp = s.max_structure
 
 
 ## After battle / before prepare autosave: send cyno-gated hulls back to hangar

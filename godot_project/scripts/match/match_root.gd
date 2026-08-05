@@ -23,6 +23,8 @@ var _settlement_panel: NullsecSettlementPanel
 var _applying_rival_fleet: bool = false
 var _fleet_push_sig: String = ""
 var _fleet_apply_sig: String = ""
+## Barrier released but rival fleet not yet synced — defer commit_prepare_complete.
+var _pending_enter_battle: bool = false
 var _fleet_push_last_msec: int = 0
 var _fleet_push_pending: Array = []
 var _fleet_push_debounce_tok: int = 0
@@ -41,6 +43,7 @@ var _shop_drag_active: bool = false
 var _shop_press_screen: Vector2 = Vector2.ZERO
 var _shop_long_previewed: bool = false
 var _shop_ghost: Control = null
+var _shop_bought_ship: ShipUnit = null
 var _equip_detail_panel: PanelContainer = null
 ## PC hover tooltips: hide when pointer leaves source/panel (HUD rebuild must not stick).
 var _equip_detail_from_hover: bool = false
@@ -56,8 +59,8 @@ var _equip_drag_item_id: String = ""
 var _equip_drag_active: bool = false
 var _equip_press_screen: Vector2 = Vector2.ZERO
 var _equip_ghost: Control = null
-const _SHOP_DRAG_THRESHOLD_PX: float = 28.0
-const _SHOP_BUY_TIP: String = "拖动到备战席来完成购买"
+const _SHOP_DRAG_THRESHOLD_PX: float = 40.0
+const _SHOP_BUY_TIP: String = "拖离商店即购买，松手落到备战席或棋盘"
 var _dragging_sell_ui: bool = false
 var _cam_base_pos: Vector3 = Vector3.ZERO
 var _cam_default_pitch_deg: float = -55.0
@@ -103,6 +106,9 @@ var _pending_hide_slot_markers: bool = false
 var _collapse_left: bool = false
 var _collapse_right: bool = false
 var _collapse_bottom: bool = false
+## Last time the player touched shop/side-panel chrome — Battle-enter auto-collapse
+## backs off for a short grace window so it doesn't yank a panel out from under a tap.
+var _hud_interact_ms: int = 0
 ## In-match Esc/菜单 overlay (versus + endless).
 var _game_menu: Control
 var _game_menu_settings: Control
@@ -153,6 +159,38 @@ var _doomsday_busy: bool = false
 var _doomsday_fx_left: int = 0
 ## Wall-clock earliest release for the doomsday gate (ms).
 var _doomsday_hold_until_ms: int = 0
+## Presentation hold (doomsday/kill) — distinct from prepare-stuck deadlock freeze.
+var _presentation_hold: bool = false
+## Deferred settlement summary while doomsday/kill still playing.
+var _settlement_pending_summary: String = ""
+## seat -> {w,l,d} match-scoped win/loss/draw tallies.
+var _wld_by_seat: Dictionary = {}
+## seat -> lifetime kills this match.
+var _kills_by_seat: Dictionary = {}
+## Ignore remote doomsday play if we already fired locally this resolve.
+var _doomsday_rpc_suppress: bool = false
+## SEMI_ASYNC §6.2 — guest local W/L prediction vs host doomsday shots.
+var _wl_pred_local: String = ""
+var _wl_auth_shots: Array = []
+var _wl_gap_notified: bool = false
+## battle_done armed while doomsday still playing — apply after gate releases.
+var _defer_prepare_clock_arm: bool = false
+## MULTIPLAYER_PVP §7.1 — human↔human PVP round title tracker (best-effort).
+var _combat_eval: CombatEvalTracker = null
+var _combat_eval_active: bool = false
+## seat_id -> Array of title-name Strings accrued across this table's PVP rounds.
+var _match_titles: Dictionary = {}
+## Match-scoped eval meta (羊望未来 / streak / scout / rejoin / 神之一手).
+var _eval_first_purchase_iid: int = 0
+var _eval_sold_first_this_prepare: bool = false
+var _eval_bought_capital_this_prepare: bool = false
+var _eval_scout_vs_rival: int = 0
+var _eval_human_streak: Dictionary = {} ## seat -> int
+var _eval_human_losses: Dictionary = {} ## seat -> int
+var _eval_rejoined: Dictionary = {} ## seat -> bool
+var _eval_wins_since_rejoin: Dictionary = {} ## seat -> int
+var _eval_prev_layout: Dictionary = {} ## seat -> {fp, lost}
+var _eval_prepare_rival_seat: int = -1
 ## Next-round entry deferred by a running kill sequence / doomsday beam.
 var _nullsec_prepare_pending: bool = false
 ## Prepare HUD/camera held back until doomsday / kill finish.
@@ -176,6 +214,11 @@ const _TITAN_INTRO_SLIDE_Z: float = 28.0
 var _nullsec_spectating: bool = false
 var _nullsec_spectate_reason: String = ""
 var _nullsec_watch_seat: int = -1
+## SEMI_ASYNC §3.0a — prepare freeze / barrier desync pulse escape.
+var _prep_pulse_acc_s: float = 0.0
+var _prep_freeze_wall_ms: int = 0
+const PREP_PULSE_S: float = 3.0
+const PREP_FORCE_ARM_MS: int = 20000
 var _spectate_leave_btn: Button = null
 ## SEMI_ASYNC NetBattleSession (host authority / guest repredict).
 var _net_battle: NetBattleSession = null
@@ -257,6 +300,13 @@ func _ready() -> void:
 	board.setup(world)
 	_ensure_ground()
 	shop.bind(match_ctrl, board)
+	## Solo / until nullsec payload: match_seed stream for shop (SEMI_ASYNC §2).
+	var solo_rng: MatchRng = MatchRng.new()
+	solo_rng.configure(
+		int(Time.get_unix_time_from_system()) ^ int(hash("eveac_solo")),
+		MatchRng.compute_rules_hash()
+	)
+	ShopController.bind_match_rng(solo_rng, "shop")
 	@warning_ignore("unsafe_method_access")
 	firing_fx.setup(world)
 	combat.bind(board, firing_fx)
@@ -275,6 +325,8 @@ func _ready() -> void:
 	match_ctrl.match_over.connect(_on_match_over)
 	match_ctrl.stage_changed.connect(_on_stage_changed_ui)
 	shop.shop_changed.connect(_refresh_shop_ui)
+	if not AdminBus.after_handoff.is_connected(_on_admin_after_for_combat_eval):
+		AdminBus.after_handoff.connect(_on_admin_after_for_combat_eval)
 	var net_sess: NullsecNetSession = _nullsec_net_session()
 	if net_sess and not net_sess.ships_override_applied.is_connected(_on_host_ships_applied):
 		net_sess.ships_override_applied.connect(_on_host_ships_applied)
@@ -317,6 +369,7 @@ func _setup_nullsec_runtime() -> void:
 	var payload: Dictionary = GameSession.pending_nullsec
 	_nullsec_rng = MatchRng.new()
 	_nullsec_rng.configure(TypedVariant.as_int(payload.get("match_seed", Time.get_unix_time_from_system()), int(Time.get_unix_time_from_system())), MatchRng.compute_rules_hash())
+	ShopController.bind_match_rng(_nullsec_rng, "shop")
 	_nullsec_speed = RoundSpeedController.new()
 	_nullsec_speed.speed_changed.connect(_on_nullsec_speed_changed)
 	_nullsec_speed.force_draw_remaining.connect(_on_nullsec_force_draw)
@@ -361,19 +414,40 @@ func _setup_nullsec_runtime() -> void:
 	var net_ticket: NullsecNetSession = _nullsec_net_session()
 	if net_ticket:
 		net_ticket.write_rejoin_ticket()
+		if not net_ticket.rejected.is_connected(_on_nullsec_rejected):
+			net_ticket.rejected.connect(_on_nullsec_rejected)
 	_speed_dropdown = SpeedDropdownMenu.new()
 	_speed_dropdown.controller = _nullsec_speed
 	_speed_dropdown.local_nick = "本地"
 	hud.add_child(_speed_dropdown)
 	_speed_dropdown.vote_changed.connect(func(spd: float) -> void:
-		show_notice("有人发起对局速度调整 → %s" % SpeedDropdownMenu._label(spd))
-		_apply_resolved_speed()
+		var net_spd: NullsecNetSession = _nullsec_net_session()
+		if net_spd and net_spd.needs_stage_barrier():
+			net_spd.push_speed_vote(spd)
+		else:
+			var ls: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+			if _nullsec_speed:
+				_nullsec_speed.set_vote(ls, spd)
+			show_notice("有人发起对局速度调整 → %s" % SpeedDropdownMenu._label(spd))
+			_apply_resolved_speed()
 	)
+	var net_wire: NullsecNetSession = _nullsec_net_session()
+	if net_wire:
+		if not net_wire.speed_vote_received.is_connected(_on_speed_vote_received):
+			net_wire.speed_vote_received.connect(_on_speed_vote_received)
+		if not net_wire.doomsday_play_received.is_connected(_on_doomsday_play_received):
+			net_wire.doomsday_play_received.connect(_on_doomsday_play_received)
+		_sync_required_speed_seats()
 	_settlement_panel = NullsecSettlementPanel.new()
 	hud.add_child(_settlement_panel)
 	_wire_nullsec_scout()
 	_wire_nullsec_prepare_sync()
 	_setup_net_battle_session()
+	## 王者归来：本 match 以重连票入局则标记本席已重连。
+	if TypedVariant.as_bool(payload.get("rejoin", false), false):
+		var rs: int = TypedVariant.as_int(payload.get("local_seat", 0), 0)
+		_eval_rejoined[rs] = true
+		_eval_wins_since_rejoin[rs] = 0
 	var want_spec: bool = TypedVariant.as_bool(payload.get("spectator", false), false)
 	if want_spec:
 		enter_nullsec_spectate(str(payload.get("spectate_reason", "seat_spectate")))
@@ -407,6 +481,17 @@ func enter_nullsec_spectate(reason: String = "seat_spectate") -> void:
 		label = "中途观战"
 	show_notice("%s · 可自由切换视角" % label)
 
+## Host eject mid-match (MULTIPLAYER_MATCH_FLOW §2.1a) — no host-migration / ghost path,
+## just tear the socket down and boot to the menu.
+func _on_nullsec_rejected(reason: String) -> void:
+	if str(reason) != "kicked":
+		return
+	show_notice("已被房主移出房间")
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net:
+		net.close()
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
 func _first_player_seat_id() -> int:
 	@warning_ignore("unsafe_cast")
 	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
@@ -427,12 +512,25 @@ func _apply_nullsec_spectate_hud() -> void:
 		@warning_ignore("unsafe_cast")
 		var shop_panel: Control = root.get_node_or_null("Shop") as Control
 		if shop_panel:
-			shop_panel.visible = false
+			## Spectate keeps the Shop panel on screen but overlays a seat roster
+			## (§4.4) on top of it — no buy/sell affordance for a read-only watcher.
+			## `_apply_adaptive_hud_layout()` re-shows ShopContent every refresh based on
+			## the collapse toggle, so we don't fight that: the roster is opaque and sits
+			## in front (later PanelContainer child = drawn + hit-tested first).
+			shop_panel.visible = true
+			_build_spectate_roster(shop_panel)
+		## Left (fetters/equipment) and right (detail) columns stay visible and
+		## interactable so the watcher can still read the current seat's board state.
 		@warning_ignore("unsafe_cast")
 		var right: Control = root.get_node_or_null("RightCol") as Control
 		if right:
-			right.modulate.a = 0.35
-			right.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			right.modulate.a = 1.0
+			right.mouse_filter = Control.MOUSE_FILTER_STOP
+		@warning_ignore("unsafe_cast")
+		var left: Control = root.get_node_or_null("LeftCol") as Control
+		if left:
+			left.modulate.a = 1.0
+			left.mouse_filter = Control.MOUSE_FILTER_STOP
 	if _speed_dropdown:
 		_speed_dropdown.visible = true
 	_ensure_spectate_leave_btn()
@@ -440,6 +538,78 @@ func _apply_nullsec_spectate_hud() -> void:
 	if scout:
 		scout.visible = true
 		scout.text = "切换视角"
+	_refresh_spectate_watch_panels()
+
+## Shop panel while spectating: seat roster instead of buy slots (§4.4 观战 HUD).
+func _build_spectate_roster(shop_panel: Control) -> void:
+	if shop_panel == null or not is_instance_valid(shop_panel):
+		return
+	@warning_ignore("unsafe_cast")
+	var overlay: PanelContainer = shop_panel.get_node_or_null("SpectateRosterOverlay") as PanelContainer
+	if overlay == null:
+		overlay = PanelContainer.new()
+		overlay.name = "SpectateRosterOverlay"
+		overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+		var sb: StyleBoxFlat = StyleBoxFlat.new()
+		sb.bg_color = Color(0.05, 0.06, 0.09, 0.96)
+		overlay.add_theme_stylebox_override("panel", sb)
+		shop_panel.add_child(overlay)
+	@warning_ignore("unsafe_cast")
+	var roster: VBoxContainer = overlay.get_node_or_null("SpectateRoster") as VBoxContainer
+	if roster == null:
+		roster = VBoxContainer.new()
+		roster.name = "SpectateRoster"
+		roster.add_theme_constant_override("separation", 6)
+		roster.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		roster.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		overlay.add_child(roster)
+	overlay.visible = true
+	for c: Node in roster.get_children():
+		c.queue_free()
+	var title: Label = Label.new()
+	title.text = "观战席位 · 点选切换视角"
+	UiAssets.apply_label_font(title, true, UiLayout.font_size(16, roster))
+	title.add_theme_color_override("font_color", Color(0.95, 0.95, 0.9))
+	roster.add_child(title)
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	for s_v: Variant in seats:
+		if typeof(s_v) != TYPE_DICTIONARY:
+			continue
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		if not NullsecNetSession.is_player_race(str(s.get("titan_race", ""))):
+			continue
+		var seat_id: int = TypedVariant.as_int(s.get("seat_id", 0), 0)
+		var nick: String = str(s.get("nick", ""))
+		if nick == "":
+			nick = "席位 %d" % (seat_id + 1)
+		var btn: Button = Button.new()
+		btn.text = "%s（席位 %d）" % [nick, seat_id + 1]
+		btn.toggle_mode = true
+		btn.button_pressed = seat_id == _nullsec_watch_seat
+		btn.pressed.connect(_switch_watch_seat.bind(seat_id, ""))
+		roster.add_child(btn)
+
+## Best-effort read-only refresh for the seat currently being watched. There is no
+## per-seat board snapshot API yet, so this re-applies the existing (local-board)
+## fetter/equipment widgets and highlights the active roster button.
+func _refresh_spectate_watch_panels() -> void:
+	if not _nullsec_spectating:
+		return
+	@warning_ignore("unsafe_cast")
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	@warning_ignore("unsafe_cast")
+	var shop_panel: Control = root.get_node_or_null("Shop") as Control
+	if shop_panel and shop_panel.get_node_or_null("SpectateRosterOverlay") != null:
+		## Rebuild rather than toggle-in-place, so the highlighted button always tracks
+		## the live `_nullsec_watch_seat` (roster order can shift as seats join/leave).
+		_build_spectate_roster(shop_panel)
+	_refresh_fetter_ui(root)
+	_refresh_equipment_inventory_ui()
 
 func _ensure_spectate_leave_btn() -> void:
 	@warning_ignore("unsafe_cast")
@@ -477,13 +647,26 @@ func _switch_watch_seat(seat_id: int, notice: String = "") -> void:
 		apply_region_skybox(region)
 	_refresh_region_label()
 	show_notice(notice if notice != "" else "视角 → 席位 %d" % (seat_id + 1))
+	_refresh_spectate_watch_panels()
 
 func _seat_region(seat_id: int) -> String:
 	var asg: Dictionary = GameSession.pending_nullsec.get("assignments", {})
 	return str(asg.get(str(seat_id), asg.get(seat_id, "")))
 
-## Title bar carries the region being watched, so a scout hop is readable even
-## when both seats sit under a similar nebula (MULTIPLAYER_PVP §4.2.1).
+## 顶栏星域 = 当前主场主人（开局一人一名；谁主场显示谁的）。
+func _active_home_field_seat() -> int:
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), 0)
+	if _nullsec_spectating:
+		return _nullsec_watch_seat if _nullsec_watch_seat >= 0 else local_seat
+	var net: NullsecNetSession = _nullsec_net_session()
+	var mode: String = net.security_mode if net != null else str(GameSession.pending_nullsec.get("security_mode", "nullsec"))
+	if NullsecNetSession.is_lowsec(mode):
+		return TypedVariant.as_int(GameSession.pending_nullsec.get("host_seat", 0), 0)
+	if _nullsec_watch_seat >= 0:
+		return _nullsec_watch_seat
+	return local_seat
+
+## Title bar carries the home-field owner's region (MULTIPLAYER_PVP §4.1 / NEW_EDEN_REGIONS).
 func _refresh_region_label() -> void:
 	var root: Control = hud.get_node_or_null("Root")
 	if root == null:
@@ -497,7 +680,7 @@ func _refresh_region_label() -> void:
 		return
 	lbl.visible = true
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), 0)
-	var seat: int = _nullsec_watch_seat if _nullsec_watch_seat >= 0 else local_seat
+	var seat: int = _active_home_field_seat()
 	var region: String = _seat_region(seat)
 	if region == "":
 		lbl.text = "星域 —"
@@ -561,8 +744,10 @@ func _wire_nullsec_prepare_sync() -> void:
 			net.prepare_clock_armed_changed.connect(_on_prepare_clock_armed_changed)
 		if not net.urge_prepare_received.is_connected(_on_urge_prepare_received):
 			net.urge_prepare_received.connect(_on_urge_prepare_received)
-		if not net.enter_battle_released.is_connected(_on_enter_battle_released):
-			net.enter_battle_released.connect(_on_enter_battle_released)
+	if not net.enter_battle_released.is_connected(_on_enter_battle_released):
+		net.enter_battle_released.connect(_on_enter_battle_released)
+	if not net.seat_battle_finished.is_connected(_on_seat_battle_finished_speed):
+		net.seat_battle_finished.connect(_on_seat_battle_finished_speed)
 	_apply_nullsec_prepare_stage_gates()
 
 
@@ -584,6 +769,26 @@ func _apply_nullsec_prepare_stage_gates() -> void:
 	_fleet_push_sig = ""
 	_fleet_apply_sig = ""
 	_fleet_push_pending = []
+	_pending_enter_battle = false
+	## Empty-open fake wipe must NOT join battle_done / 开钟 — peer may still be fighting.
+	if TypedVariant.as_bool(match_ctrl.last_round_empty_open, false):
+		print("[mp.diag] prepare_gates SKIP battle_done (empty_open)")
+		SessionDiagnostics.log("mp.prep_gate_skip", "empty_open")
+		## Stay frozen until we can re-sync fleet and re-enter; arm locally only if solo.
+		if not net.needs_stage_barrier():
+			match_ctrl.arm_prepare_clock()
+		else:
+			## Re-open prepare sync: request fleet and wait for next enter_battle from host barrier.
+			_push_local_prepare_fleet()
+			var rival_skip: int = _nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
+			if rival_skip >= 0 and not _seat_is_ai(rival_skip):
+				net.request_prepare_fleet_snapshot(rival_skip)
+			## Do not report battle_done — avoid pulling cohort into 开钟 on a phantom round.
+			if match_ctrl.battle_game_stage_count == 0:
+				net.begin_prepare_spend_gate()
+			## R2+: leave clock frozen; host will re-arm when real battles complete.
+			## If we were the only one who empty-wiped, urge a fresh prepare barrier via fleet.
+		return
 	if match_ctrl.battle_game_stage_count == 0:
 		net.begin_prepare_spend_gate()
 		## Only arm if host already satisfied the gate (e.g. AI-only contestants).
@@ -613,6 +818,61 @@ func _on_enter_battle_released() -> void:
 	if match_ctrl.stage != MatchController.Stage.PREPARE:
 		print("[mp.diag] enter_battle_released IGNORE stage=%s" % match_ctrl.stage)
 		return
+	## Doomsday / kill presentation must finish before flipping into the next Battle.
+	if _doomsday_busy or _presentation_hold or _titan_kill_busy or _titan_kill_active > 0:
+		_pending_enter_battle = true
+		print("[mp.diag] enter_battle HOLD presentation")
+		SessionDiagnostics.log("mp.enter_hold", "presentation")
+		return
+	## Human PVP: never open Battle with an empty rival half — that instant-wipes into
+	## battle_done 开钟 freeze while the peer is still fighting.
+	if not _nullsec_human_rival_fleet_ready():
+		_pending_enter_battle = true
+		_push_local_prepare_fleet()
+		var rival: int = _nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
+		var net: NullsecNetSession = _nullsec_net_session()
+		if net != null and rival >= 0:
+			net.request_prepare_fleet_snapshot(rival)
+		show_notice("等待对手舰队同步…")
+		print("[mp.diag] enter_battle HOLD waiting rival fleet")
+		SessionDiagnostics.log("mp.enter_hold", "waiting_rival_fleet")
+		return
+	_pending_enter_battle = false
+	match_ctrl.commit_prepare_complete()
+
+
+## True when we may open Battle vs a human rival (AI seat / PVE / solo always ready).
+func _nullsec_human_rival_fleet_ready() -> bool:
+	if GameSession.pending_mode != "nullsec" or board == null or match_ctrl == null:
+		return true
+	if _nullsec_pve != null and _nullsec_pve.is_pve_task():
+		return true
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	if rival < 0 or _seat_is_ai(rival):
+		return true
+	## Need at least one manned rival ship on field or hangar after sync.
+	var n: int = 0
+	for s: ShipUnit in board.all_ships():
+		if s == null or not is_instance_valid(s) or s.is_unmanned or s.is_protect_target:
+			continue
+		if TypedVariant.as_int(s.team_id, 0) != ShipUnit.TEAM_AI:
+			continue
+		n += 1
+	return n > 0
+
+
+func _try_flush_pending_enter_battle() -> void:
+	if not _pending_enter_battle or match_ctrl == null:
+		return
+	if match_ctrl.stage != MatchController.Stage.PREPARE:
+		_pending_enter_battle = false
+		return
+	if not _nullsec_human_rival_fleet_ready():
+		return
+	_pending_enter_battle = false
+	print("[mp.diag] enter_battle FLUSH after fleet ready")
+	SessionDiagnostics.log("mp.enter_flush", "fleet_ready")
 	match_ctrl.commit_prepare_complete()
 
 
@@ -620,6 +880,9 @@ func _on_prepare_spend_occurred() -> void:
 	if GameSession.pending_mode != "nullsec":
 		return
 	if match_ctrl == null or match_ctrl.prepare_clock_armed:
+		return
+	## MATCH_FLOW: spend-gate is R1 only (`battle_game_stage_count==0`).
+	if match_ctrl.battle_game_stage_count != 0:
 		return
 	var net: NullsecNetSession = _nullsec_net_session()
 	if net:
@@ -629,8 +892,21 @@ func _on_prepare_spend_occurred() -> void:
 
 
 func _on_prepare_clock_armed_changed(armed: bool) -> void:
-	if not armed or match_ctrl == null:
+	if match_ctrl == null:
 		return
+	if not armed:
+		_defer_prepare_clock_arm = false
+		match_ctrl.disarm_prepare_clock()
+		_refresh_hud()
+		return
+	## MULTIPLAYER_PVP §6 — do not start Prepare timer under doomsday / kill FX.
+	if _doomsday_busy or _presentation_hold or _titan_kill_busy or _titan_kill_active > 0:
+		_defer_prepare_clock_arm = true
+		match_ctrl.disarm_prepare_clock()
+		print("[mp.diag] prepare_clock DEFER (presentation)")
+		SessionDiagnostics.log("mp.clock_defer", "presentation")
+		return
+	_defer_prepare_clock_arm = false
 	match_ctrl.arm_prepare_clock()
 	_refresh_hud()
 
@@ -705,6 +981,9 @@ func _on_scout_observe(seat_id: int) -> void:
 	_scout_cd_until_ms[seat_id] = now + SCOUT_TARGET_CD_MS
 	var nick: String = _seat_nick(seat_id)
 	var from_nick: String = _local_nick()
+	## 有备而来：本 Prepare 对本桌对手刺探计数。
+	if seat_id == _nullsec_rival_seat(local_seat) or seat_id == _eval_prepare_rival_seat:
+		_eval_scout_vs_rival += 1
 	show_notice("刺探 %s · %s 离场" % [nick, ship_name])
 	_request_scout_intel(seat_id, local_seat, from_nick, ship_name)
 	_refresh_scout_menu()
@@ -1028,6 +1307,8 @@ func _nullsec_on_prepare_begin() -> void:
 func _setup_net_battle_session() -> void:
 	if combat and _nullsec_rng:
 		combat.bind_match_rng(_nullsec_rng, 1)
+	if match_ctrl and _nullsec_rng and match_ctrl.has_method("bind_cyno_rng"):
+		match_ctrl.bind_cyno_rng(_nullsec_rng, 1)
 	var net: NullsecNetSession = _nullsec_net_session()
 	if net == null:
 		return
@@ -1040,10 +1321,16 @@ func _setup_net_battle_session() -> void:
 	if not payload.has("host_seat"):
 		payload["host_seat"] = TypedVariant.as_int(payload.get("host_seat", 0), 0)
 	_net_battle.setup(_nullsec_rng, net, payload)
+	## SEMI_ASYNC §3.1a — watch peers skip CombatResolver; keep normal sync cadence.
+	## Do NOT densify snaps (≤5): full apply_authority each snap stutters guests.
 	if not net.authority_snapshot_received.is_connected(_on_net_authority_snapshot):
 		net.authority_snapshot_received.connect(_on_net_authority_snapshot)
+	if not net.authority_light_received.is_connected(_on_net_authority_light):
+		net.authority_light_received.connect(_on_net_authority_light)
 	if not net.battle_report_received.is_connected(_on_net_battle_report):
 		net.battle_report_received.connect(_on_net_battle_report)
+	if not net.battle_ended_received.is_connected(_on_net_battle_ended):
+		net.battle_ended_received.connect(_on_net_battle_ended)
 	if not net.anticheat_notice_received.is_connected(_on_net_anticheat_notice):
 		net.anticheat_notice_received.connect(_on_net_anticheat_notice)
 	if not _net_battle.round_jobs_complete.is_connected(_on_net_round_jobs_complete):
@@ -1057,7 +1344,18 @@ func _setup_net_battle_session() -> void:
 
 func _on_net_authority_snapshot(snap: Dictionary) -> void:
 	if _net_battle:
-		_net_battle.apply_authority(snap, board)
+		_net_battle.apply_authority(snap, board, firing_fx, _net_float_text())
+
+
+func _on_net_authority_light(pkt: Dictionary) -> void:
+	if _net_battle:
+		_net_battle.apply_light(pkt, board, firing_fx, _net_float_text())
+
+
+func _net_float_text() -> Object:
+	if combat == null:
+		return null
+	return combat.get_node_or_null("FloatTextPool")
 
 
 func _on_net_battle_report(report: Dictionary) -> void:
@@ -1069,6 +1367,32 @@ func _on_net_battle_report(report: Dictionary) -> void:
 	_append_battle_log(line)
 
 
+## SEMI_ASYNC §3.1a — map host-seat W/L into local seat, then force Prepare.
+func _on_net_battle_ended(host_result: String, host_seat: int, reason: String) -> void:
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+		return
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var mapped: String = _map_host_result_to_local(str(host_result), host_seat, local_seat)
+	print("[mp.diag] battle_ended_rpc host=%s seat=%d -> local=%s reason=%s" % [
+		host_result, host_seat, mapped, reason
+	])
+	SessionDiagnostics.log("mp.battle_ended_rpc", "host=%s→%s" % [host_result, mapped])
+	match_ctrl.force_authority_combat_complete(mapped, str(reason))
+
+
+func _map_host_result_to_local(host_result: String, host_seat: int, local_seat: int) -> String:
+	if host_result == "draw" or host_result == "":
+		return "draw"
+	if local_seat == host_seat:
+		return host_result
+	## Opposite seat: flip win/lose.
+	if host_result == "win":
+		return "lose"
+	if host_result == "lose":
+		return "win"
+	return "draw"
+
+
 func _on_net_anticheat_notice(message: String) -> void:
 	show_notice(str(message))
 	_append_battle_log(str(message))
@@ -1076,7 +1400,7 @@ func _on_net_anticheat_notice(message: String) -> void:
 
 func _on_net_spectate_stream(snap: Dictionary) -> void:
 	if _nullsec_spectating and _net_battle:
-		_net_battle.apply_authority(snap, board)
+		_net_battle.apply_authority(snap, board, firing_fx, _net_float_text())
 
 
 func _on_net_round_jobs_complete(_reports: Array) -> void:
@@ -1088,8 +1412,12 @@ func _tick_net_battle_enrich() -> void:
 		return
 	if not _net_battle.is_host:
 		return
-	var gold: int = TypedVariant.as_int(match_ctrl.player_gold_earned, 0) if match_ctrl else 0
-	_net_battle.enrich_and_broadcast(board, gold)
+	if _net_battle.should_enrich_this_tick():
+		var gold: int = TypedVariant.as_int(match_ctrl.player_gold_earned, 0) if match_ctrl else 0
+		_net_battle.enrich_and_broadcast(board, gold)
+		return
+	if _net_battle.should_light_this_tick():
+		_net_battle.enrich_and_broadcast_light(board)
 
 func _spawn_nullsec_creeps_with_slide() -> void:
 	## Clear AI field ships from prior versus AI army when first entering nullsec PVE.
@@ -1231,6 +1559,23 @@ func _nullsec_resolve_pvp_doomsday(result: String) -> void:
 		## No contender this round — nobody's titan fires, least of all at itself.
 		show_notice("本回合无对手席位 · 泰坦不开火")
 		return
+	## Guests follow host rpc_doomsday_play for the beam; hold prepare until then.
+	var net_dd: NullsecNetSession = _nullsec_net_session()
+	var guest_follow: bool = net_dd != null and net_dd.needs_stage_barrier() and not net_dd.is_host
+	if guest_follow:
+		_doomsday_busy = true
+		_presentation_hold = true
+		_nullsec_prepare_pending = true
+		## Hold until host rpc arrives (then _hold_for_doomsday_presentation resets the clock).
+		_doomsday_hold_until_ms = Time.get_ticks_msec() + 60000
+		_doomsday_fx_left = 1 ## sentinel so gate doesn't release before RPC
+		_wl_pred_local = str(result)
+		_wl_auth_shots.clear()
+		_wl_gap_notified = false
+		if match_ctrl:
+			match_ctrl.disarm_prepare_clock()
+		return
+	_doomsday_resolver.begin_resolve_burst()
 	var local_pos: Vector3 = _titan_fire_point(true)
 	var rival_pos: Vector3 = _titan_fire_point(false)
 	var belt: Node3D = _nullsec_belt_root()
@@ -1254,12 +1599,16 @@ func _nullsec_resolve_pvp_doomsday(result: String) -> void:
 				kill_seats.append(true)
 			if not _seat_titan_alive(rival_seat):
 				kill_seats.append(false)
+	_doomsday_resolver.end_resolve_burst()
 	_hold_for_doomsday_presentation()
 	_doomsday_resolver.schedule_return_home(get_tree(), local_seat, DoomsdayFx.FIRE_S)
 	_refresh_titan_hp_bar()
 	_refresh_hud()
-	if _nullsec_speed:
-		_nullsec_speed.mark_seat_finished()
+	## Speed mark is via net.seat_battle_finished (battle_done); keep local fallback for solo.
+	if _nullsec_speed and (_nullsec_net_session() == null or not _nullsec_net_session().needs_stage_barrier()):
+		var cur: float = TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else 1.0
+		_nullsec_speed.mark_seat_finished(cur)
+		_apply_resolved_speed()
 	var scout: ScoutIntelButton = hud.get_node_or_null("Root/TopRight/ScoutIntelBtn") as ScoutIntelButton
 	if scout:
 		scout.set_local_finished(true)
@@ -1271,7 +1620,32 @@ func _nullsec_resolve_pvp_doomsday(result: String) -> void:
 func _hold_for_doomsday_presentation() -> void:
 	var hold: float = TypedVariant.as_float(DataStore.visual.get("titan_doomsday_hold_s", 0.8), 0.0)
 	_doomsday_busy = true
+	_presentation_hold = true
 	_doomsday_hold_until_ms = Time.get_ticks_msec() + int((DoomsdayFx.FIRE_S + maxf(hold, 0.0)) * 1000.0)
+	## Prepare already re-armed itself on stage_changed(PREPARE) before the beam fired —
+	## freeze it again so the timer does not run out under the doomsday performance.
+	if match_ctrl:
+		if match_ctrl.prepare_clock_armed:
+			_defer_prepare_clock_arm = true
+		match_ctrl.disarm_prepare_clock()
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net != null and net.prepare_clock_armed:
+		_defer_prepare_clock_arm = true
+
+## Flip the Prepare clock back on once the doomsday beam (and any overlapping hull kill)
+## has finished. Multiplayer: apply deferred battle_done arm, or re-arm if net already armed.
+func _reengage_prepare_clock_after_doomsday() -> void:
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.PREPARE or match_ctrl.prepare_clock_armed:
+		return
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net != null and net.needs_stage_barrier():
+		if _defer_prepare_clock_arm or net.prepare_clock_armed:
+			_defer_prepare_clock_arm = false
+			match_ctrl.arm_prepare_clock()
+			_refresh_hud()
+		return
+	match_ctrl.arm_prepare_clock()
+	_refresh_hud()
 
 func _on_one_doomsday_fx_finished() -> void:
 	_doomsday_fx_left = maxi(0, _doomsday_fx_left - 1)
@@ -1294,6 +1668,9 @@ func _on_doomsday_presentation_done() -> void:
 	## A hull kill overlaps the beam; its own callback resumes the round.
 	if _titan_kill_active > 0:
 		return
+	_presentation_hold = false
+	_reengage_prepare_clock_after_doomsday()
+	_flush_pending_settlement_if_ready()
 	if _nullsec_prepare_pending:
 		_nullsec_prepare_pending = false
 		_nullsec_enter_next_round()
@@ -1324,12 +1701,17 @@ func _on_titan_kill_done() -> void:
 	_titan_kill_busy = false
 	if not _seat_titan_alive(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)):
 		_nullsec_prepare_pending = false
+		_presentation_hold = false
+		_flush_pending_settlement_if_ready()
 		## Early-out → same spectate runtime as「仅观战」.
 		if not _nullsec_spectating:
 			enter_nullsec_spectate("eliminated")
 		return
 	if _doomsday_busy:
 		return
+	_presentation_hold = false
+	_flush_pending_settlement_if_ready()
+	_reengage_prepare_clock_after_doomsday()
 	## Prepare was held back while the hull was exploding — run it now.
 	if _nullsec_prepare_pending:
 		_nullsec_prepare_pending = false
@@ -1356,18 +1738,44 @@ func _on_titan_return_home(seat_id: int) -> void:
 		apply_region_skybox(region)
 	show_notice("投送返回主场")
 
-func _fire_doomsday(attacker_seat: int, loser_seat: int, from: Vector3, to: Vector3, belt: Node3D) -> void:
+func _doomsday_fx_root() -> Node3D:
+	if world == null:
+		return null
+	var root: Node3D = world.get_node_or_null("FxRoot") as Node3D
+	if root == null:
+		root = Node3D.new()
+		root.name = "FxRoot"
+		root.process_mode = Node.PROCESS_MODE_ALWAYS
+		world.add_child(root)
+	return root
+
+
+func _fire_doomsday(attacker_seat: int, loser_seat: int, from: Vector3, to: Vector3, belt: Node3D, from_rpc: bool = false) -> void:
 	if attacker_seat == loser_seat or attacker_seat < 0 or loser_seat < 0:
 		push_warning("[Nullsec] doomsday skipped: attacker=%d loser=%d" % [attacker_seat, loser_seat])
+		SessionDiagnostics.log("dd.skip", "bad_seats a=%d l=%d" % [attacker_seat, loser_seat])
 		return
 	var race: String = _seat_titan_race(attacker_seat)
 	if race == "":
 		race = "caldari"
-	var fx: DoomsdayFx = DoomsdayFx.play(world, race, from, to)
+	var parent: Node3D = _doomsday_fx_root()
+	if parent == null:
+		parent = world
+	var fx: DoomsdayFx = DoomsdayFx.play(parent, race, from, to)
 	if fx != null and is_instance_valid(fx):
 		_doomsday_fx_left += 1
 		fx.finished.connect(_on_one_doomsday_fx_finished)
-	_doomsday_resolver.resolve_loss(attacker_seat, loser_seat, from, to, belt)
+	else:
+		push_warning("[Nullsec] DoomsdayFx failed to spawn")
+		SessionDiagnostics.log("dd.skip", "fx_null race=%s" % race)
+	if _doomsday_resolver:
+		_doomsday_resolver.resolve_loss(attacker_seat, loser_seat, from, to, belt)
+	if not from_rpc:
+		var net: NullsecNetSession = _nullsec_net_session()
+		if net and net.is_host and net.needs_stage_barrier():
+			_doomsday_rpc_suppress = true
+			var tick: int = _net_battle.logic_tick() if _net_battle else 0
+			net.broadcast_doomsday_play(attacker_seat, loser_seat, tick)
 
 func _nullsec_belt_root() -> Node3D:
 	var env: Node = world.get_node_or_null("MapEnv")
@@ -1425,6 +1833,129 @@ func _titan_fire_point(local_side: bool) -> Vector3:
 		p = _titan_berth.fire_point()
 	return Vector3(p.x, p.y, -p.z)
 
+func _on_speed_vote_received(seat: int, speed: float) -> void:
+	if _nullsec_speed == null:
+		return
+	_nullsec_speed.set_vote(seat, speed)
+	if _speed_dropdown:
+		@warning_ignore("unsafe_cast")
+		_speed_dropdown.refresh_list(GameSession.pending_nullsec.get("seats", []) as Array)
+	var wait_n: int = _nullsec_speed.waiting_count()
+	if wait_n > 0:
+		show_notice("等待 %d 人同档 → %s" % [wait_n, SpeedDropdownMenu._label(speed)])
+	else:
+		show_notice("对局倍速 %s" % SpeedDropdownMenu._label(speed))
+	_apply_resolved_speed()
+
+
+func _sync_required_speed_seats() -> void:
+	if _nullsec_speed == null:
+		return
+	var req: PackedInt32Array = PackedInt32Array()
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	for s_v: Variant in seats:
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		if TypedVariant.as_bool(s.get("is_ai", false), false):
+			continue
+		if NullsecNetSession.is_spectate_race(str(s.get("titan_race", ""))):
+			continue
+		if not NullsecNetSession.is_player_race(str(s.get("titan_race", ""))):
+			continue
+		req.append(TypedVariant.as_int(s.get("seat_id", -1), -1))
+	_nullsec_speed.set_required_human_seats(req)
+
+
+func _on_doomsday_play_received(attacker_seat: int, loser_seat: int, _logic_tick: int) -> void:
+	if _doomsday_rpc_suppress:
+		_doomsday_rpc_suppress = false
+		return
+	## Clear guest wait sentinel before spawning real FX.
+	if _doomsday_fx_left == 1 and _doomsday_hold_until_ms > Time.get_ticks_msec() + 30000:
+		_doomsday_fx_left = 0
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	_record_auth_doomsday_shot(attacker_seat, loser_seat, local_seat)
+	var atk_is_local: bool = attacker_seat == local_seat
+	var hit_is_local: bool = loser_seat == local_seat
+	var from_pos: Vector3 = _titan_fire_point(atk_is_local)
+	var to_pos: Vector3 = _titan_fire_point(hit_is_local)
+	## Mirror: if neither is local, treat attacker as rival side.
+	if not atk_is_local and not hit_is_local:
+		from_pos = _titan_fire_point(false)
+		to_pos = _titan_fire_point(true)
+	if _doomsday_resolver:
+		_doomsday_resolver.begin_resolve_burst()
+	_fire_doomsday(attacker_seat, loser_seat, from_pos, to_pos, _nullsec_belt_root(), true)
+	if _doomsday_resolver:
+		_doomsday_resolver.end_resolve_burst()
+	_hold_for_doomsday_presentation()
+	_refresh_titan_hp_bar()
+	_refresh_hud()
+	if not _seat_titan_alive(loser_seat):
+		_begin_titan_kill(loser_seat == local_seat)
+
+
+## SEMI_ASYNC §6.2 — notify only when local W/L prediction disagrees with host shots.
+func _record_auth_doomsday_shot(attacker_seat: int, loser_seat: int, local_seat: int) -> void:
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or net.is_host or not net.needs_stage_barrier():
+		return
+	if _wl_pred_local == "":
+		_wl_pred_local = str(match_ctrl.last_round_result) if match_ctrl else ""
+	_wl_auth_shots.append({"a": attacker_seat, "l": loser_seat})
+	_maybe_notify_wl_prediction_gap(local_seat)
+
+
+func _auth_result_from_dd_shots(local_seat: int) -> String:
+	var rival: int = _nullsec_rival_seat(local_seat)
+	if rival < 0:
+		return ""
+	var hit_rival: bool = false
+	var hit_local: bool = false
+	for s_v: Variant in _wl_auth_shots:
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		var a: int = TypedVariant.as_int(s.get("a", -1), -1)
+		var l: int = TypedVariant.as_int(s.get("l", -1), -1)
+		if a == local_seat and l == rival:
+			hit_rival = true
+		elif a == rival and l == local_seat:
+			hit_local = true
+	if hit_rival and hit_local:
+		return "draw"
+	if hit_rival:
+		return "win"
+	if hit_local:
+		return "lose"
+	return ""
+
+
+func _maybe_notify_wl_prediction_gap(local_seat: int) -> void:
+	if _wl_gap_notified or _wl_pred_local == "":
+		return
+	var auth: String = _auth_result_from_dd_shots(local_seat)
+	var pred: String = _wl_pred_local
+	if pred == "draw":
+		if _wl_auth_shots.size() < 2:
+			return
+	elif _wl_auth_shots.size() >= 2:
+		## Host fired both ways → draw; local predicted a decisive result.
+		auth = "draw"
+	elif auth == "":
+		return
+	if auth == pred:
+		return
+	_wl_gap_notified = true
+	var msg: String = "本地预测与房主有偏差"
+	show_notice(msg)
+	_append_battle_log(msg)
+	SessionDiagnostics.log("net.anticheat_wl", "pred=%s auth=%s" % [pred, auth])
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net and net.multiplayer and net.multiplayer.has_multiplayer_peer():
+		net.broadcast_anticheat_notice(msg)
+
+
 func _on_nullsec_speed_changed(speed: float) -> void:
 	_apply_resolved_speed()
 	show_notice("对局倍速 %s" % SpeedDropdownMenu._label(speed))
@@ -1433,15 +1964,24 @@ func _apply_resolved_speed() -> void:
 	if _nullsec_speed == null or match_ctrl == null:
 		return
 	var spd: float = _nullsec_speed.current_speed()
+	var persist: bool = _nullsec_speed.should_persist_preferred()
 	if match_ctrl.has_method("set_battle_speed"):
-		match_ctrl.set_battle_speed(spd)
-
+		match_ctrl.set_battle_speed(spd, persist)
 	_refresh_hud()
 
 func _on_nullsec_force_draw() -> void:
 	show_notice("墙钟 2 分钟到 · 剩余对局判平局")
 	if match_ctrl and match_ctrl.has_method("force_draw_battle"):
 		match_ctrl.force_draw_battle()
+
+
+func _on_seat_battle_finished_speed(_seat: int) -> void:
+	## SEMI_ASYNC §4.5 — any finished → max(4×, 场上); auto floor must not stick next round.
+	if _nullsec_speed == null:
+		return
+	var cur: float = TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else 1.0
+	_nullsec_speed.mark_seat_finished(cur)
+	_apply_resolved_speed()
 
 func _ensure_ground() -> void:
 	var g: MeshInstance3D = get_node_or_null("Ground") as MeshInstance3D
@@ -1552,8 +2092,9 @@ func _spawn_titan_hp_bar_on(berth: TitanBerth) -> Node3D:
 	var bar: Node3D = _TITAN_BAR_SCRIPT.new() as Node3D
 	bar.name = "TitanHpBar"
 	berth.add_child(bar)
-	## Bar rides the stern anchor, so the offset is only clearance above the hull.
-	bar.call("setup", TypedVariant.as_float(DataStore.visual.get("titan_hp_bar_stern_margin", 2.0), 0.0))
+	## Board hangar outside + middle-5 width (MULTIPLAYER_PVP §2.4).
+	var team: int = ShipUnit.TEAM_PLAYER if berth.home_side else ShipUnit.TEAM_AI
+	bar.call("setup", team, 0.0)
 	return bar
 
 func _refresh_titan_hp_bar() -> void:
@@ -1814,12 +2355,91 @@ func _process(delta: float) -> void:
 	_tick_info_hold()
 	_tick_equipment_detail_hover()
 	_tick_scout_departs(delta)
+	if _combat_eval_active and _combat_eval != null and match_ctrl \
+			and match_ctrl.stage == MatchController.Stage.BATTLE \
+			and not match_ctrl.remote_watch_only:
+		_combat_eval.tick(board)
 	if GameSession.pending_mode == "nullsec" and match_ctrl \
 			and match_ctrl.stage == MatchController.Stage.BATTLE:
 		_tick_net_battle_enrich()
 		if _net_battle and _net_battle.is_host:
 			_net_jobs_ready_for_titan = _net_battle.host_sim == null \
 				or _net_battle.host_sim.pending_count() == 0
+	_tick_prepare_stuck_pulse(delta)
+
+
+## SEMI_ASYNC §3.0a — escape prepare freeze when net/local arm desync or barrier hangs.
+func _tick_prepare_stuck_pulse(delta: float) -> void:
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.PREPARE:
+		_prep_freeze_wall_ms = 0
+		_prep_pulse_acc_s = 0.0
+		return
+	if GameSession.pending_mode != "nullsec":
+		return
+	## Presentation freeze ≠ deadlock — never force-arm during doomsday/kill.
+	if _doomsday_busy or _titan_kill_active > 0 or _nullsec_prepare_pending or _presentation_hold:
+		_prep_freeze_wall_ms = 0
+		_prep_pulse_acc_s = 0.0
+		return
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or not net.needs_stage_barrier():
+		_prep_freeze_wall_ms = 0
+		_prep_pulse_acc_s = 0.0
+		return
+	## R1 spend gate: freeze is intentional until every contestant spends — no pulse force-arm.
+	if match_ctrl.battle_game_stage_count == 0 and net.is_prepare_spend_gate_pending():
+		_prep_freeze_wall_ms = 0
+		_prep_pulse_acc_s = 0.0
+		return
+	var local_frozen: bool = not match_ctrl.prepare_clock_armed
+	var peer_hold: bool = match_ctrl.is_prepare_peer_hold()
+	var gate: bool = net.is_battle_done_gate_open() or net.is_prepare_done_gate_open()
+	var arm_desync: bool = net.prepare_clock_armed != match_ctrl.prepare_clock_armed
+	if not local_frozen and not peer_hold and not gate and not arm_desync:
+		_prep_freeze_wall_ms = 0
+		_prep_pulse_acc_s = 0.0
+		return
+	var now: int = Time.get_ticks_msec()
+	if _prep_freeze_wall_ms <= 0:
+		_prep_freeze_wall_ms = now
+	_prep_pulse_acc_s += delta
+	if _prep_pulse_acc_s < PREP_PULSE_S:
+		return
+	_prep_pulse_acc_s = 0.0
+	## Heal: net already armed but MatchController still frozen (1v1 deadlock root).
+	if net.prepare_clock_armed and not match_ctrl.prepare_clock_armed:
+		print("[mp.diag] prep_pulse_escape heal_arm_desync")
+		SessionDiagnostics.log("mp.prep_pulse_escape", "heal_arm_desync")
+		match_ctrl.arm_prepare_clock()
+		_refresh_hud()
+		show_notice("联机时钟已对齐")
+	var acts: String = net.pulse_prepare_escape()
+	if acts != "":
+		print("[mp.diag] prep_pulse_escape net=%s" % acts)
+		SessionDiagnostics.log("mp.prep_pulse_escape", "net=%s" % acts)
+	var elapsed: int = now - _prep_freeze_wall_ms
+	if elapsed >= PREP_FORCE_ARM_MS and not match_ctrl.prepare_clock_armed:
+		## Spend gate still pending → never force (belt-and-suspenders).
+		if net.is_prepare_spend_gate_pending():
+			print("[mp.diag] prep_pulse_escape force_local_arm SKIP spend_gate")
+			SessionDiagnostics.log("mp.prep_pulse_escape", "force_local_arm_skip_spend")
+			_prep_freeze_wall_ms = now
+			return
+		print("[mp.diag] prep_pulse_escape force_local_arm elapsed=%d" % elapsed)
+		SessionDiagnostics.log("mp.prep_pulse_escape", "force_local_arm ms=%d" % elapsed)
+		if net.is_host:
+			net.force_arm_prepare_clock_escape()
+		if net.prepare_clock_armed:
+			match_ctrl.arm_prepare_clock()
+			show_notice("联机同步超时 · 已强制开钟")
+			_refresh_hud()
+		_prep_freeze_wall_ms = now
+	elif elapsed >= PREP_FORCE_ARM_MS and peer_hold and net.is_host:
+		print("[mp.diag] prep_pulse_escape force_peer_hold elapsed=%d" % elapsed)
+		SessionDiagnostics.log("mp.prep_pulse_escape", "force_peer_hold ms=%d" % elapsed)
+		net.force_barrier_escape()
+		_prep_freeze_wall_ms = now
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:
@@ -2715,7 +3335,8 @@ func _ensure_side_panel_scrolls() -> void:
 			bonus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var grid: GridContainer = left_content.get_node_or_null("ReserveGrid") as GridContainer
 		if grid:
-			## Pin bag under fetter scroll — never inside the scroll.
+			## Width fills left column; height follows 4× square cells (not stretch).
+			grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			grid.size_flags_vertical = Control.SIZE_SHRINK_END
 			if grid.get_parent() == left_content:
 				left_content.move_child(grid, left_content.get_child_count() - 1)
@@ -3305,12 +3926,22 @@ func _refresh_hud() -> void:
 	var stage_name: String = "准备" if match_ctrl.stage == MatchController.Stage.PREPARE else ("战斗" if match_ctrl.stage == MatchController.Stage.BATTLE else "结束")
 	var ttext: String = "倒计时"
 	if match_ctrl.stage == MatchController.Stage.PREPARE:
+		var net_hud: NullsecNetSession = _nullsec_net_session()
 		if not match_ctrl.prepare_clock_armed:
-			ttext = "等待首次花费"
-			stage_name = "准备·待开钟"
+			## MATCH_FLOW: spend-gate copy only on R1; later rounds wait battle-sync then countdown.
+			if match_ctrl.battle_game_stage_count == 0:
+				ttext = "等待首次花费"
+				stage_name = "准备·待开钟"
+			else:
+				ttext = "等待其他席结束战斗"
+				stage_name = "准备"
+				if net_hud != null and net_hud.needs_stage_barrier():
+					ttext = net_hud.barrier_wait_hud_text("battle_done")
 		elif match_ctrl.is_prepare_peer_hold():
 			ttext = "等待其他玩家"
-			stage_name = "准备·齐步"
+			stage_name = "准备"
+			if net_hud != null and net_hud.needs_stage_barrier():
+				ttext = net_hud.barrier_wait_hud_text("prep_done")
 		else:
 			ttext = "%.0f" % match_ctrl.prepare_remaining()
 	elif match_ctrl.stage == MatchController.Stage.BATTLE:
@@ -3500,14 +4131,25 @@ func _layout_reserve_grid_cells(grid: GridContainer) -> void:
 		avail_w = host.size.x
 	if avail_w < 8.0:
 		avail_w = UiLayout.px(160.0, grid)
-	var sep: float = float(grid.get_theme_constant(&"h_separation"))
-	if sep <= 0.0:
-		sep = 4.0
-	var cell: float = clampf((avail_w - sep * 3.0) / 4.0, UiLayout.px(20.0, grid), UiLayout.px(52.0, grid))
-	grid.custom_minimum_size = Vector2(cell * 4.0 + sep * 3.0, cell * 4.0 + sep * 3.0)
+	var h_sep: float = float(grid.get_theme_constant(&"h_separation"))
+	var v_sep: float = float(grid.get_theme_constant(&"v_separation"))
+	if h_sep <= 0.0:
+		h_sep = 4.0
+	if v_sep <= 0.0:
+		v_sep = 4.0
+	## Square cells from full left-column width (UI_AND_SHELL 左下预留).
+	var cell: float = (avail_w - h_sep * 3.0) / 4.0
+	cell = clampf(cell, UiLayout.px(20.0, grid), UiLayout.px(160.0, grid))
+	var grid_h: float = cell * 4.0 + v_sep * 3.0
+	grid.custom_minimum_size = Vector2(avail_w, grid_h)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Do not EXPAND cells — stretch would break the square aspect.
 	for c: Node in grid.get_children():
 		if c is Control:
-			(c as Control).custom_minimum_size = Vector2(cell, cell)
+			var cell_ctrl: Control = c as Control
+			cell_ctrl.custom_minimum_size = Vector2(cell, cell)
+			cell_ctrl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			cell_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 
 func _ensure_equipment_shop_slots() -> void:
@@ -4347,6 +4989,8 @@ func _try_fit_equipment_to_ship(ship: ShipUnit, item_id: String, inv_idx: int) -
 	match str(res.get("reason", "")):
 		"full":
 			return _try_fit_full_ship_synth_or_swap(ship, mid, inv_idx)
+		"implant_taken":
+			show_notice("每舰只能装一件植入体")
 		"size":
 			show_notice("装备尺寸不合适")
 		"cyno_hull":
@@ -4413,10 +5057,13 @@ func _try_fit_full_ship_synth_or_swap(ship: ShipUnit, item_id: String, inv_idx: 
 	var put: Dictionary = ship.try_fit_function_module(mid)
 	if not TypedVariant.as_bool(put.get("ok", false), false):
 		ship.try_fit_function_module(first_id)
-		if str(put.get("reason", "")) == "size":
-			show_notice("装备尺寸不合适")
-		else:
-			show_notice("无法装配该装备")
+		match str(put.get("reason", "")):
+			"size":
+				show_notice("装备尺寸不合适")
+			"implant_taken":
+				show_notice("每舰只能装一件植入体")
+			_:
+				show_notice("无法装配该装备")
 		return false
 	if inv_idx >= 0:
 		match_ctrl.ensure_equipment_inventory_size()
@@ -4677,7 +5324,8 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		hit.gui_input.connect(func(ev: InputEvent) -> void: _shop_gui_input(ev, idx, hit))
 	else:
 		hit.pressed.connect(func() -> void:
-			shop.try_buy(idx)
+			var bought_pc: Dictionary = shop.try_buy(idx)
+			_note_shop_purchase(bought_pc)
 			_refresh_shop_ui()
 			_refresh_hud()
 		)
@@ -4704,6 +5352,7 @@ func _shop_card_height(slot_count: int, box: Control) -> float:
 	return _shop_card_size(slot_count, box).y
 
 func _shop_gui_input(ev: InputEvent, idx: int, from: Control = null) -> void:
+	_hud_interact_ms = Time.get_ticks_msec()
 	if not UiLayout.is_mobile():
 		return
 	## Press starts here; drag/release continue in `_input` so finger can leave the card.
@@ -4791,10 +5440,46 @@ func _shop_update_drag(idx: int, screen: Vector2) -> void:
 	var dist: float = screen.distance_to(_shop_press_screen)
 	if not _shop_drag_active and dist >= _SHOP_DRAG_THRESHOLD_PX:
 		_shop_drag_active = true
-		_long_press_slot = -1  # cancel long-press preview once dragging
-		_ensure_shop_ghost(idx)
-	if _shop_drag_active:
+		_long_press_slot = -1
+		## Ghost follows finger inside shop; purchase only after leaving shop rect (UI_AND_SHELL §2.1).
+		var preview_ship_id: int = 0
+		if idx >= 0 and idx < shop.slots.size():
+			preview_ship_id = TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0)
+		_ensure_shop_ghost_for_ship_id(preview_ship_id)
+	## Leave shop area → buy onto hangar and stick to finger.
+	if _shop_drag_active and _shop_bought_ship == null and not _shop_screen_in_shop(screen):
+		var preview_ship_id2: int = 0
+		if idx >= 0 and idx < shop.slots.size():
+			preview_ship_id2 = TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0)
+		var bought: Dictionary = shop.try_buy(idx)
+		_refresh_shop_ui()
+		_refresh_hud()
+		if not TypedVariant.as_bool(bought.get("accepted", false), false):
+			_shop_clear_drag()
+			return
+		_note_shop_purchase(bought, preview_ship_id2)
+		var hx: int = TypedVariant.as_int(bought.get("hangar_x", -1), -1)
+		var hz: int = TypedVariant.as_int(bought.get("hangar_z", 0), 0)
+		var ship: ShipUnit = board._occupant_at("hangar", ShipUnit.TEAM_PLAYER, hx, hz) if board else null
+		if ship == null or not is_instance_valid(ship):
+			_shop_clear_drag()
+			return
+		_shop_bought_ship = ship
+		board.begin_drag(ship)
+		_ensure_shop_ghost_for_ship_id(preview_ship_id2)
+	if _shop_bought_ship != null and is_instance_valid(_shop_bought_ship) and board != null and camera != null:
+		var origin: Vector3 = camera.project_ray_origin(screen)
+		var dir: Vector3 = camera.project_ray_normal(screen)
+		if absf(dir.y) > 0.0001:
+			var t: float = -origin.y / dir.y
+			board.update_drag(origin + dir * t)
 		_move_shop_ghost(screen)
+	elif _shop_drag_active:
+		_move_shop_ghost(screen)
+		## Still inside shop: surface detail (drag = inspect, not buy).
+		if _shop_screen_in_shop(screen) and idx >= 0 and idx < shop.slots.size() and not _shop_long_previewed:
+			_shop_long_previewed = true
+			_show_ship_info_id(TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0))
 	elif _long_press_slot == idx and not _shop_long_previewed:
 		var held: float = Time.get_ticks_msec() / 1000.0 - _long_press_t
 		if held >= 0.35:
@@ -4803,27 +5488,42 @@ func _shop_update_drag(idx: int, screen: Vector2) -> void:
 				_show_ship_info_id(TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0))
 
 
+func _shop_screen_in_shop(screen: Vector2) -> bool:
+	@warning_ignore("unsafe_cast")
+	var shop_root: Control = hud.get_node_or_null("Root/Shop") as Control
+	if shop_root == null or not shop_root.visible:
+		return false
+	return shop_root.get_global_rect().has_point(screen)
+
+
 func _shop_end_press(idx: int, screen: Vector2) -> void:
 	if _shop_drag_idx != idx:
 		_shop_clear_drag()
 		return
 	var was_drag: bool = _shop_drag_active
 	var previewed: bool = _shop_long_previewed
+	var bought: ShipUnit = _shop_bought_ship
+	_shop_bought_ship = null
 	_shop_clear_drag()
+	if was_drag and bought != null and is_instance_valid(bought) and board != null:
+		## Ensure board still dragging this ship (begin_drag may have been cleared).
+		if board._drag_ship != bought:
+			board.begin_drag(bought)
+		var slot: Dictionary = _shop_pick_board_slot_at_screen(screen)
+		board.end_drag(false, slot)
+		_refresh_hud()
+		return
 	if was_drag:
-		var slot: Dictionary = _shop_pick_hangar_at_screen(screen)
-		if not slot.is_empty() and str(slot.get("slot_type", "")) == "hangar":
-			shop.try_buy(idx)
-			_refresh_shop_ui()
-			_refresh_hud()
-		else:
-			show_notice(_SHOP_BUY_TIP)
+		## Released still inside shop (or buy failed earlier): detail only.
+		if idx >= 0 and idx < shop.slots.size():
+			_show_ship_info_id(TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0))
 		return
-	if previewed:
-		return
-	## Plain tap: open ship info (mobile primary detail path) + buy tip. No purchase.
+	## Not a drag: always surface the ship detail panel on tap (mobile tap-to-inspect),
+	## even if a long-press already previewed it — the release is still a deliberate tap.
 	if idx >= 0 and idx < shop.slots.size():
 		_show_ship_info_id(TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0))
+	if previewed:
+		return
 	show_notice(_SHOP_BUY_TIP)
 
 
@@ -4832,12 +5532,22 @@ func _shop_clear_drag() -> void:
 	_shop_drag_active = false
 	_long_press_slot = -1
 	_shop_long_previewed = false
+	if _shop_bought_ship != null and board != null and board._drag_ship == _shop_bought_ship:
+		board._cancel_drag()
+	_shop_bought_ship = null
 	if _shop_ghost and is_instance_valid(_shop_ghost):
 		_shop_ghost.queue_free()
 	_shop_ghost = null
 
 
 func _ensure_shop_ghost(idx: int) -> void:
+	var ship_id: int = 0
+	if idx >= 0 and idx < shop.slots.size():
+		ship_id = TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0)
+	_ensure_shop_ghost_for_ship_id(ship_id)
+
+
+func _ensure_shop_ghost_for_ship_id(ship_id: int) -> void:
 	if _shop_ghost and is_instance_valid(_shop_ghost):
 		return
 	@warning_ignore("unsafe_cast")
@@ -4859,9 +5569,6 @@ func _ensure_shop_ghost(idx: int) -> void:
 	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ship_id: int = 0
-	if idx >= 0 and idx < shop.slots.size():
-		ship_id = TypedVariant.as_int(TypedVariant.as_dict(shop.slots[idx]).get("ship_id", 0), 0)
 	var ship: Dictionary = DataStore.get_ship(ship_id) if ship_id > 0 else {}
 	lab.text = str(ship.get("name", "舰船"))
 	UiAssets.apply_label_font(lab, false, UiLayout.font_size(16, root))
@@ -4877,6 +5584,23 @@ func _move_shop_ghost(screen: Vector2) -> void:
 		return
 	var half: Vector2 = _shop_ghost.custom_minimum_size * 0.5
 	_shop_ghost.global_position = screen - half
+
+
+func _shop_pick_board_slot_at_screen(screen: Vector2) -> Dictionary:
+	## Hangar or field under finger — drop after drag-buy (UI_AND_SHELL §2.3).
+	if camera == null or board == null:
+		return {}
+	var origin: Vector3 = camera.project_ray_origin(screen)
+	var dir: Vector3 = camera.project_ray_normal(screen)
+	if absf(dir.y) < 0.0001:
+		return {}
+	var t: float = -origin.y / dir.y
+	var hit_world: Vector3 = origin + dir * t
+	var slot: Dictionary = board.pick_slot_at(hit_world, ShipUnit.TEAM_PLAYER)
+	var st: String = str(slot.get("slot_type", ""))
+	if st == "hangar" or st == "field":
+		return slot
+	return _shop_pick_hangar_at_screen(screen)
 
 
 func _shop_pick_hangar_at_screen(screen: Vector2) -> Dictionary:
@@ -5200,23 +5924,36 @@ func _repair_icon_type_id(repair_module_id: int) -> int:
 		_:
 			return repair_module_id if repair_module_id > 0 else 11355
 
-func _weapon_damage_text(dmg: Dictionary) -> String:
+func _weapon_damage_text(dmg: Dictionary, live: ShipUnit = null) -> String:
 	var emp: float = TypedVariant.as_float(dmg.get("emp", 0.0), 0.0)
 	var thermal: float = TypedVariant.as_float(dmg.get("thermal", 0.0), 0.0)
 	var kinetic: float = TypedVariant.as_float(dmg.get("kinetic", 0.0), 0.0)
 	var explosive: float = TypedVariant.as_float(dmg.get("explosive", 0.0), 0.0)
 	var total: float = emp + thermal + kinetic + explosive
 	## Hide per-channel breakdown (capital/cyno UI lock).
-	return "总伤 %d" % roundi(total)
+	var line: String = "总伤 %d" % roundi(total)
+	if live != null and is_instance_valid(live) and absf(float(live.damage_pct_bonus)) > 0.01:
+		line += "（羁绊+%.0f%%）" % float(live.damage_pct_bonus)
+	return line
 
-func _weapon_or_repair_text(ship_data: Dictionary, star_data: Dictionary, dmg: Dictionary) -> String:
-	if str(ship_data.get("weapon_fx", "")) != "heal":
-		return _weapon_damage_text(dmg)
-	var repair: Dictionary = star_data.get("repair", {})
+func _weapon_or_repair_text(ship_data: Dictionary, star_data: Dictionary, dmg: Dictionary, live: ShipUnit = null) -> String:
+	if str(ship_data.get("weapon_fx", "")) != "heal" and not TypedVariant.as_bool(ship_data.get("is_logistic", false), false):
+		return _weapon_damage_text(dmg, live)
+	var shield: float = 0.0
+	var armor: float = 0.0
+	var structure: float = 0.0
+	## Runtime repair includes fetter_repair_mul (FETTERS §3.1 / UI_AND_SHELL §2.5).
+	if live != null and is_instance_valid(live):
+		var healed: Dictionary = live.heal_dict_scaled()
+		shield = TypedVariant.as_float(healed.get("shield", 0.0), 0.0)
+		armor = TypedVariant.as_float(healed.get("armor", 0.0), 0.0)
+		structure = TypedVariant.as_float(healed.get("structure", 0.0), 0.0)
+	else:
+		var repair: Dictionary = star_data.get("repair", {})
+		shield = TypedVariant.as_float(repair.get("shield", 0.0), 0.0)
+		armor = TypedVariant.as_float(repair.get("armor", 0.0), 0.0)
+		structure = TypedVariant.as_float(repair.get("structure", 0.0), 0.0)
 	var lines: Array[String] = []
-	var shield: float = TypedVariant.as_float(repair.get("shield", 0.0), 0.0)
-	var armor: float = TypedVariant.as_float(repair.get("armor", 0.0), 0.0)
-	var structure: float = TypedVariant.as_float(repair.get("structure", 0.0), 0.0)
 	if shield > 0.0:
 		lines.append("护盾修理 %d" % roundi(shield))
 	if armor > 0.0:
@@ -5287,7 +6024,11 @@ func _weapon_stats_text(ship_data: Dictionary, star_data: Dictionary, atk_range:
 	if live != null and is_instance_valid(live):
 		tracking = float(live.tracking)
 	var cycle: float = _attack_cycle_s(ship_data, runtime_cycle)
-	return "射程 %s\n跟踪 %.2f\nCD %.2fs" % [str(roundi(shown_range)), tracking, cycle]
+	var cd_note: String = ""
+	if live != null and is_instance_valid(live) and live.base_attack_duration > 0.05 \
+			and absf(float(live.attack_duration) - float(live.base_attack_duration)) > 0.01:
+		cd_note = "（羁绊）"
+	return "射程 %s\n跟踪 %.2f\nCD %.2fs%s" % [str(roundi(shown_range)), tracking, cycle, cd_note]
 
 func _drone_stats_text(drone_data: Dictionary, drone_star: Dictionary) -> String:
 	var cycle: float = _attack_cycle_s(drone_data)
@@ -5443,10 +6184,13 @@ func _base_stats_text(ship_data: Dictionary, live: ShipUnit = null) -> String:
 	var cap: float
 	var recharge: float
 	var is_titan: bool = str(ship_data.get("ship_group", "")) == "titan"
+	var spd_note: String = ""
 	if live != null and is_instance_valid(live):
-		## Runtime after function-fit passives (EQUIPMENT §5 / UI_AND_SHELL §2.5).
+		## Runtime after function-fit passives + fetters (EQUIPMENT §5 / FETTERS §3.1 / UI_AND_SHELL §2.5).
 		sig = float(live.signature_radius)
-		spd = float(live.base_speed)
+		spd = float(live.base_speed) * maxf(0.01, float(live.fetter_speed_mul))
+		if absf(float(live.fetter_speed_mul) - 1.0) > 0.001:
+			spd_note = "（羁绊×%.2f）" % float(live.fetter_speed_mul)
 		## Label is 感应强度 (JSON); fit passives touch scan_resolution — show that when changed.
 		sensor = TypedVariant.as_float(ship_data.get("sensor_strength", 0), 0.0)
 		if absf(float(live.scan_resolution) - TypedVariant.as_float(ship_data.get("scan_resolution", live.scan_resolution), 0.0)) > 0.01:
@@ -5461,15 +6205,17 @@ func _base_stats_text(ship_data: Dictionary, live: ShipUnit = null) -> String:
 		recharge = TypedVariant.as_float(ship_data.get("capacitor_recharge_s", 0), 0.0)
 	## Titans do not enter the field — no capacitor stats (MULTIPLAYER_PVP §2.4).
 	if is_titan:
-		return "信源半径 %s   速度 %s   长轴 %s\n感应强度 %s" % [
+		return "信源半径 %s   速度 %s%s   长轴 %s\n感应强度 %s" % [
 			str(roundi(sig)),
 			str(roundi(spd)),
+			spd_note,
 			long_axis_txt,
 			str(roundi(sensor)),
 		]
-	return "信源半径 %s   速度 %s   长轴 %s\n感应强度 %s   电容量 %s   电容回复 %ss" % [
+	return "信源半径 %s   速度 %s%s   长轴 %s\n感应强度 %s   电容量 %s   电容回复 %ss" % [
 		str(roundi(sig)),
 		str(roundi(spd)),
+		spd_note,
 		long_axis_txt,
 		str(roundi(sensor)),
 		str(roundi(cap)),
@@ -5687,7 +6433,7 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 				weapon_icon.texture = UiAssets.item_icon(_weapon_module_type_id(ship_data))
 			if weapon_label:
 				weapon_label.text = "%s\n%s" % [
-					_weapon_or_repair_text(ship_data, star_data, dmg),
+					_weapon_or_repair_text(ship_data, star_data, dmg, live),
 					_weapon_stats_text(ship_data, star_data, atk_range, runtime_cycle, live)
 				]
 				_style_info_stat_label(weapon_label)
@@ -5717,7 +6463,7 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 				weapon_icon.texture = UiAssets.item_icon(_weapon_module_type_id(ship_data))
 			if weapon_label:
 				weapon_label.text = "%s\n%s" % [
-					_weapon_or_repair_text(ship_data, star_data, dmg),
+					_weapon_or_repair_text(ship_data, star_data, dmg, live),
 					_weapon_stats_text(ship_data, star_data, atk_range, runtime_cycle, live)
 				]
 				_style_info_stat_label(weapon_label)
@@ -5874,6 +6620,9 @@ func _show_ship_info(ship: ShipUnit) -> void:
 	if ship == null:
 		_refresh_observe_btn()
 		return
+	## Refresh fetter multipliers before reading runtime stats into InfoPanel.
+	if board != null and ship.slot_type == "field":
+		board.recalculate_fetters(TypedVariant.as_int(ship.team_id, 0))
 	var data: Dictionary = DataStore.get_ship(ship.ship_id)
 	var st: Dictionary = DataStore.get_star_resolved(ship.ship_id, ship.star)
 	var shield_txt: String = "%.0f/%.0f" % [ship.shield_hp, ship.max_shield]
@@ -5955,7 +6704,33 @@ func _on_match_over(summary: String) -> void:
 func _show_nullsec_settlement(summary: String) -> void:
 	_nullsec_prepare_pending = false
 	_nullsec_prepare_ui_pending = false
-	_doomsday_busy = false
+	## Do not clear _doomsday_busy — wait for beam/kill, then flush.
+	if _doomsday_busy or _titan_kill_busy or _titan_kill_active > 0:
+		_settlement_pending_summary = summary
+		return
+	_present_nullsec_settlement(summary)
+
+
+func _flush_pending_settlement_if_ready() -> void:
+	if _settlement_pending_summary == "":
+		return
+	if _doomsday_busy or _titan_kill_busy or _titan_kill_active > 0:
+		return
+	var s: String = _settlement_pending_summary
+	_settlement_pending_summary = ""
+	_present_nullsec_settlement(s)
+
+
+func _wld_tuple(seat: int) -> Dictionary:
+	var d: Dictionary = TypedVariant.as_dict(_wld_by_seat.get(seat, {}))
+	return {
+		"w": TypedVariant.as_int(d.get("w", 0), 0),
+		"l": TypedVariant.as_int(d.get("l", 0), 0),
+		"d": TypedVariant.as_int(d.get("d", 0), 0),
+	}
+
+
+func _present_nullsec_settlement(summary: String) -> void:
 	var ships: Array = []
 	if board:
 		for s: ShipUnit in board.all_ships():
@@ -5964,54 +6739,116 @@ func _show_nullsec_settlement(summary: String) -> void:
 			if TypedVariant.as_int(s.team_id, 0) != ShipUnit.TEAM_PLAYER:
 				continue
 			ships.append({"ship_id": TypedVariant.as_int(s.ship_id, 0), "star": TypedVariant.as_int(s.star, 1)})
-	var result: String = "平"
-	if match_ctrl:
-		if match_ctrl.player_hp <= 0:
-			result = "负"
-		elif match_ctrl.mode != "endless" and match_ctrl.ai_hp <= 0:
-			result = "胜"
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), -1)
 	var nick: String = "本地"
 	@warning_ignore("unsafe_cast")
 	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
 	for s_v: Variant in seats:
 		var s: Dictionary = TypedVariant.as_dict(s_v)
-		if TypedVariant.as_bool(s.get("occupied", false), false) and not TypedVariant.as_bool(s.get("is_ai", false), false):
+		if TypedVariant.as_int(s.get("seat_id", -1), -1) == local_seat:
 			nick = str(s.get("nick", nick))
 			break
 	var gold_earned: int = TypedVariant.as_int(match_ctrl.player_gold_earned, 0) if match_ctrl else 0
+	var my_titles: Array = TypedVariant.as_array(_match_titles.get(local_seat, []))
+	var wld: Dictionary = _wld_tuple(local_seat)
+	var elim: int = 0
+	if _doomsday_resolver:
+		elim = TypedVariant.as_int(_doomsday_resolver.elimination_order.get(local_seat, 0), 0)
+	var result: String = "淘汰" if elim > 0 else "存活"
+	if not _seat_titan_alive(local_seat):
+		result = "淘汰"
+	var kills: int = TypedVariant.as_int(_kills_by_seat.get(local_seat, 0), 0)
 	var row: Dictionary = NullsecSettlement.make_row(
 		nick,
 		TypedVariant.as_int(match_ctrl.player_level, 1) if match_ctrl else 1,
 		gold_earned,
 		result,
-		ships
+		ships,
+		my_titles,
+		local_seat,
+		TypedVariant.as_int(wld.get("w", 0), 0),
+		TypedVariant.as_int(wld.get("l", 0), 0),
+		TypedVariant.as_int(wld.get("d", 0), 0),
+		0,
+		kills,
+		false,
+		false
 	)
+	row["elimination_order"] = elim
 	if _settlement_panel == null:
 		_settlement_panel = NullsecSettlementPanel.new()
 		hud.add_child(_settlement_panel)
 	_settlement_panel.confirmed.connect(func() -> void:
 		NullsecRejoinTicket.clear()
-		var net: NullsecNetSession = _nullsec_net_session()
-		if net and net.has_method("clear_ghosts_after_settlement"):
-			net.clear_ghosts_after_settlement()
-		if net:
-			net.close()
+		var net_close: NullsecNetSession = _nullsec_net_session()
+		if net_close and net_close.has_method("clear_ghosts_after_settlement"):
+			net_close.clear_ghosts_after_settlement()
+		if net_close:
+			net_close.close()
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 	, CONNECT_ONE_SHOT)
-	## Full-seat settlement rows when multi-seat payload present.
-	var rows: Array = [row]
+	var rows: Array = []
+	var seen_seats: Dictionary = {}
 	for s_v: Variant in seats:
 		var s: Dictionary = TypedVariant.as_dict(s_v)
 		if not TypedVariant.as_bool(s.get("occupied", false), false):
 			continue
 		if NullsecNetSession.is_spectate_race(str(s.get("titan_race", ""))):
 			continue
-		var snick: String = str(s.get("nick", "席位"))
-		if snick == nick:
+		if not NullsecNetSession.is_player_race(str(s.get("titan_race", ""))):
 			continue
-		rows.append(NullsecSettlement.make_row(snick, 1, 0, "—", []))
+		var seat_id: int = TypedVariant.as_int(s.get("seat_id", -1), -1)
+		if seat_id < 0 or TypedVariant.as_bool(seen_seats.get(seat_id, false), false):
+			continue
+		seen_seats[seat_id] = true
+		if seat_id == local_seat:
+			rows.append(row)
+			continue
+		var snick: String = str(s.get("nick", "席位%d" % seat_id))
+		var owld: Dictionary = _wld_tuple(seat_id)
+		var oelim: int = 0
+		if _doomsday_resolver:
+			oelim = TypedVariant.as_int(_doomsday_resolver.elimination_order.get(seat_id, 0), 0)
+		var orow: Dictionary = NullsecSettlement.make_row(
+			snick,
+			1,
+			0,
+			"淘汰" if oelim > 0 else "—",
+			[],
+			TypedVariant.as_array(_match_titles.get(seat_id, [])),
+			seat_id,
+			TypedVariant.as_int(owld.get("w", 0), 0),
+			TypedVariant.as_int(owld.get("l", 0), 0),
+			TypedVariant.as_int(owld.get("d", 0), 0),
+			0,
+			TypedVariant.as_int(_kills_by_seat.get(seat_id, 0), 0),
+			TypedVariant.as_bool(s.get("is_ai", false), false),
+			true
+		)
+		orow["elimination_order"] = oelim
+		orow["ghost"] = TypedVariant.as_bool(s.get("ghost", false), false)
+		rows.append(orow)
+	if not TypedVariant.as_bool(seen_seats.get(local_seat, false), false):
+		rows.insert(0, row)
+	rows = NullsecSettlement.assign_ranks(rows, _nullsec_rng)
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net:
+		if not net.match_report_received.is_connected(_on_nullsec_match_report_received):
+			net.match_report_received.connect(_on_nullsec_match_report_received, CONNECT_ONE_SHOT)
+		## Refresh local row after rank assign.
+		for r_v: Variant in rows:
+			var r: Dictionary = TypedVariant.as_dict(r_v)
+			if TypedVariant.as_int(r.get("seat_id", -1), -1) == local_seat:
+				net.submit_local_match_summary(r)
+				break
 	_settlement_panel.show_rows(rows)
 	show_notice(summary)
+
+func _on_nullsec_match_report_received(report: Dictionary) -> void:
+	## Host-collected §7 report (every contestant's own titles/summary) supersedes the
+	## local-only fallback rows shown the instant combat ended.
+	if _settlement_panel and is_instance_valid(_settlement_panel):
+		_settlement_panel.show_report(report)
 
 func _on_refresh_pressed() -> void:
 	shop.manual_refresh()
@@ -6818,7 +7655,7 @@ func _on_ship_data_editor_closed(changed_ids: Array, equipment_changed: bool = f
 
 ## Guest side of SEMI_ASYNC_NETPLAY §3.7 — host table landed (join or mid-match edit).
 func _on_host_ships_applied(mid_match: bool) -> void:
-	show_notice("房主已更新舰船数据 · 已临时应用" if mid_match else "已临时应用房主舰船数据")
+	show_notice("房主已更新舰船数据 · 已作对局临时材料" if mid_match else "已使用房主舰船数据作对局临时材料（不覆盖本地）")
 	_refresh_hud()
 
 
@@ -6924,8 +7761,26 @@ func _on_match_fps_changed(v: float) -> void:
 		_fps_lbl.text = str(GameSession.target_fps)
 
 
+## Mid-match no-model toggle: refresh existing ships + asteroid visuals (UI_AND_SHELL).
+func apply_no_model_perf_mode_changed() -> void:
+	apply_no_model_perf_cleanup()
+	if board != null:
+		for s: ShipUnit in board.all_ships():
+			if s == null or not is_instance_valid(s):
+				continue
+			s.refresh_visual_for_no_model_mode()
+	var belt: AsteroidBelt = _find_match_asteroid_belt()
+	if belt != null:
+		belt.apply_no_model_visibility()
+	rebuild_all_ship_health_bars()
+	## Berth titans keep meshes; refresh pipe bars in case of prior no-model damage.
+	_refresh_titan_hp_bar()
+
+
 ## Mid-match toggle: drop trails / active weapon FX (settlement + float text stay).
 func apply_no_model_perf_cleanup() -> void:
+	if not GameSession.no_model_perf_mode:
+		return
 	if firing_fx != null and firing_fx.has_method("clear_all"):
 		@warning_ignore("unsafe_method_access")
 		firing_fx.clear_all()
@@ -6937,7 +7792,13 @@ func apply_no_model_perf_cleanup() -> void:
 		var trail: Node = s.get_node_or_null(EngineBoosterTrail.ROOT_NAME)
 		if trail != null:
 			trail.queue_free()
-	rebuild_all_ship_health_bars()
+
+
+func _find_match_asteroid_belt() -> AsteroidBelt:
+	var n: Node3D = _nullsec_belt_root()
+	if n is AsteroidBelt:
+		return n as AsteroidBelt
+	return null
 
 
 func _on_match_bgm_toggled(on: bool) -> void:
@@ -6982,14 +7843,17 @@ func _on_pause_pressed() -> void:
 	show_notice("已暂停" if get_tree().paused else "继续")
 
 func _on_collapse_left() -> void:
+	_hud_interact_ms = Time.get_ticks_msec()
 	_collapse_left = not _collapse_left
 	_apply_adaptive_hud_layout()
 
 func _on_collapse_right() -> void:
+	_hud_interact_ms = Time.get_ticks_msec()
 	_collapse_right = not _collapse_right
 	_apply_adaptive_hud_layout()
 
 func _on_collapse_bottom() -> void:
+	_hud_interact_ms = Time.get_ticks_msec()
 	var was_collapsed: bool = _collapse_bottom
 	_collapse_bottom = not _collapse_bottom
 	_apply_adaptive_hud_layout()
@@ -7011,12 +7875,15 @@ func _on_stage_changed_ui(stage: int) -> void:
 	## Battle start: auto-collapse side chrome + shop once; toggles remain available.
 	## Right = battle log (auto-collapse once on enter Battle).
 	if stage == MatchController.Stage.BATTLE:
-		_collapse_left = true
-		_collapse_right = true
-		_collapse_bottom = true
-		_cam_pose_before_shop_valid = false
-		_cam_pose_before_shop.clear()
-		_apply_adaptive_hud_layout()
+		## Skip the auto-collapse if the player just touched shop/side chrome — don't yank
+		## a panel out from under an in-progress tap/drag (< 2s grace window).
+		if Time.get_ticks_msec() - _hud_interact_ms >= 2000:
+			_collapse_left = true
+			_collapse_right = true
+			_collapse_bottom = true
+			_cam_pose_before_shop_valid = false
+			_cam_pose_before_shop.clear()
+			_apply_adaptive_hud_layout()
 		## Force full Prepare fleet snapshot once before HostSim battle.
 		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_pve.is_pve_task():
 			_push_local_prepare_fleet()
@@ -7028,13 +7895,20 @@ func _on_stage_changed_ui(stage: int) -> void:
 		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_pve.is_pve_task():
 			if not _nullsec_pve.always_pvp:
 				_nullsec_pvp_battle_teleport()
+			_apply_remote_watch_only_for_battle()
 			if _net_battle:
 				_net_jobs_ready_for_titan = false
 				_net_battle.on_local_battle_begin()
+			_begin_combat_eval_if_human_pvp()
 		elif GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_pve.is_pve_task():
+			_apply_remote_watch_only_for_battle()
 			if _net_battle:
 				_net_jobs_ready_for_titan = false
 				_net_battle.on_local_battle_begin()
+			_combat_eval_active = false
+		else:
+			if match_ctrl:
+				match_ctrl.remote_watch_only = false
 		## Free / observe view keeps current pose across combat enter.
 		if not _camera_manual_pose():
 			_apply_camera_view_dict(_camera_primary_view())
@@ -7046,6 +7920,11 @@ func _on_stage_changed_ui(stage: int) -> void:
 	# 回合结束：战斗 -> 准备；展开左栏+右栏+底栏一次；default 切视角 2；free/observe 不动镜头。
 	# 负安局若要播末日/击毁，先把 HUD/镜头转场压住，等演出结束再走 prepare 展示。
 	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
+		## SEMI_ASYNC §3.1a — host tells watch peers the round is over.
+		var net_end: NullsecNetSession = _nullsec_net_session()
+		if net_end != null and net_end.is_host and net_end.needs_stage_barrier() and match_ctrl:
+			var hs: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+			net_end.broadcast_battle_ended(str(match_ctrl.last_round_result), hs, "host_complete")
 		if GameSession.pending_mode == "nullsec":
 			_apply_nullsec_prepare_stage_gates()
 			_nullsec_prepare_ui_pending = true
@@ -7090,6 +7969,231 @@ func _apply_nullsec_prepare_presentation() -> void:
 		_cam_pose_before_shop_valid = true
 		_apply_camera_view_dict(_camera_secondary_view())
 
+
+## SEMI_ASYNC §3.1a — non-host peers on barrier tables only watch authority snaps.
+func _apply_remote_watch_only_for_battle() -> void:
+	if match_ctrl == null:
+		return
+	var net: NullsecNetSession = _nullsec_net_session()
+	match_ctrl.remote_watch_only = (
+		net != null and net.needs_stage_barrier() and not net.is_host
+	)
+	if match_ctrl.remote_watch_only:
+		## Watch peers do not bookkeep titles — host eval is authoritative enough for UI.
+		_combat_eval_active = false
+		if _net_battle != null:
+			_net_battle.watch_only_apply = true
+		SessionDiagnostics.log("mp.watch_only", "guest")
+		print("[mp.diag] remote_watch_only ON")
+	elif _net_battle != null:
+		_net_battle.watch_only_apply = false
+
+
+## MULTIPLAYER_PVP §7.1 — only real human↔human PVP tables earn titles; PVE / AI-rival
+## rounds never start the tracker (kept inert to avoid wasted per-hit bookkeeping).
+func notify_cyno_success(team_id: int) -> void:
+	if _combat_eval_active and _combat_eval != null:
+		_combat_eval.on_cyno_success(team_id)
+
+
+func _begin_combat_eval_if_human_pvp() -> void:
+	_combat_eval_active = false
+	if match_ctrl != null and match_ctrl.remote_watch_only:
+		return
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	if rival < 0 or _seat_is_ai(rival):
+		return
+	if _combat_eval == null:
+		_combat_eval = CombatEvalTracker.new()
+	_combat_eval.begin_round(board)
+	_combat_eval_active = true
+	_eval_prepare_rival_seat = rival
+
+func _on_admin_after_for_combat_eval(channel: StringName, payload: Dictionary, result: Dictionary) -> void:
+	var ch: String = String(channel)
+	## SEMI_ASYNC §3.3B — host queues fire/repair into light packets (independent of titles).
+	if _net_battle != null and _net_battle.is_host:
+		if ch == "combat.hit":
+			var dealt_net: float = TypedVariant.as_float(result.get("dealt", 0.0), 0.0)
+			if dealt_net > 0.0:
+				@warning_ignore("unsafe_cast")
+				var src_n: ShipUnit = instance_from_id(TypedVariant.as_int(payload.get("source_id", 0), 0)) as ShipUnit
+				@warning_ignore("unsafe_cast")
+				var tgt_n: ShipUnit = instance_from_id(TypedVariant.as_int(payload.get("target_id", 0), 0)) as ShipUnit
+				_net_battle.record_combat_event("damage", src_n, tgt_n, dealt_net)
+		elif ch == "combat.heal":
+			var healed_net: float = TypedVariant.as_float(result.get("applied", 0.0), 0.0)
+			if healed_net > 0.0:
+				@warning_ignore("unsafe_cast")
+				var src_h: ShipUnit = instance_from_id(TypedVariant.as_int(payload.get("source_id", 0), 0)) as ShipUnit
+				@warning_ignore("unsafe_cast")
+				var tgt_h: ShipUnit = instance_from_id(TypedVariant.as_int(payload.get("target_id", 0), 0)) as ShipUnit
+				_net_battle.record_combat_event("repair", src_h, tgt_h, healed_net)
+	## Purchase / sell sensors run even outside active battle (Prepare 羊望未来).
+	if ch == "shop.purchase":
+		_note_shop_purchase_result(result, payload)
+		return
+	if ch == "board.sell":
+		_note_board_sell(payload, result)
+		return
+	if not _combat_eval_active or _combat_eval == null:
+		return
+	if ch == "combat.hit":
+		var dealt: float = TypedVariant.as_float(result.get("dealt", 0.0), 0.0)
+		if dealt <= 0.0:
+			return
+		var source_id: int = TypedVariant.as_int(payload.get("source_id", 0), 0)
+		var target_id: int = TypedVariant.as_int(payload.get("target_id", 0), 0)
+		@warning_ignore("unsafe_cast")
+		var src: ShipUnit = instance_from_id(source_id) as ShipUnit
+		if src == null or not is_instance_valid(src):
+			return
+		_combat_eval.on_hit(source_id, target_id, src.team_id, dealt)
+		if TypedVariant.as_bool(result.get("destroyed", false), false):
+			@warning_ignore("unsafe_cast")
+			var tgt: ShipUnit = instance_from_id(target_id) as ShipUnit
+			_combat_eval.on_ship_lost(tgt, src)
+	elif ch == "combat.heal":
+		_combat_eval.on_heal(TypedVariant.as_float(result.get("applied", 0.0), 0.0))
+
+func _note_shop_purchase(bought: Dictionary, ship_id_hint: int = 0) -> void:
+	if not TypedVariant.as_bool(bought.get("accepted", false), false):
+		return
+	_note_shop_purchase_result(bought, {"ship_id": ship_id_hint})
+
+func _note_shop_purchase_result(result: Dictionary, _payload: Dictionary = {}) -> void:
+	if not TypedVariant.as_bool(result.get("accepted", false), false):
+		return
+	var hx: int = TypedVariant.as_int(result.get("hangar_x", -1), -1)
+	var hz: int = TypedVariant.as_int(result.get("hangar_z", 0), 0)
+	var ship: ShipUnit = null
+	if board and hx >= 0:
+		ship = board._occupant_at("hangar", ShipUnit.TEAM_PLAYER, hx, hz)
+	if ship == null or not is_instance_valid(ship):
+		return
+	if _eval_first_purchase_iid == 0:
+		_eval_first_purchase_iid = ship.get_instance_id()
+	if CombatEvalTracker._tonnage_rank(ship) >= 5 or ship.requires_cyno_entry:
+		_eval_bought_capital_this_prepare = true
+
+func _note_board_sell(payload: Dictionary, result: Dictionary) -> void:
+	if not TypedVariant.as_bool(result.get("accepted", false), false):
+		return
+	var iid: int = TypedVariant.as_int(payload.get("ship_instance_id", 0), 0)
+	if iid != 0 and iid == _eval_first_purchase_iid:
+		_eval_sold_first_this_prepare = true
+
+## Merge this round's §7.1 titles into the running per-seat tally and log them.
+func _finalize_combat_eval(result: String, local_seat: int, rival_seat: int) -> void:
+	if not _combat_eval_active or _combat_eval == null:
+		return
+	_combat_eval_active = false
+	## Update streak / loss meta before finalize reads it.
+	_update_eval_streak_meta(result, local_seat, rival_seat)
+	_combat_eval.meta_scout_vs_rival = _eval_scout_vs_rival
+	_combat_eval.meta_sold_first_purchase = _eval_sold_first_this_prepare
+	_combat_eval.meta_bought_capital_prepare = _eval_bought_capital_this_prepare
+	_combat_eval.meta_streak_by_seat = _eval_human_streak.duplicate()
+	_combat_eval.meta_losses_by_seat = _eval_human_losses.duplicate()
+	_combat_eval.meta_rejoined_by_seat = _eval_rejoined.duplicate()
+	_combat_eval.meta_wins_since_rejoin = _eval_wins_since_rejoin.duplicate()
+	_combat_eval.meta_divine_hand_by_seat = _eval_divine_hand_flags(result, local_seat, rival_seat)
+	_combat_eval.meta_match_ending = false
+	var titles: Array = _combat_eval.finalize(result, local_seat, rival_seat, board)
+	## Cache layout for 神之一手 next round.
+	_cache_layout_after_round(result, local_seat)
+	_eval_scout_vs_rival = 0
+	_eval_sold_first_this_prepare = false
+	_eval_bought_capital_this_prepare = false
+	for t_v: Variant in titles:
+		var t: Dictionary = TypedVariant.as_dict(t_v)
+		var seat_id: int = TypedVariant.as_int(t.get("seat_id", -1), -1)
+		var title: String = str(t.get("title", ""))
+		if seat_id < 0 or title == "":
+			continue
+		if not _match_titles.has(seat_id):
+			_match_titles[seat_id] = []
+		@warning_ignore("unsafe_cast")
+		var arr: Array = _match_titles[seat_id] as Array
+		arr.append(title)
+		var nick: String = NickCodec.display_short(str(_seat_row_nick(seat_id)))
+		var rival_nick: String = NickCodec.display_short(str(_seat_row_nick(rival_seat if seat_id == local_seat else local_seat)))
+		_append_battle_log("%s在与%s的对局中获得%s评价" % [nick, rival_nick, title])
+
+
+func _record_wld(result: String, local_seat: int, rival_seat: int) -> void:
+	## result is from local seat's perspective: win|lose|draw
+	var pairs: Array = []
+	if result == "win":
+		pairs = [{"seat": local_seat, "k": "w"}, {"seat": rival_seat, "k": "l"}]
+	elif result == "lose":
+		pairs = [{"seat": local_seat, "k": "l"}, {"seat": rival_seat, "k": "w"}]
+	else:
+		pairs = [{"seat": local_seat, "k": "d"}, {"seat": rival_seat, "k": "d"}]
+	for p_v: Variant in pairs:
+		var p: Dictionary = TypedVariant.as_dict(p_v)
+		var seat: int = TypedVariant.as_int(p.get("seat", -1), -1)
+		if seat < 0:
+			continue
+		var cur: Dictionary = _wld_tuple(seat)
+		var key: String = str(p.get("k", "d"))
+		cur[key] = TypedVariant.as_int(cur.get(key, 0), 0) + 1
+		_wld_by_seat[seat] = cur
+	if match_ctrl:
+		_kills_by_seat[local_seat] = TypedVariant.as_int(_kills_by_seat.get(local_seat, 0), 0) + TypedVariant.as_int(match_ctrl.kills_this_round_player, 0)
+		if rival_seat >= 0:
+			_kills_by_seat[rival_seat] = TypedVariant.as_int(_kills_by_seat.get(rival_seat, 0), 0) + TypedVariant.as_int(match_ctrl.kills_this_round_ai, 0)
+
+
+func _update_eval_streak_meta(result: String, local_seat: int, rival_seat: int) -> void:
+	_record_wld(result, local_seat, rival_seat)
+	for p_v: Variant in [
+		{"seat": local_seat, "won": result == "win", "reset": result != "win"},
+		{"seat": rival_seat, "won": result == "lose", "reset": result != "lose"},
+	]:
+		var p: Dictionary = TypedVariant.as_dict(p_v)
+		var seat: int = TypedVariant.as_int(p.get("seat", -1), -1)
+		if seat < 0:
+			continue
+		if TypedVariant.as_bool(p.get("reset", false), false):
+			_eval_human_streak[seat] = 0
+			if (seat == local_seat and result == "lose") or (seat == rival_seat and result == "win"):
+				_eval_human_losses[seat] = TypedVariant.as_int(_eval_human_losses.get(seat, 0), 0) + 1
+		else:
+			_eval_human_streak[seat] = TypedVariant.as_int(_eval_human_streak.get(seat, 0), 0) + 1
+			if TypedVariant.as_bool(_eval_rejoined.get(seat, false), false):
+				_eval_wins_since_rejoin[seat] = TypedVariant.as_int(_eval_wins_since_rejoin.get(seat, 0), 0) + 1
+
+
+func _eval_divine_hand_flags(result: String, local_seat: int, _rival_seat: int) -> Dictionary:
+	var out: Dictionary = {}
+	var cur_fp: String = _combat_eval.get_layout_fingerprint() if _combat_eval else ""
+	if result == "win" and local_seat >= 0:
+		var prev: Dictionary = TypedVariant.as_dict(_eval_prev_layout.get(local_seat, {}))
+		if TypedVariant.as_bool(prev.get("lost", false), false) \
+				and CombatEvalTracker.layout_is_plus_one(str(prev.get("fp", "")), cur_fp):
+			out[local_seat] = true
+	return out
+
+
+func _cache_layout_after_round(result: String, local_seat: int) -> void:
+	if _combat_eval == null or local_seat < 0:
+		return
+	_eval_prev_layout[local_seat] = {
+		"fp": _combat_eval.get_layout_fingerprint(),
+		"lost": result == "lose",
+	}
+
+func _seat_row_nick(seat_id: int) -> String:
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	for s_v: Variant in seats:
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if TypedVariant.as_int(s.get("seat_id", -1), -1) == seat_id:
+			return str(s.get("nick", "席位 %d" % (seat_id + 1)))
+	return "席位 %d" % (seat_id + 1)
+
 func _nullsec_after_battle_into_prepare() -> void:
 	## Lock next creep roster immediately at previous round end.
 	if _titan_kill_busy or _doomsday_busy:
@@ -7112,6 +8216,9 @@ func _nullsec_after_battle_into_prepare() -> void:
 				return
 			if _net_battle and _net_battle.is_host:
 				_net_battle.take_round_reports()
+			if _combat_eval_active:
+				var local_seat_eval: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+				_finalize_combat_eval(result, local_seat_eval, _nullsec_rival_seat(local_seat_eval))
 			_nullsec_resolve_pvp_doomsday(result)
 			if _doomsday_busy or _titan_kill_busy:
 				## Hold the next round until the beam (and any hull kill) has played out.
@@ -7122,6 +8229,12 @@ func _nullsec_after_battle_into_prepare() -> void:
 	_nullsec_enter_next_round()
 
 func _nullsec_enter_next_round() -> void:
+	## Doomsday beam must finish first (MULTIPLAYER_PVP §6 演出闸门) — every caller already
+	## checks `_doomsday_busy` before reaching here, but guard directly too so a stray call
+	## can never slip the round forward mid-performance.
+	if _doomsday_busy or _presentation_hold or _titan_kill_busy or _titan_kill_active > 0:
+		_nullsec_prepare_pending = true
+		return
 	_apply_nullsec_prepare_presentation()
 	if _nullsec_pve and match_ctrl:
 		_nullsec_lock_next_creeps()
@@ -7135,7 +8248,9 @@ func _nullsec_enter_next_round() -> void:
 		## PVP prepare stays on the local home field; battle does the guest hop (§4.1).
 		_nullsec_prepare_pvp_round()
 	if _nullsec_speed:
+		## Cancel auto finish floor before next battle prefers preferred/votes (SEMI_ASYNC §4.5).
 		_nullsec_speed.reset_round()
+		_apply_resolved_speed()
 
 
 ## Own region skybox — Prepare always, and after a guest PVP battle.
@@ -7149,10 +8264,16 @@ func _restore_local_home_skybox() -> void:
 
 
 func _nullsec_prepare_pvp_round() -> void:
+	## Fresh Prepare window for 羊望未来 capital/sell flags (first-purchase iid is match-scoped).
+	_eval_sold_first_this_prepare = false
+	_eval_bought_capital_this_prepare = false
+	_eval_scout_vs_rival = 0
+	_pending_enter_battle = false
 	## Prepare: clear creeps, rebuild rival army, stay on own skybox (MULTIPLAYER_PVP §4.1).
 	## Lowsec: always host-home — never roll guest hop (D-EAC-47).
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 	var rival: int = _nullsec_rival_seat(local_seat)
+	_eval_prepare_rival_seat = rival
 	_set_rival_berth_visible(true)
 	_restore_local_home_skybox()
 	_nullsec_pvp_guest = false
@@ -7165,6 +8286,8 @@ func _nullsec_prepare_pvp_round() -> void:
 		var host_region: String = _seat_region(host_seat)
 		if host_region != "":
 			apply_region_skybox(host_region)
+		_nullsec_watch_seat = host_seat
+		_refresh_region_label()
 		show_notice("低安 · 对手席位 %02d · 房主主场开战" % (rival + 1))
 	else:
 		if _nullsec_rng:
@@ -7183,6 +8306,8 @@ func _nullsec_prepare_pvp_round() -> void:
 		## PVP round: drop the creep army and any leftover salvage freighter with it.
 		if TypedVariant.as_int(s.team_id, 0) == ShipUnit.TEAM_AI or s.is_protect_target:
 			board.remove_ship_node(s)
+	## Cleared AI side — must re-apply even if rival snapshot signature unchanged.
+	_fleet_apply_sig = ""
 	## Human rivals: live Prepare fleet sync — never AI handbook. AI seats keep rebuild.
 	var rival_ai: bool = rival >= 0 and _seat_is_ai(rival)
 	print("[mp.diag] pvp_prepare local=%d rival=%d is_ai=%s lowsec=%s" % [
@@ -7210,7 +8335,10 @@ func _nullsec_prepare_pvp_round() -> void:
 	board.set_titan_fetter_race(ShipUnit.TEAM_AI, _seat_titan_race(rival))
 	board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
 	if combat and _nullsec_rng:
-		combat.bind_match_rng(_nullsec_rng, maxi(1, TypedVariant.as_int(match_ctrl.round_phase_value, 1) if match_ctrl else 1))
+		var serial: int = maxi(1, TypedVariant.as_int(match_ctrl.round_phase_value, 1) if match_ctrl else 1)
+		combat.bind_match_rng(_nullsec_rng, serial)
+		if match_ctrl.has_method("bind_cyno_rng"):
+			match_ctrl.bind_cyno_rng(_nullsec_rng, serial)
 
 
 func _wire_prepare_fleet_sync() -> void:
@@ -7237,6 +8365,8 @@ func _serialize_team_player_fleet() -> Array:
 	var out: Array = []
 	if board == null:
 		return out
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var seq: int = 0
 	for s: ShipUnit in board.all_ships():
 		if s == null or not is_instance_valid(s) or s.is_unmanned:
 			continue
@@ -7245,12 +8375,27 @@ func _serialize_team_player_fleet() -> Array:
 		var st: String = str(s.slot_type)
 		if st != "hangar" and st != "field":
 			continue
+		var x: int = TypedVariant.as_int(s.grid_x, 0)
+		var z: int = TypedVariant.as_int(s.grid_z, 0)
+		var side: int = s.field_side_team if s.field_side_team >= 0 else s.team_id
+		if str(s.net_uid) == "":
+			s.net_uid = "%d|%d|%s|%d|%d|%d" % [local_seat, TypedVariant.as_int(s.ship_id, 0), st, x, z, seq]
+		seq += 1
+		var fit_ids: Array = []
+		for fe_v: Variant in s.get_function_fit():
+			var fe: Dictionary = TypedVariant.as_dict(fe_v)
+			var fid: String = str(fe.get("id", ""))
+			if fid != "":
+				fit_ids.append(fid)
 		out.append({
 			"ship_id": TypedVariant.as_int(s.ship_id, 0),
 			"star": TypedVariant.as_int(s.star, 1),
 			"slot_type": st,
-			"x": TypedVariant.as_int(s.grid_x, 0),
-			"z": TypedVariant.as_int(s.grid_z, 0),
+			"x": x,
+			"z": z,
+			"side": side,
+			"net_uid": str(s.net_uid),
+			"fit": fit_ids,
 		})
 	return out
 
@@ -7259,12 +8404,16 @@ func _fleet_snapshot_sig(ships: Array) -> String:
 	var parts: PackedStringArray = PackedStringArray()
 	for entry_v: Variant in ships:
 		var e: Dictionary = TypedVariant.as_dict(entry_v)
-		parts.append("%d.%d.%s.%d.%d" % [
+		var fit: Array = TypedVariant.as_array(e.get("fit", []))
+		parts.append("%d.%d.%s.%d.%d.%d.%s.%s" % [
 			TypedVariant.as_int(e.get("ship_id", 0), 0),
 			TypedVariant.as_int(e.get("star", 1), 1),
 			str(e.get("slot_type", "")),
 			TypedVariant.as_int(e.get("x", 0), 0),
 			TypedVariant.as_int(e.get("z", 0), 0),
+			TypedVariant.as_int(e.get("side", -1), -1),
+			str(e.get("net_uid", "")),
+			",".join(PackedStringArray(fit)),
 		])
 	parts.sort()
 	return "|".join(parts)
@@ -7313,6 +8462,17 @@ func _commit_fleet_push(ships: Array, sig: String) -> void:
 
 
 func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
+	## Prepare-only normally; allow Battle only while recovering from empty-open hold.
+	var empty_recover: bool = (
+		match_ctrl != null
+		and match_ctrl.stage == MatchController.Stage.BATTLE
+		and match_ctrl.is_battle_opened_empty()
+	)
+	if match_ctrl == null or (match_ctrl.stage != MatchController.Stage.PREPARE and not empty_recover):
+		print("[mp.diag] fleet_apply SKIP (not prepare stage=%s)" % (
+			match_ctrl.stage if match_ctrl else -1
+		))
+		return
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 	var rival: int = _nullsec_rival_seat(local_seat)
 	print("[mp.diag] fleet_apply_check seat=%d rival=%d n=%d" % [seat, rival, ships.size()])
@@ -7320,10 +8480,20 @@ func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
 		print("[mp.diag] fleet_apply SKIP (not rival)")
 		return
 	var sig: String = _fleet_snapshot_sig(ships)
-	if sig == _fleet_apply_sig:
+	var ai_alive: int = board.count_alive_field(ShipUnit.TEAM_AI) if board else 0
+	## Same snap after AI wipe must still re-apply (was: silent sig skip → battle_empty ai=0).
+	if sig == _fleet_apply_sig and ai_alive > 0 and not empty_recover:
+		print("[mp.diag] fleet_apply SKIP (same sig ai=%d)" % ai_alive)
+		_try_flush_pending_enter_battle()
 		return
+	if sig == _fleet_apply_sig and ai_alive <= 0:
+		print("[mp.diag] fleet_apply FORCE (same sig but ai empty n=%d)" % ships.size())
 	_fleet_apply_sig = sig
 	_apply_rival_prepare_fleet(ships)
+	if empty_recover and _nullsec_human_rival_fleet_ready():
+		match_ctrl.resume_combat_after_empty_fleet()
+	else:
+		_try_flush_pending_enter_battle()
 
 
 func _apply_rival_prepare_fleet(ships: Array) -> void:
@@ -7351,7 +8521,26 @@ func _apply_rival_prepare_fleet(ships: Array) -> void:
 			st = "field"
 		var x: int = TypedVariant.as_int(entry.get("x", 0), 0)
 		var z: int = TypedVariant.as_int(entry.get("z", 0), 0)
-		board.spawn_ship(sid, star, ShipUnit.TEAM_AI, st, x, z)
+		## Sender-perspective side → flip for local AI half.
+		var sender_side: int = TypedVariant.as_int(entry.get("side", -1), -1)
+		if sender_side < 0:
+			var sd: Dictionary = DataStore.get_ship(sid)
+			if TypedVariant.as_bool(sd.get("deploy_enemy_half_only", false), false):
+				sender_side = ShipUnit.TEAM_AI ## enemy half from sender = their AI
+			else:
+				sender_side = ShipUnit.TEAM_PLAYER
+		var local_side: int = ShipUnit.TEAM_AI if sender_side == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		var ship: ShipUnit = board.spawn_ship(sid, star, ShipUnit.TEAM_AI, st, x, z)
+		if ship != null and is_instance_valid(ship):
+			ship.net_uid = str(entry.get("net_uid", ship.net_uid))
+			if st == "field":
+				board.move_ship_to_field_side(ship, x, z, local_side)
+			var fit_ids: Array = TypedVariant.as_array(entry.get("fit", []))
+			if not fit_ids.is_empty():
+				var fit_entries: Array = []
+				for fid_v: Variant in fit_ids:
+					fit_entries.append({"id": str(fid_v)})
+				ship.set_function_fit(fit_entries)
 		spawned += 1
 	board.recalculate_fetters(ShipUnit.TEAM_AI)
 	_applying_rival_fleet = false
