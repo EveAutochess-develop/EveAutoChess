@@ -13,22 +13,42 @@ func configure(p_match_seed: int, p_rules_hash: String = "") -> void:
 	match_seed = p_match_seed
 	rules_hash = p_rules_hash
 	_match_rng.seed = match_seed if match_seed != 0 else 1
+	_streams.clear()
+
+
+## Named whole-match streams (shop / shop_ai / mm) — salt from match_seed.
+var _streams: Dictionary = {}
+
+
+func _rng_for(stream: String) -> RandomNumberGenerator:
+	var key: String = stream if stream != "" else "match"
+	if key == "match":
+		return _match_rng
+	if _streams.has(key):
+		@warning_ignore("unsafe_cast")
+		return _streams[key] as RandomNumberGenerator
+	var r: RandomNumberGenerator = RandomNumberGenerator.new()
+	r.seed = int(hash(str(match_seed) + ":" + key))
+	if r.seed == 0:
+		r.seed = 1
+	_streams[key] = r
+	return r
+
+
+func stream_randf(stream: String = "match") -> float:
+	## Whole-match streams (shop / mm) — not battle seeds[10].
+	return _rng_for(stream).randf()
+
+
+func stream_randi_range(stream: String, from_v: int, to_v: int) -> int:
+	return _rng_for(stream).randi_range(from_v, to_v)
+
 
 static func compute_rules_hash() -> String:
 	## Content+shell version string; callers may override.
 	var ver: String = str(ProjectSettings.get_setting("application/config/version", "dev"))
 	return ver
 
-func stream_randf(stream: String = "match") -> float:
-	## Whole-match streams (shop / mm) — not battle seeds[10].
-	if stream == "match":
-		return _match_rng.randf()
-	return _match_rng.randf()
-
-func stream_randi_range(stream: String, from_v: int, to_v: int) -> int:
-	if stream == "match":
-		return _match_rng.randi_range(from_v, to_v)
-	return _match_rng.randi_range(from_v, to_v)
 
 func has_battle(battle_serial: int) -> bool:
 	return _battles.has(battle_serial)
@@ -56,6 +76,7 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"orbit_dir": 2,
 		"deploy_cell": 3,
 		"cyno_cell": 4,
+		"cyno_anchor": 4,
 		"creep_buy": 5,
 		"creep_cell": 6,
 		"pvp_home": 7,

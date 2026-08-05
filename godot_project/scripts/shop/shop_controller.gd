@@ -15,6 +15,10 @@ var _recent_hits: Dictionary = {}
 ## Tonnage pity: after N refreshes without a unlocked tonnage, force it on next.
 var _pity_refresh_count: int = 0
 var _pity_seen_tonnage: Dictionary = {}  # tonnage_key -> true
+## SEMI_ASYNC §2 — shop rolls on match_seed stream (not global randi).
+static var _auth_rng: MatchRng = null
+static var _auth_stream: String = "shop"
+
 
 func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	_match = match_ctrl
@@ -22,6 +26,25 @@ func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	AdminBus.register_handler(&"shop.purchase", _on_purchase)
 	AdminBus.register_handler(&"shop.refresh", _on_refresh)
 	AdminBus.register_handler(&"shop.equipment_purchase", _on_equipment_purchase)
+
+
+static func bind_match_rng(rng: MatchRng, stream: String = "shop") -> void:
+	_auth_rng = rng
+	_auth_stream = stream if stream != "" else "shop"
+
+
+static func _randi_range(from_v: int, to_v: int) -> int:
+	if _auth_rng != null:
+		return _auth_rng.stream_randi_range(_auth_stream, from_v, to_v)
+	return randi_range(from_v, to_v)
+
+
+static func _shuffle_det(arr: Array) -> void:
+	for i: int in range(arr.size() - 1, 0, -1):
+		var j: int = _randi_range(0, i)
+		var tmp: Variant = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
 
 func refresh_shop(free: bool, persist: bool = true) -> void:
 	var payload: Dictionary = {"free": free, "team": ShipUnit.TEAM_PLAYER, "persist": persist}
@@ -169,7 +192,7 @@ static func roll_ship_id_for_level(
 	## ≥15: chance to roll capital cost pool {22,24} (not normal fee tiers).
 	var cap_lv: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_min_level", 15), 15)
 	var cap_w: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_roll_weight_pct", 35), 35)
-	if level >= cap_lv and cap_w > 0 and (randi() % 100) < cap_w:
+	if level >= cap_lv and cap_w > 0 and _randi_range(0, 99) < cap_w:
 		var cap_costs: Array = TypedVariant.as_array(DataStore.economy.get("shop_capital_costs", [22, 24]))
 		var cap_pool: Array = []
 		for sid_v: Variant in eligible_ids:
@@ -215,7 +238,7 @@ static func roll_ship_id_for_level(
 			return _pick_pseudo_random(pool, recent_hits, titan_race)
 	## Fallback any eligible hull within duplicate cap.
 	for _attempt2: int in range(40):
-		var sid2: int = TypedVariant.as_int(eligible_ids[randi() % eligible_ids.size()], 0)
+		var sid2: int = TypedVariant.as_int(eligible_ids[_randi_range(0, eligible_ids.size() - 1)], 0)
 		if TypedVariant.as_int(seen_counts.get(sid2, 0), 0) >= max_same:
 			continue
 		return sid2
@@ -284,8 +307,8 @@ static func _pick_pseudo_random(pool: Array, recent_hits: Dictionary, titan_race
 		weighted.append({"ship_id": sid_i, "weight": w_i})
 		total += w_i
 	if total <= 0:
-		return TypedVariant.as_int(pool[randi() % pool.size()], 0)
-	var roll: int = randi() % total
+		return TypedVariant.as_int(pool[_randi_range(0, pool.size() - 1)], 0)
+	var roll: int = _randi_range(0, total - 1)
 	var acc: int = 0
 	for entry_v: Variant in weighted:
 		if typeof(entry_v) != TYPE_DICTIONARY:
@@ -325,7 +348,7 @@ static func _roll_cost_tier(weights: Array) -> int:
 		total += TypedVariant.as_int(w_v, 0)
 	if total <= 0:
 		return 1
-	var r: int = randi() % total
+	var r: int = _randi_range(0, total - 1)
 	var acc: int = 0
 	for i: int in range(mini(5, weights.size())):
 		acc += TypedVariant.as_int(weights[i], 0)
@@ -333,15 +356,15 @@ static func _roll_cost_tier(weights: Array) -> int:
 			return i + 1
 	return 1
 
-func try_buy(slot_index: int) -> void:
+func try_buy(slot_index: int) -> Dictionary:
 	if slot_index < 0 or slot_index >= slots.size():
-		return
+		return {"accepted": false}
 	var slot: Dictionary = TypedVariant.as_dict(slots[slot_index])
 	if TypedVariant.as_bool(slot.get("purchased", false), false):
-		return
+		return {"accepted": false}
 	var ship_id: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
 	var cost: int = TypedVariant.as_int(DataStore.get_ship(ship_id).get("cost", 0), 0)
-	AdminBus.request(&"shop.purchase", {
+	return AdminBus.request(&"shop.purchase", {
 		"slot_index": slot_index,
 		"ship_id": ship_id,
 		"cost": cost,
@@ -380,7 +403,12 @@ func _on_purchase(payload: Dictionary) -> Dictionary:
 	if _match and _match.has_method("request_autosave"):
 		_match.request_autosave()
 	SessionDiagnostics.log("shop.buy", "ok ship=%d cost=%d" % [ship_id, cost])
-	return {"accepted": true}
+	return {
+		"accepted": true,
+		"ship_id": ship_id,
+		"hangar_x": hangar.x,
+		"hangar_z": hangar.y,
+	}
 
 func manual_refresh() -> void:
 	refresh_shop(false)
@@ -452,7 +480,7 @@ func _equip_pity_force_categories(by_cat: Dictionary, slot_count: int) -> Array:
 	force_n = mini(force_n, mini(slot_count, missing.size()))
 	if force_n <= 0:
 		return []
-	missing.shuffle()
+	_shuffle_det(missing)
 	return missing.slice(0, force_n)
 
 
@@ -477,13 +505,13 @@ func _pick_equipment_from_category(cat: String, by_cat: Dictionary) -> String:
 	var arr: Array = TypedVariant.as_array(by_cat[cat])
 	if arr.is_empty():
 		return ""
-	return str(arr[randi() % arr.size()])
+	return str(arr[_randi_range(0, arr.size() - 1)])
 
 
 func _pick_equipment_from_pool(pool: Array) -> String:
 	if pool.is_empty():
 		return ""
-	return str(pool[randi() % pool.size()])
+	return str(pool[_randi_range(0, pool.size() - 1)])
 
 
 func try_buy_equipment(slot_index: int) -> void:

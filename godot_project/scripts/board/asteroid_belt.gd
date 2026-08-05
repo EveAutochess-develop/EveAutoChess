@@ -152,7 +152,9 @@ func spawn_batch(limit: int = -1) -> bool:
 		_next_i += 1
 	if _next_i >= _queue.size():
 		_ensure_light()
+		apply_no_model_visibility()
 		return false
+	apply_no_model_visibility()
 	return true
 
 
@@ -162,6 +164,64 @@ func load_total() -> int:
 
 func load_done() -> int:
 	return _next_i
+
+
+## UI_AND_SHELL / MINING §1: hide rock meshes + belt light in no-model perf mode.
+func apply_no_model_visibility() -> void:
+	var nomodel: bool = GameSession != null and GameSession.no_model_perf_mode
+	for child: Node in get_children():
+		if not (child is Node3D):
+			continue
+		if not str(child.name).begins_with("Asteroid_"):
+			continue
+		var mesh_n: Node3D = child.get_node_or_null("Mesh") as Node3D
+		if nomodel:
+			if mesh_n != null:
+				mesh_n.visible = false
+		else:
+			if mesh_n == null:
+				_ensure_asteroid_mesh(child as Node3D)
+			else:
+				mesh_n.visible = true
+	var light: Node3D = get_node_or_null("AsteroidBeltLight") as Node3D
+	if light != null:
+		light.visible = not nomodel
+
+
+func _ensure_asteroid_mesh(root: Node3D) -> void:
+	if root == null or root.get_node_or_null("Mesh") != null:
+		return
+	var mesh_path: String = str(root.get_meta("mesh_path", ""))
+	if mesh_path == "" or not ResourceLoader.exists(mesh_path):
+		return
+	var packed: PackedScene = load(mesh_path) as PackedScene
+	if packed == null:
+		return
+	var n: Node3D = packed.instantiate() as Node3D
+	if n == null:
+		return
+	var id: int = TypedVariant.as_int(root.get_meta("asteroid_id", 0), 0)
+	var target_size: float = 2.4
+	var anchor: Node = root.get_node_or_null("MiningAnchor")
+	if anchor is StaticBody3D:
+		var shape_n: CollisionShape3D = anchor.get_node_or_null("Shape") as CollisionShape3D
+		if shape_n != null and shape_n.shape is SphereShape3D:
+			var sph: SphereShape3D = shape_n.shape as SphereShape3D
+			target_size = sph.radius / 0.42
+	n.name = "Mesh"
+	root.add_child(n)
+	_normalize_longest(n, target_size)
+	_tint_rock(n, id, mesh_path)
+	var do_hp: bool = true
+	var keep: float = 0.5
+	if DataStore and DataStore.visual is Dictionary:
+		do_hp = TypedVariant.as_bool(DataStore.visual.get("asteroid_belt_half_precision_compress", true), true)
+		keep = TypedVariant.as_float(DataStore.visual.get("asteroid_belt_mesh_keep_ratio", 0.5), 0.5)
+	MobileModelLoad.apply_mesh_keep_ratio(n, keep)
+	if do_hp:
+		MobileModelLoad.apply_half_precision_compress(n)
+	for mi: MeshInstance3D in _find_meshes(n):
+		mi.lod_bias = 128.0
 
 
 func load_fraction() -> float:
@@ -283,7 +343,10 @@ func _spawn_one_from_spec(spec: Dictionary) -> void:
 	root.set_meta("asteroid_id", id)
 	root.set_meta("mesh_path", mesh_path)
 	add_child(root)
-	var packed: PackedScene = load(mesh_path) as PackedScene
+	var skip_mesh: bool = GameSession != null and GameSession.no_model_perf_mode
+	var packed: PackedScene = null
+	if not skip_mesh and mesh_path != "" and ResourceLoader.exists(mesh_path):
+		packed = load(mesh_path) as PackedScene
 	if packed:
 		var n: Node3D = packed.instantiate() as Node3D
 		if n:

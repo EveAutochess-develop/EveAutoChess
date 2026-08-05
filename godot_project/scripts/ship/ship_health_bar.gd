@@ -85,11 +85,16 @@ const RING_INNER: float = OVERLAY_BG_WORLD_SIZE * 0.78 * RING_DIAMETER_SCALE
 const RING_OUTER: float = RING_INNER + OVERLAY_BG_WORLD_SIZE * (1.42 - 0.78) * RING_DIAMETER_SCALE * RING_BAND_SCALE
 const RING_HP_GAP_FRAC: float = 0.16
 const RING_SEAM: float = deg_to_rad(4.0)
-## SW empty junction -> CW half-ring; seam at HP/cap junction.
+## Ally (TEAM_PLAYER): empty bottom; HP from SW CW 180?; cap on screen-right 90?.
 const HP_A0: float = deg_to_rad(-45.0)
 const HP_A1: float = deg_to_rad(135.0) - RING_SEAM * 0.5
 const CAP_A0: float = deg_to_rad(135.0) + RING_SEAM * 0.5
 const CAP_A1: float = deg_to_rad(225.0)
+## Enemy (TEAM_AI): empty bottom; cap on screen-left 90?; HP remaining 180?.
+const ENEMY_HP_A0: float = deg_to_rad(45.0) + RING_SEAM * 0.5
+const ENEMY_HP_A1: float = deg_to_rad(225.0)
+const ENEMY_CAP_A0: float = deg_to_rad(-45.0) + RING_SEAM * 0.5
+const ENEMY_CAP_A1: float = deg_to_rad(45.0) - RING_SEAM * 0.5
 const RING_SEGS_HP: int = 28
 const RING_SEGS_CAP: int = 16
 const LAYER_COLORS: Array[Color] = [
@@ -138,6 +143,8 @@ var _tonnage_plate: MeshInstance3D
 var _overlay_bg: Sprite3D
 var _overlay_tag: Sprite3D
 var _overlay_key: String = ""
+## Ring layout baked for enemy (cap left) vs ally (cap right). Rebuilt if team/half changes.
+var _ring_enemy_mirrored: bool = false
 
 
 static func style_is_bars() -> bool:
@@ -295,10 +302,17 @@ func _build_bar_stack() -> void:
 func _build_ring_sectors(badge_y: float) -> void:
 	## Local XY after look_at(cam): screen-right = ?X, screen-up = +Y
 	## Angle 0 = +X = screen-left; increasing = screen-clockwise.
+	## Enemy half mirrors cap to the left (UI_AND_SHELL ?2.3.0); badges stay fixed.
 	var fx: bool = extra_fx_enabled()
+	var enemy: bool = _ring_use_enemy_mirror()
+	_ring_enemy_mirrored = enemy
+	var hp0: float = ENEMY_HP_A0 if enemy else HP_A0
+	var hp1: float = ENEMY_HP_A1 if enemy else HP_A1
+	var cap0: float = ENEMY_CAP_A0 if enemy else CAP_A0
+	var cap1: float = ENEMY_CAP_A1 if enemy else CAP_A1
 	for i: int in range(4):
-		var a0: float = CAP_A0 if i == 3 else HP_A0
-		var a1: float = CAP_A1 if i == 3 else HP_A1
+		var a0: float = cap0 if i == 3 else hp0
+		var a1: float = cap1 if i == 3 else hp1
 		var rr: Vector2 = _layer_radii(i)
 		_sector_a0.append(a0)
 		_sector_a1.append(a1)
@@ -321,6 +335,21 @@ func _build_ring_sectors(badge_y: float) -> void:
 		fill.position = Vector3(0, badge_y, 0.004)
 		add_child(fill)
 		_sector_fills.append(fill)
+
+
+func _ring_use_enemy_mirror() -> bool:
+	## bars: no geometric mirror. Ring: opposing half (UI_AND_SHELL ?2.3.0 TEAM_AI ??).
+	if _style_bars:
+		return false
+	if _ship == null or not is_instance_valid(_ship):
+		return false
+	## Avoid class_name cast (this script is preloaded before ShipUnit may resolve).
+	const TEAM_AI: int = 1
+	var slot: String = str(_ship.get("slot_type"))
+	var side: int = __as_int(_ship.get("field_side_team"), -1)
+	if slot == "field" and side >= 0:
+		return side == TEAM_AI
+	return __as_int(_ship.get("team_id"), 0) == TEAM_AI
 
 
 func _make_annulus_sector(r0: float, r1: float, a0: float, a1: float, col: Color, segs: int, priority: int = 12) -> MeshInstance3D:
@@ -1072,6 +1101,10 @@ func _cap_fill_angles(a0: float, a1: float, ratio: float) -> Vector2:
 
 
 func _apply_visuals() -> void:
+	## Team / half can change after setup (??, fleet mirror); rebuild ring angles.
+	if not _style_bars and _ring_use_enemy_mirror() != _ring_enemy_mirrored:
+		_build()
+		return
 	var fx: bool = extra_fx_enabled()
 	var pulse: float = 1.0
 	if fx:
@@ -1242,7 +1275,9 @@ func _apply_ring_greens(idx: int, a0_eff: float, a1: float, fill_ang: Vector2, f
 	if idx == 3:
 		## Cap: newest at tip fa1; length = cap_span * frac.
 		var cursor: float = fill_ang.y
-		var cap_span: float = CAP_A1 - CAP_A0
+		var cap_span: float = a1 - a0_eff
+		if absf(cap_span) < 0.0001:
+			cap_span = _sector_a1[idx] - _sector_a0[idx]
 		for i: int in range(batches.size() - 1, -1, -1):
 			var b: Variant = batches[i]
 			if typeof(b) != TYPE_DICTIONARY:

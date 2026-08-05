@@ -20,7 +20,7 @@
     "ewar"
   ],
   "is_logistic": false,
-  "weapon_fx": "cannon",
+  "weapon_fx": "missile",
   "race": "minmatar",
   "signature_radius": 120.0,
   "sensor_strength": 14.0,
@@ -37,7 +37,7 @@
   "hi_slots": 4,
   "med_slots": 5,
   "low_slots": 4,
-  "source_module_type_id": 491,
+  "source_module_type_id": 501,
   "source_repair_module_type_id": 0,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 0,

@@ -1,6 +1,7 @@
 extends RefCounted
 class_name TitanHpPipes
-## Three-pipe titan HP + racial quirks. PVP loss = 20 (with M/G first-hit rules).
+## Three-pipe titan HP from balance/titan_pvp.json (MULTIPLAYER_PVP §2.4).
+## No C/A max quirks; no M/G first-hit reduction.
 
 var race: String = "caldari"
 var shield: int = 100
@@ -9,21 +10,23 @@ var structure: int = 100
 var shield_max: int = 100
 var armor_max: int = 100
 var structure_max: int = 100
-var flag_first_hp_hit: bool = false
-var flag_first_armor_hit: bool = false
-## Lowsec room: 0.25 (75% less). Nullsec / default: 1.0 (MULTIPLAYER_PVP §2.4).
+## Lowsec room: 0.25. Nullsec / default: 1.0.
 var pvp_loss_mul: float = 1.0
+
+static func _cfg() -> Dictionary:
+	if DataStore and typeof(DataStore.get("titan_pvp")) == TYPE_DICTIONARY:
+		return TypedVariant.as_dict(DataStore.titan_pvp)
+	return {}
 
 func setup(p_race: String) -> void:
 	race = p_race
-	shield_max = 105 if race == "caldari" else 100
-	armor_max = 105 if race == "amarr" else 100
-	structure_max = 100
+	var cfg: Dictionary = _cfg()
+	shield_max = TypedVariant.as_int(cfg.get("pipe_shield_max", 100), 100)
+	armor_max = TypedVariant.as_int(cfg.get("pipe_armor_max", 100), 100)
+	structure_max = TypedVariant.as_int(cfg.get("pipe_structure_max", 100), 100)
 	shield = shield_max
 	armor = armor_max
 	structure = structure_max
-	flag_first_hp_hit = false
-	flag_first_armor_hit = false
 
 func alive() -> bool:
 	return structure > 0
@@ -32,15 +35,9 @@ func _scaled_pvp_dmg(base: int) -> int:
 	return maxi(1, roundi(float(base) * pvp_loss_mul))
 
 func apply_pvp_loss() -> int:
-	## Returns damage applied (for VFX). Always doomsday presentation externally.
-	var dmg: int = _scaled_pvp_dmg(20)
-	if race == "minmatar" and not flag_first_hp_hit:
-		dmg = _scaled_pvp_dmg(5)
-		flag_first_hp_hit = true
-		var take: int = mini(dmg, shield)
-		shield -= take
-		return take
-	return _apply_pipes(dmg)
+	var cfg: Dictionary = _cfg()
+	var base: int = TypedVariant.as_int(cfg.get("pvp_loss_damage", 20), 20)
+	return _apply_pipes(_scaled_pvp_dmg(base))
 
 func _apply_pipes(dmg: int) -> int:
 	var remaining: int = dmg
@@ -50,19 +47,11 @@ func _apply_pipes(dmg: int) -> int:
 		shield -= take
 		remaining -= take
 		applied += take
-		flag_first_hp_hit = true
 	if remaining > 0 and armor > 0:
-		var chunk: int = remaining
-		if race == "gallente" and not flag_first_armor_hit:
-			chunk = _scaled_pvp_dmg(5)
-			flag_first_armor_hit = true
-		var take2: int = mini(chunk, armor)
+		var take2: int = mini(remaining, armor)
 		armor -= take2
 		remaining -= take2
 		applied += take2
-		## If gallente first armor absorbed only the scaled chunk of a larger hit, rest continues
-		if race == "gallente" and flag_first_armor_hit and remaining > 0:
-			pass
 	if remaining > 0 and structure > 0:
 		var take3: int = mini(remaining, structure)
 		structure -= take3
@@ -78,6 +67,4 @@ func to_dict() -> Dictionary:
 		"shield_max": shield_max,
 		"armor_max": armor_max,
 		"structure_max": structure_max,
-		"flag_first_hp_hit": flag_first_hp_hit,
-		"flag_first_armor_hit": flag_first_armor_hit,
 	}

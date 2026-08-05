@@ -10,14 +10,23 @@ var combat: Dictionary = {}
 var ai: Dictionary = {}
 var visual: Dictionary = {}
 var weapon_fx: Dictionary = {}
+var titan_pvp: Dictionary = {}
+## MULTIPLAYER_PVP §7.1 — read-only title catalog (array of {id,name,condition}).
+var combat_evals: Array = []
 var visual_meshes: Dictionary = {}  # ships: { "1": "res://..." }
 var ship_textures: Dictionary = {}  # ships: { "1": "res://..._d.dds" }
 var ship_portraits: Dictionary = {}  # ships: { "1": "res://.../portraits/{key}.png" }
 var ships: Dictionary = {}  # id(int) -> dict
 ## id(int) -> relative json path ("ships/1.json") so the dev editor writes back the right file.
 var ship_sources: Dictionary = {}
-## SEMI_ASYNC_NETPLAY §3.7: host ship table applied in-memory for the duration of a net match.
+## SEMI_ASYNC_NETPLAY §3.7: host ship table as in-match material only (never writes content_runtime).
+const HOST_SHIPS_MATCH_MATERIAL_PATH: String = "user://save/host_ships_match_material.json"
+const HOST_SHIPS_MATCH_MATERIAL_TTL_SEC: int = 3600
 var host_ships_override: Dictionary = {}
+## Side cache after match end; discarded HOST_SHIPS_MATCH_MATERIAL_TTL_SEC after end.
+var host_ships_match_material: Dictionary = {}
+var host_ships_material_discard_unix: int = 0
+var _host_ships_material_tick_acc: float = 0.0
 var fetters: Dictionary = {}  # id(str) -> dict
 ## Autochess representative kits — UI_AND_SHELL §2.5.1 / SHIP_DATA_FULL Sheet「装备」.
 var modules: Dictionary = {}  # type_id(int) -> dict
@@ -27,6 +36,15 @@ var content_version: String = "local"
 
 func _ready() -> void:
 	reload_all()
+	_load_host_ships_match_material()
+	set_process(true)
+
+func _process(delta: float) -> void:
+	_host_ships_material_tick_acc += delta
+	if _host_ships_material_tick_acc < 5.0:
+		return
+	_host_ships_material_tick_acc = 0.0
+	tick_host_ships_match_material_expiry()
 
 func reload_all() -> void:
 	var seed_res: Dictionary = ContentRuntimeData.ensure_seeded()
@@ -40,6 +58,8 @@ func reload_all() -> void:
 	ai = _load_balance("ai.json")
 	visual = _load_balance("visual.json")
 	weapon_fx = _load_balance("weapon_fx.json")
+	titan_pvp = _load_balance("titan_pvp.json")
+	combat_evals = _load_combat_evals()
 	## Portrait/mesh maps stay PCK-only (not semi-exposed).
 	visual_meshes = _load_json_res("res://data/visual_meshes.json")
 	ship_textures = _load_json_res("res://data/ship_textures.json")
@@ -74,6 +94,31 @@ func reload_all() -> void:
 
 func _load_balance(file_name: String) -> Dictionary:
 	return ContentRuntimeData.load_json_prefer_runtime("balance".path_join(file_name))
+
+
+func _load_combat_evals() -> Array:
+	var raw: Dictionary = _load_balance("combat_evals.json")
+	return TypedVariant.as_array(raw.get("items", []))
+
+
+func save_balance_file(file_name: String, data: Dictionary) -> bool:
+	var runtime_dir: String = "user://content_runtime/data/balance"
+	DirAccess.make_dir_recursive_absolute(runtime_dir)
+	var path: String = runtime_dir.path_join(file_name)
+	var f: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(data, "\t"))
+	f.close()
+	if OS.has_feature("editor"):
+		var res_path: String = "res://data/balance/%s" % file_name
+		var rf: FileAccess = FileAccess.open(res_path, FileAccess.WRITE)
+		if rf:
+			rf.store_string(JSON.stringify(data, "\t"))
+			rf.close()
+	if file_name == "titan_pvp.json":
+		titan_pvp = data.duplicate(true)
+	return true
 
 func ship_mesh_path(ship_id: int) -> String:
 	var m: Dictionary = visual_meshes.get("ships", {})
@@ -296,20 +341,110 @@ static func _canonical(v: Variant) -> String:
 		_:
 			return str(v)
 
-## Guest side: host table wins for this match. Memory only — never touches this client's disk.
+## Guest side: host table as in-match material only. Memory overlay — never touches content_runtime disk.
 func apply_host_ships_override(table: Dictionary) -> bool:
 	if table.is_empty():
 		return false
 	host_ships_override = table.duplicate(true)
+	## Keep side cache in sync while the match is live (no discard clock yet).
+	host_ships_match_material = host_ships_override.duplicate(true)
+	host_ships_material_discard_unix = 0
+	_persist_host_ships_match_material()
 	var applied: bool = _apply_ships_table(host_ships_override)
 	ShipLook.clear_caches()
 	return applied
 
-func clear_host_ships_override() -> void:
-	if host_ships_override.is_empty():
-		return
+## Match ended / session closed: restore local ships immediately; keep material for 1h then discard.
+func end_match_host_ships_material() -> void:
+	if not host_ships_override.is_empty():
+		host_ships_match_material = host_ships_override.duplicate(true)
 	host_ships_override.clear()
+	if not host_ships_match_material.is_empty():
+		host_ships_material_discard_unix = int(Time.get_unix_time_from_system()) + HOST_SHIPS_MATCH_MATERIAL_TTL_SEC
+		_persist_host_ships_match_material()
+	else:
+		_clear_host_ships_match_material_persist()
 	reload_all()
+
+## Unload active overlay (e.g. entering solo modes). Starts 1h TTL if material has no discard yet.
+func clear_host_ships_override() -> void:
+	if host_ships_override.is_empty() and host_ships_match_material.is_empty():
+		return
+	if not host_ships_override.is_empty():
+		end_match_host_ships_material()
+		return
+	## Solo entry with leftover cache only — leave cache/TTL alone; ensure local ships loaded.
+	reload_all()
+
+## Rejoin within TTL: re-apply cached host table as match material.
+func reapply_host_ships_match_material() -> bool:
+	tick_host_ships_match_material_expiry()
+	if host_ships_match_material.is_empty():
+		return false
+	return apply_host_ships_override(host_ships_match_material)
+
+func tick_host_ships_match_material_expiry() -> void:
+	if host_ships_match_material.is_empty():
+		return
+	## Live match (override on, discard clock unset) — do not expire.
+	if not host_ships_override.is_empty() and host_ships_material_discard_unix <= 0:
+		return
+	if host_ships_material_discard_unix <= 0:
+		return
+	var now: int = int(Time.get_unix_time_from_system())
+	if now < host_ships_material_discard_unix:
+		return
+	host_ships_match_material.clear()
+	host_ships_material_discard_unix = 0
+	_clear_host_ships_match_material_persist()
+	print("[DataStore] host_ships_match_material discarded (TTL elapsed)")
+
+func _persist_host_ships_match_material() -> void:
+	if host_ships_match_material.is_empty():
+		_clear_host_ships_match_material_persist()
+		return
+	var dir: DirAccess = DirAccess.open("user://save")
+	if dir == null:
+		DirAccess.make_dir_recursive_absolute("user://save")
+	var payload: Dictionary = {
+		"discard_unix": host_ships_material_discard_unix,
+		"table": host_ships_match_material,
+	}
+	var f: FileAccess = FileAccess.open(HOST_SHIPS_MATCH_MATERIAL_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(payload))
+	f.close()
+
+func _clear_host_ships_match_material_persist() -> void:
+	if FileAccess.file_exists(HOST_SHIPS_MATCH_MATERIAL_PATH):
+		DirAccess.remove_absolute(HOST_SHIPS_MATCH_MATERIAL_PATH)
+
+func _load_host_ships_match_material() -> void:
+	if not FileAccess.file_exists(HOST_SHIPS_MATCH_MATERIAL_PATH):
+		return
+	var f: FileAccess = FileAccess.open(HOST_SHIPS_MATCH_MATERIAL_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var text: String = f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		_clear_host_ships_match_material_persist()
+		return
+	var d: Dictionary = parsed
+	var table: Dictionary = TypedVariant.as_dict(d.get("table", {}))
+	var discard_unix: int = TypedVariant.as_int(d.get("discard_unix", 0))
+	if table.is_empty():
+		_clear_host_ships_match_material_persist()
+		return
+	host_ships_match_material = table
+	host_ships_material_discard_unix = discard_unix
+	## Unclean exit left discard_unix=0 (match was live) — start TTL from boot; never auto-apply.
+	if host_ships_material_discard_unix <= 0:
+		host_ships_material_discard_unix = int(Time.get_unix_time_from_system()) + HOST_SHIPS_MATCH_MATERIAL_TTL_SEC
+		_persist_host_ships_match_material()
+	tick_host_ships_match_material_expiry()
 
 func _apply_ships_table(table: Dictionary) -> bool:
 	var merged: Dictionary = {}

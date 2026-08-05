@@ -8,6 +8,8 @@ const JUMP_DURATION_S: float = 0.85
 var _board: BoardController
 var _match: MatchController
 var _combat: CombatResolver
+var _match_rng: MatchRng
+var _battle_serial: int = 1
 var _pending_respawn: Array[Dictionary] = []  # {team, ship_id, star, x, z, field_side_team}
 ## ship instance_id -> {end, next_announce}
 var _active_channels: Dictionary = {}
@@ -19,6 +21,19 @@ func bind(board: BoardController, match_ctrl: MatchController, combat: CombatRes
 	_board = board
 	_match = match_ctrl
 	_combat = combat
+
+
+func bind_match_rng(rng: MatchRng, serial: int = 1) -> void:
+	_match_rng = rng
+	_battle_serial = maxi(1, serial)
+
+
+func _roll_index(n: int, event_kind: String) -> int:
+	if n <= 0:
+		return 0
+	if _match_rng != null:
+		return _match_rng.roll_int(_battle_serial, event_kind, 0, n - 1)
+	return randi() % n
 
 
 func clear_channels() -> void:
@@ -122,6 +137,10 @@ func _complete_cyno(cyno: ShipUnit) -> void:
 	_teardown_fx(cyno.get_instance_id())
 	_announce(cyno, "诱导完成，旗舰跃迁入场")
 	SessionDiagnostics.log("cyno.complete", "ship=%d team=%d" % [cyno.ship_id, cyno.team_id])
+	if _board != null:
+		var tree: SceneTree = _board.get_tree()
+		if tree != null:
+			tree.call_group("match_root", "notify_cyno_success", team)
 	## Landing cells: completing cyno grid + other still-channeling cynos (same team).
 	var anchor_cells: Array[Vector2i] = [Vector2i(cyno_x, cyno_z)]
 	var anchor_sides: Array[int] = [cyno_side]
@@ -150,7 +169,7 @@ func _complete_cyno(cyno: ShipUnit) -> void:
 	for pick: ShipUnit in capitals:
 		if pick == null or not is_instance_valid(pick) or pick.is_destroyed:
 			continue
-		var ai: int = randi() % anchor_cells.size()
+		var ai: int = _roll_index(anchor_cells.size(), "cyno_anchor")
 		var ac: Vector2i = anchor_cells[ai]
 		var side: int = anchor_sides[ai]
 		var cell: Vector2i = _pick_cell_near(team, side, ac.x, ac.y, 6)
@@ -273,7 +292,7 @@ func _pick_cell_near(owner_team: int, _side_team: int, cx: int, cz: int, radius:
 					candidates.append(Vector2i(x2, z2))
 	if candidates.is_empty():
 		return Vector2i(-1, -1)
-	return candidates[randi() % candidates.size()]
+	return candidates[_roll_index(candidates.size(), "cyno_cell")]
 
 
 func on_prepare_start() -> void:

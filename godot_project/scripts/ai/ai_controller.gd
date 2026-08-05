@@ -124,6 +124,8 @@ func _grant_exp(amount: int) -> void:
 		up_level_demand += inc
 
 func _refresh_shop() -> void:
+	var prev_stream: String = ShopController._auth_stream
+	ShopController._auth_stream = "shop_ai"
 	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 7), 7)
 	ShopController._decay_recent_hits(_recent_shop_hits)
 	shop_slots.clear()
@@ -167,6 +169,7 @@ func _refresh_shop() -> void:
 			_pity_seen_tonnage[key] = true
 	_pity_refresh_count += 1
 	_roll_equipment_shop()
+	ShopController._auth_stream = prev_stream
 
 
 func _ensure_equipment_inventory() -> void:

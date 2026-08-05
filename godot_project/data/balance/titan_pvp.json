@@ -1,0 +1,7 @@
+{
+  "pipe_shield_max": 100,
+  "pipe_armor_max": 100,
+  "pipe_structure_max": 100,
+  "pvp_loss_damage": 20,
+  "lowsec_pvp_loss_mul": 0.25
+}

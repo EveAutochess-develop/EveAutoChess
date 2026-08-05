@@ -77,8 +77,22 @@ static func logic_hz() -> int:
 	return TypedVariant.as_int(load_cfg().get_value(SECTION, "combat_logic_hz", 30), 30)
 
 
+## SEMI_ASYNC §3.3 — full authority every ~2s @ 30Hz.
+static func full_sync_interval_ticks() -> int:
+	return TypedVariant.as_int(load_cfg().get_value(SECTION, "full_sync_interval_logic_ticks", 60), 60)
+
+
+## SEMI_ASYNC §3.3 — light pos/lock/events every ~0.2s @ 30Hz.
+static func light_sync_interval_ticks() -> int:
+	var cfg: ConfigFile = load_cfg()
+	if cfg.has_section_key(SECTION, "light_sync_interval_logic_ticks"):
+		return TypedVariant.as_int(cfg.get_value(SECTION, "light_sync_interval_logic_ticks", 6), 6)
+	## Legacy key mapped to light cadence.
+	return TypedVariant.as_int(cfg.get_value(SECTION, "sync_interval_logic_ticks", 6), 6)
+
+
 static func sync_interval_ticks() -> int:
-	return TypedVariant.as_int(load_cfg().get_value(SECTION, "sync_interval_logic_ticks", 15), 15)
+	return light_sync_interval_ticks()
 
 
 static func anticheat_gap_streak() -> int:

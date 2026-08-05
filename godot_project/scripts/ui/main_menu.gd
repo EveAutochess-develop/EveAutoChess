@@ -603,12 +603,15 @@ func _ensure_nullsec_net() -> NullsecNetSession:
 		add_child(_nullsec_net)
 		_nullsec_net.rejected.connect(func(r: String) -> void:
 			SessionDiagnostics.log("net.reject", str(r))
+			if str(r) == "kicked":
+				_on_nullsec_kicked()
+				return
 			if _nullsec_lobby:
 				_nullsec_lobby.set_status(r)
 		)
 		_nullsec_net.ships_mismatch.connect(func(_h: String) -> void:
 			if _nullsec_lobby:
-				_nullsec_lobby.set_status("全舰船数据与房主不一致 · 进入对局后将临时应用房主舰船数据")
+				_nullsec_lobby.set_status("全舰船数据与房主不一致 · 进入对局后将临时使用房主舰船数据（不覆盖本地）")
 		)
 	return _nullsec_net
 
@@ -629,6 +632,19 @@ func _on_nullsec_leave() -> void:
 	if _nullsec_room:
 		_nullsec_room.queue_free()
 		_nullsec_room = null
+
+
+func _on_nullsec_kicked() -> void:
+	## MULTIPLAYER_MATCH_FLOW §2.1a — ejected peer returns to main menu.
+	MatchLoadOverlay.hide_overlay()
+	if _nullsec_net:
+		_nullsec_net.close()
+	if _nullsec_room:
+		_nullsec_room.queue_free()
+		_nullsec_room = null
+	if _nullsec_lobby and is_instance_valid(_nullsec_lobby):
+		_nullsec_lobby.set_status("你已被踢出房间")
+		_nullsec_lobby.show()
 
 func _on_nullsec_start_match(assignments: Dictionary) -> void:
 	var net: NullsecNetSession = _ensure_nullsec_net()
@@ -758,7 +774,7 @@ func _nullsec_match_public_run() -> void:
 		parts.append("私密房 %d 间" % private_n)
 	if mismatch_n > 0:
 		parts.append("版本不符 %d 间" % mismatch_n)
-	parts.append("可点「主持公开房间」开一间")
+	parts.append("可点「主持房间」开一间")
 	_nullsec_lobby.set_status(" · ".join(parts))
 
 
@@ -948,25 +964,50 @@ func _await_nullsec_join_ex(net: NullsecNetSession, timeout_s: float) -> Diction
 	return {"ok": net.local_seat >= 0, "in_match": net.match_started, "reason": ""}
 
 func _on_nullsec_history() -> void:
-	var path: String = "user://save/nullsec_history.json"
-	if not FileAccess.file_exists(path):
+	var entries: Array = NullsecSettlement.load_all()
+	if entries.is_empty():
 		_nullsec_lobby.set_status("尚无历史战绩")
 		return
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if typeof(parsed) != TYPE_ARRAY:
-		_nullsec_lobby.set_status("尚无历史战绩")
-		return
-	var parsed_arr: Array = TypedVariant.as_array(parsed)
-	if parsed_arr.is_empty():
-		_nullsec_lobby.set_status("尚无历史战绩")
-		return
-	var last_entry: Variant = parsed_arr.back()
-	var last: Dictionary = TypedVariant.as_dict(last_entry)
-	var rows: Array = TypedVariant.as_array(last.get("rows", []))
-	var panel: NullsecSettlementPanel = NullsecSettlementPanel.new()
-	add_child(panel)
-	panel.title = "多人联机历史战绩"
-	panel.show_rows(rows, false)
+	## Multi-entry list: show newest summary bars; click opens detail via settlement panel.
+	var list_win: AcceptDialog = AcceptDialog.new()
+	list_win.title = "多人联机历史战绩"
+	list_win.dialog_text = ""
+	var vbox: VBoxContainer = VBoxContainer.new()
+	list_win.add_child(vbox)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(480, 320)
+	vbox.add_child(scroll)
+	var rows_box: VBoxContainer = VBoxContainer.new()
+	scroll.add_child(rows_box)
+	for i: int in range(entries.size() - 1, -1, -1):
+		var e_v: Variant = entries[i]
+		if typeof(e_v) != TYPE_DICTIONARY:
+			continue
+		var e: Dictionary = e_v
+		var mid: String = str(e.get("match_id", e.get("at", "#%d" % i)))
+		var summary: Dictionary = TypedVariant.as_dict(e.get("summary", {}))
+		if summary.is_empty():
+			var rows: Array = TypedVariant.as_array(e.get("rows", []))
+			if not rows.is_empty() and typeof(rows[0]) == TYPE_DICTIONARY:
+				summary = rows[0]
+		var gold: int = TypedVariant.as_int(summary.get("gold_earned", 0), 0)
+		var res: String = str(summary.get("result", "?"))
+		var nick: String = NickCodec.display_short(str(summary.get("nick", summary.get("nick_full", "?"))))
+		var btn: Button = Button.new()
+		btn.text = "%s · %s · 黄%d · %s" % [mid.substr(0, mini(16, mid.length())), nick, gold, res]
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var captured: Dictionary = e
+		btn.pressed.connect(func() -> void:
+			list_win.hide()
+			var panel: NullsecSettlementPanel = NullsecSettlementPanel.new()
+			add_child(panel)
+			panel.title = "战绩详情 · %s" % mid.substr(0, mini(20, mid.length()))
+			var detail_rows: Array = TypedVariant.as_array(captured.get("players", captured.get("rows", [])))
+			panel.show_rows(detail_rows, false)
+		)
+		rows_box.add_child(btn)
+	add_child(list_win)
+	list_win.popup_centered()
 
 func _on_versus() -> void:
 	if not DataStore.host_ships_override.is_empty():
@@ -1220,6 +1261,11 @@ func _enter_nullsec_from_rejoin(net: NullsecNetSession, payload: Dictionary) -> 
 		"security_mode": sec,
 	}
 	NullsecRejoinTicket.write_from_session(net)
+	## SEMI_ASYNC §3.7 — rejoin within 1h may reuse cached host table until host rebroadcasts.
+	if not net.opening_host_ships.is_empty():
+		DataStore.apply_host_ships_override(net.opening_host_ships)
+	else:
+		DataStore.reapply_host_ships_match_material()
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_load_open() -> void:

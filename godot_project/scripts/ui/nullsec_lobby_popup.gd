@@ -37,11 +37,12 @@ func _ready() -> void:
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(left)
 	var nick_lbl := Label.new()
-	nick_lbl.text = "昵称（仅中英文字符，无标点）"
+	nick_lbl.text = "昵称（可含数字与符号，最多 50 字）"
 	left.add_child(nick_lbl)
 	_nick = LineEdit.new()
-	_nick.placeholder_text = "输入昵称"
-	_nick.text = _load_nick()
+	_nick.placeholder_text = "克隆人棋手…"
+	_nick.max_length = NickCodec.MAX_LEN
+	_nick.text = _ensure_default_nick()
 	left.add_child(_nick)
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -59,36 +60,29 @@ func _ready() -> void:
 	_ignore_in_match.toggled.connect(func(on: bool): _save_ignore_in_match(on))
 	right.add_child(_ignore_in_match)
 	var pw_lbl := Label.new()
-	pw_lbl.text = "房间密码（空=口头公开 · 有=口头私密）"
+	pw_lbl.text = "房间密码（不设密码则为公开房间，路人可匹进来）"
 	right.add_child(pw_lbl)
 	_password_edit = LineEdit.new()
 	_password_edit.placeholder_text = "可选 4～8 位"
 	_password_edit.secret = true
 	_password_edit.max_length = 8
 	right.add_child(_password_edit)
-	_add_btn(right, "主持公开房间", func():
+	_add_btn(right, "主持房间", func():
 		if _gate_nick():
-			request_host_room.emit("")
-	)
-	_add_btn(right, "主持私密房间", func():
-		if _gate_nick():
-			var pw := _password_edit.text.strip_edges()
-			if pw.is_empty():
-				pw = NullsecNetSession.random_room_password(6)
-				_password_edit.text = pw
-			request_host_room.emit(pw)
+			request_host_room.emit(_password_edit.text.strip_edges())
 	)
 	var share_row := HBoxContainer.new()
 	right.add_child(share_row)
 	_share_edit = LineEdit.new()
-	_share_edit.placeholder_text = "粘贴房间码（EAC…）"
+	_share_edit.placeholder_text = "粘贴房间码 EAC…"
 	_share_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_share_edit.text_changed.connect(_on_share_text_changed)
 	share_row.add_child(_share_edit)
 	var join_btn := Button.new()
 	join_btn.text = "加入"
 	join_btn.pressed.connect(func():
 		if _gate_nick():
-			request_join_share.emit(_share_edit.text.strip_edges())
+			request_join_share.emit(InviteBlobHelper.sanitize_paste(_share_edit.text))
 	)
 	share_row.add_child(join_btn)
 	_add_btn(right, "多人联机历史战绩", func(): request_history.emit())
@@ -99,25 +93,30 @@ func _add_btn(parent: Control, text: String, cb: Callable) -> void:
 	b.pressed.connect(cb)
 	parent.add_child(b)
 
+
+func _on_share_text_changed(new_text: String) -> void:
+	var cleaned := InviteBlobHelper.sanitize_paste(new_text)
+	if cleaned == new_text:
+		return
+	var caret := _share_edit.caret_column
+	_share_edit.set_block_signals(true)
+	_share_edit.text = cleaned
+	_share_edit.caret_column = mini(caret, cleaned.length())
+	_share_edit.set_block_signals(false)
+
 func _gate_nick() -> bool:
 	var n := sanitized_nick()
 	if n == "":
-		_status.text = "请输入仅含中英文字符的昵称"
+		n = _ensure_default_nick()
+		_nick.text = n
+	if n == "":
+		_status.text = "请输入昵称（最多 50 字，可含数字与符号）"
 		return false
 	_save_nick(n)
 	return true
 
 func sanitized_nick() -> String:
-	var raw := _nick.text.strip_edges()
-	var out := ""
-	for i in range(raw.length()):
-		var ch := raw.substr(i, 1)
-		var code := ch.unicode_at(0)
-		var ok := (code >= 65 and code <= 90) or (code >= 97 and code <= 122) \
-			or (code >= 0x4E00 and code <= 0x9FFF)
-		if ok:
-			out += ch
-	return out
+	return NickCodec.sanitize(_nick.text)
 
 func set_status(msg: String) -> void:
 	_status.text = msg
@@ -152,6 +151,24 @@ static func _load_nick() -> String:
 	if cfg.load(NICK_CFG) != OK:
 		return ""
 	return str(cfg.get_value(NICK_SECTION, NICK_KEY, ""))
+
+## MULTIPLAYER_MATCH_FLOW §2.1 — 克隆人棋手 + 7 digits when unset.
+static func make_default_clone_nick() -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var digits := ""
+	for _i in range(7):
+		digits += str(rng.randi_range(0, 9))
+	return "克隆人棋手" + digits
+
+static func _ensure_default_nick() -> String:
+	var existing := NickCodec.sanitize(_load_nick())
+	if existing != "":
+		return existing
+	var gen := NickCodec.sanitize(make_default_clone_nick())
+	if gen != "":
+		_save_nick(gen)
+	return gen
 
 static func _save_nick(n: String) -> void:
 	var cfg := ConfigFile.new()

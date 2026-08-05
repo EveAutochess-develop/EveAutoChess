@@ -1022,7 +1022,7 @@ func _on_heal(payload: Dictionary) -> Dictionary:
 		_float_text.spawn(target.global_position, "+%d" % roundi(healed), Color(0.35, 0.95, 0.55))
 	if full and src:
 		src.combat_target = null
-	return {"accepted": true, "full": full}
+	return {"accepted": true, "full": full, "applied": healed}
 
 func _spawn_combat_drones() -> void:
 	var carriers: Array[ShipUnit] = []
@@ -1045,11 +1045,15 @@ func _spawn_combat_drones() -> void:
 		if drone_id <= 0:
 			continue
 		for i: int in range(n):
-			var drone: ShipUnit = _board.spawn_unmanned(drone_id, s.team_id, s.global_position + Vector3(_viz_randf_range(-1.2, 1.2), 0.2, _viz_randf_range(-1.2, 1.2)), s)
+			var ang: float = float(i) * TAU / float(maxi(1, n))
+			var rad: float = 1.15
+			var offset: Vector3 = Vector3(cos(ang) * rad, 0.2, sin(ang) * rad)
+			var drone: ShipUnit = _board.spawn_unmanned(drone_id, s.team_id, s.global_position + offset, s)
 			_ensure_drone_trail(drone)
 			var did: int = drone.get_instance_id()
-			_drone_orbit_phase[did] = _viz_randf() * TAU
-			_drone_orbit_dir[did] = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
+			## Even phase + alternate orbit dir — less VisualRng scatter (COMBAT §14C).
+			_drone_orbit_phase[did] = ang
+			_drone_orbit_dir[did] = 1.0 if (i % 2) == 0 else -1.0
 	## Fresh hulls need the team's live SelfAll fetter pass (ArmorHP / Speed / titan …).
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
