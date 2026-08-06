@@ -72,6 +72,8 @@ var _speed_step_index: int = 0
 var _sim_accum: float = 0.0
 ## True when battle opens with either side already empty (symmetric instant wipe; no min_battle wait).
 var _battle_opened_empty: bool = false
+## MatchRoot sets true when rival Prepare fleet was synced (empty OK) before Battle — skip 12s phantom hold.
+var _empty_open_fleet_trusted: bool = false
 
 func bind(board: BoardController, shop: ShopController, combat: CombatResolver, ai: AiController) -> void:
 	_board = board
@@ -176,9 +178,9 @@ func _process(delta: float) -> void:
 		## Leftover accum waits for next render frame — do not burn FPS catching up.
 		var bdur: float = TypedVariant.as_float(mf.get("battle_duration_s", 1800), 1800.0)
 		## Opened empty (either side): skip wait — same rule for player and AI. Mid-fight wipe still uses min_battle.
-		## Nullsec human PVP: hold longer so late fleet sync can land before a phantom wipe.
+		## Nullsec: only hold briefly when empty-open AND fleet never synced (phantom); synced empty settles now.
 		var min_b: float = 0.0 if _battle_opened_empty else TypedVariant.as_float(mf.get("min_battle_duration_s", 1.25), 1.25)
-		if _battle_opened_empty and mode == "nullsec":
+		if _battle_opened_empty and mode == "nullsec" and not _empty_open_fleet_trusted:
 			min_b = maxf(min_b, 12.0)
 		## Watch-only: never self-end — host rpc_battle_ended drives complete.
 		if not remote_watch_only:
@@ -349,6 +351,8 @@ func _on_prepare_complete() -> void:
 	if _battle_opened_empty:
 		var p: int = _board.count_alive_field(ShipUnit.TEAM_PLAYER)
 		var a: int = _board.count_alive_field(ShipUnit.TEAM_AI)
+		var p_cyno: int = _count_field_cyno(ShipUnit.TEAM_PLAYER)
+		var a_cyno: int = _count_field_cyno(ShipUnit.TEAM_AI)
 		## Symmetric notice — either side empty skips the fight wait.
 		if p == 0 and a == 0:
 			notice.emit("双方场上无舰，本回合跳过")
@@ -356,9 +360,16 @@ func _on_prepare_complete() -> void:
 			notice.emit("场上无己方舰船，本回合跳过")
 		else:
 			notice.emit("敌方场上无舰，本回合跳过")
-		print("[match] battle open with empty side player=%d ai=%d — skip wipe" % [p, a])
-		print("[mp.diag] battle_empty_open player=%d ai=%d mode=%s" % [p, a, mode])
-		SessionDiagnostics.log("mp.battle_empty", "p=%d a=%d" % [p, a])
+		print("[match] battle open with empty side player=%d ai=%d cyno_p=%d cyno_a=%d — skip wipe trusted=%s" % [
+			p, a, p_cyno, a_cyno, _empty_open_fleet_trusted
+		])
+		print("[mp.diag] battle_empty_open player=%d ai=%d cyno_p=%d cyno_a=%d mode=%s trusted=%s" % [
+			p, a, p_cyno, a_cyno, mode, _empty_open_fleet_trusted
+		])
+		SessionDiagnostics.log(
+			"mp.battle_empty",
+			"p=%d a=%d cyno_p=%d cyno_a=%d trusted=%s" % [p, a, p_cyno, a_cyno, _empty_open_fleet_trusted]
+		)
 	stage_changed.emit(stage)
 
 func skip_prepare() -> void:
@@ -408,9 +419,8 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 		"mp.round_result",
 		"%s p=%d a=%d" % [last_round_result, last_round_player_field, last_round_ai_field]
 	)
-	## Empty-open phantom rounds: do not settle titan / income — just roll into prepare recovery.
-	if not was_empty_open:
-		_resolve_citadel_and_income()
+	## MATCH_FLOW §4.2: empty-open still settles win/lose + income (only skips battle wait).
+	_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
 	_board.force_full_hp_all_ships()
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
@@ -420,9 +430,9 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 	## Star merges wait for Prepare (`try_upgrades_all` is prepare-gated).
 	if not shop_locked:
 		_shop.refresh_shop(true)
-	if not was_empty_open:
-		_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-		_ai.after_round()
+	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
+	_ai.after_round()
+	_empty_open_fleet_trusted = false
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
 		_end_match()
 		return
@@ -457,8 +467,8 @@ func force_authority_combat_complete(mapped_result: String, reason: String = "au
 			if not s.is_destroyed and float(s.structure_hp) > 0.01:
 				last_round_freighter_alive = true
 				break
-	if not was_empty_open:
-		_resolve_citadel_and_income()
+	## MATCH_FLOW §4.2: empty-open still settles (authority result already mapped).
+	_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
 	_board.force_full_hp_all_ships()
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
@@ -466,9 +476,9 @@ func force_authority_combat_complete(mapped_result: String, reason: String = "au
 	_board.force_full_hp_all_ships()
 	if not shop_locked:
 		_shop.refresh_shop(true)
-	if not was_empty_open:
-		_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-		_ai.after_round()
+	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
+	_ai.after_round()
+	_empty_open_fleet_trusted = false
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
 		_end_match()
 		return
@@ -479,8 +489,27 @@ func is_battle_opened_empty() -> bool:
 	return _battle_opened_empty
 
 
+func _count_field_cyno(team: int) -> int:
+	if _board == null:
+		return 0
+	var n: int = 0
+	for s: ShipUnit in _board.all_ships():
+		if s == null or not is_instance_valid(s):
+			continue
+		if s.team_id != team or s.slot_type != "field" or s.is_destroyed or s.is_unmanned:
+			continue
+		if s.has_cyno_module():
+			n += 1
+	return n
+
+
 func clear_battle_opened_empty() -> void:
 	_battle_opened_empty = false
+
+
+## MatchRoot: rival Prepare fleet (incl. empty) was synced — skip 12s phantom hold.
+func mark_empty_open_fleet_trusted(trusted: bool = true) -> void:
+	_empty_open_fleet_trusted = trusted
 
 
 ## After late rival fleet lands during an empty-open hold, resume real combat.

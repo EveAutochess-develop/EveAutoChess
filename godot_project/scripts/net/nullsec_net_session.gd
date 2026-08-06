@@ -13,10 +13,10 @@ signal join_accepted(seat: int, in_match: bool)
 ## SEMI_ASYNC_NETPLAY §3.7 — ship table authority.
 signal ships_mismatch(host_hash: String)
 signal ships_override_applied(mid_match: bool)
-## SEMI_ASYNC §3 authority stream (combat + spectate).
-signal authority_snapshot_received(snap: Dictionary)
-## SEMI_ASYNC §3.3B — light pos/lock/fire·repair @ ~0.2s.
-signal authority_light_received(pkt: Dictionary)
+## SEMI_ASYNC §3.3.1 A — full snapshot on the wire: binary + zstd.
+signal authority_snapshot_bin_received(data: PackedByteArray)
+## SEMI_ASYNC §3.3.1 B — light pos/lock/fire·repair, binary, unreliable_ordered.
+signal authority_light_bin_received(data: PackedByteArray)
 signal battle_report_received(report: Dictionary)
 ## SEMI_ASYNC §3.1a — host Battle ended; watch peers must force-complete.
 signal battle_ended_received(host_result: String, host_seat: int, reason: String)
@@ -28,7 +28,7 @@ signal rejoin_accepted(seat: int)
 ## MULTIPLAYER_PVP §4.2 — scout intel ask/reply (no view switch).
 signal scout_intel_asked(from_seat: int, from_nick: String, scout_ship_name: String, reply_peer: int, target_seat: int)
 signal scout_intel_received(target_seat: int, target_nick: String, summary: Dictionary)
-## Prepare live fleet sync + first-spend clock (SEMI_ASYNC §3.0).
+## Prepare live fleet sync + first-spend clock (SEMI_ASYNC §3.0 / §3.0d).
 signal prepare_fleet_snapshot_received(seat: int, ships: Array)
 signal prepare_clock_armed_changed(armed: bool)
 ## SEMI_ASYNC §3.0a — all contestants finished Prepare timer; enter Battle together.
@@ -37,6 +37,8 @@ signal urge_prepare_received()
 signal lobby_notice(message: String)
 ## SEMI_ASYNC §4.5 — any seat finished this round → remaining battles 4× + wall-clock draw.
 signal seat_battle_finished(seat: int)
+## All barrier humans reported battle_done — clear conditional wall draw (§4.5).
+signal battle_done_all_ready()
 ## MULTIPLAYER_PVP §7 — combined end-of-match report (settlement rows + §7.1 titles).
 signal match_report_received(report: Dictionary)
 ## SEMI_ASYNC §4.5 — speed vote from a seat (after host validation).
@@ -297,6 +299,7 @@ func join(address: String, port: int, nick: String, expect_hash: String = "", pa
 	if err != OK:
 		_peer = null
 		return err
+	_enable_enet_range_compress()
 	multiplayer.multiplayer_peer = _peer
 	if not multiplayer.connected_to_server.is_connected(_on_connected_to_server):
 		multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -333,6 +336,7 @@ func _start_host() -> Error:
 		_peer = null
 		_listen_port = 0
 		return err
+	_enable_enet_range_compress()
 	multiplayer.multiplayer_peer = _peer
 	if not multiplayer.peer_connected.is_connected(_on_peer_connected):
 		multiplayer.peer_connected.connect(_on_peer_connected)
@@ -960,7 +964,7 @@ func _try_start() -> void:
 		if TypedVariant.as_bool(s.get("occupied", false), false):
 			all_occupied.append(s)
 	_ensure_session_secret()
-	match_loading.emit("正在同步舰船全数据", 0.08)
+	match_loading.emit("正在从房主拉取全舰船与全游戏数据", 0.08)
 	_freeze_opening_host_ships(DataStore.export_ships_table())
 	if match_id == "":
 		match_id = "%d-%s" % [seed_v, session_secret.substr(0, mini(8, session_secret.length()))]
@@ -1035,10 +1039,14 @@ func rpc_ships_table(table: Dictionary, mid_match: bool = false) -> void:
 	if is_host:
 		return
 	if not mid_match:
-		match_loading.emit("正在同步舰船全数据", 0.12)
+		## SEMI_ASYNC §3.7 — keep overlay on this copy until match_start advances phase.
+		match_loading.emit("正在从房主拉取全舰船与全游戏数据", 0.12)
 	_freeze_opening_host_ships(table)
 	if DataStore.apply_host_ships_override(table):
 		ships_override_applied.emit(mid_match)
+	if not mid_match:
+		## Hold the pull copy briefly so「进入对局场景」不会瞬间盖住。
+		match_loading.emit("正在从房主拉取全舰船与全游戏数据", 0.16)
 
 
 func store_match_assignments(assignments: Dictionary) -> void:
@@ -1073,34 +1081,45 @@ func rpc_match_start(payload: Dictionary) -> void:
 	opening_host_ships_hash = str(payload.get("opening_host_ships_hash", opening_host_ships_hash))
 	host_migrate_generation = TypedVariant.as_int(payload.get("host_migrate_generation", host_migrate_generation), host_migrate_generation)
 	write_rejoin_ticket()
-	match_loading.emit("正在进入对局场景", 0.25)
+	## Ships RPC is ordered before this; if table missing, keep pull copy (SEMI_ASYNC §3.7).
+	if opening_host_ships.is_empty():
+		match_loading.emit("正在从房主拉取全舰船与全游戏数据", 0.18)
+	else:
+		match_loading.emit("正在进入对局场景", 0.25)
 	match_start.emit(payload)
 
 
-func broadcast_authority_snapshot(snap: Dictionary) -> void:
+## SEMI_ASYNC §3.3.1 A — full snapshot, binary + zstd, reliable on the default channel.
+func broadcast_authority_snapshot_bin(data: PackedByteArray) -> void:
 	if not is_host or not multiplayer.has_multiplayer_peer():
 		return
-	rpc("rpc_authority_snapshot", snap)
+	if data.is_empty():
+		return
+	rpc("rpc_authority_snapshot_bin", data)
 
 
 @rpc("authority", "reliable")
-func rpc_authority_snapshot(snap: Dictionary) -> void:
+func rpc_authority_snapshot_bin(data: PackedByteArray) -> void:
 	if is_host:
 		return
-	authority_snapshot_received.emit(snap)
+	authority_snapshot_bin_received.emit(data)
 
 
-func broadcast_authority_light(pkt: Dictionary) -> void:
+## §3.3.1 B — light packet rides its own unreliable_ordered channel so a stalled
+## reliable queue never holds up position updates.
+func broadcast_authority_light_bin(data: PackedByteArray) -> void:
 	if not is_host or not multiplayer.has_multiplayer_peer():
 		return
-	rpc("rpc_authority_light", pkt)
+	if data.is_empty():
+		return
+	rpc("rpc_authority_light_bin", data)
 
 
-@rpc("authority", "reliable")
-func rpc_authority_light(pkt: Dictionary) -> void:
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
+func rpc_authority_light_bin(data: PackedByteArray) -> void:
 	if is_host:
 		return
-	authority_light_received.emit(pkt)
+	authority_light_bin_received.emit(data)
 
 
 func broadcast_battle_report(report: Dictionary) -> void:
@@ -1410,6 +1429,7 @@ func _promote_self_to_host(new_host_seat: int) -> void:
 		_listen_port = 0
 		_terminate_match_host_lost("房主掉线，对局终止")
 		return
+	_enable_enet_range_compress()
 	multiplayer.multiplayer_peer = _peer
 	if not multiplayer.peer_connected.is_connected(_on_peer_connected):
 		multiplayer.peer_connected.connect(_on_peer_connected)
@@ -1519,7 +1539,40 @@ func close() -> void:
 	_init_empty_seats()
 
 
-## --- Prepare fleet sync (SEMI_ASYNC §3.0) ---
+## SEMI_ASYNC §3.9 / §7.1 — ENet range coder (complements payload zstd).
+func _enable_enet_range_compress() -> void:
+	if _peer == null:
+		return
+	var host_v: Variant = null
+	if _peer.has_method("get_host"):
+		host_v = _peer.call("get_host")
+	if host_v == null:
+		host_v = _peer.get("host")
+	if not (host_v is ENetConnection):
+		return
+	@warning_ignore("unsafe_cast")
+	var host: ENetConnection = host_v
+	host.compress(ENetConnection.COMPRESS_RANGE_CODER)
+
+
+## --- Prepare fleet sync (SEMI_ASYNC §3.0d binary · rival-only) ---
+
+func manned_field_count_cached(seat: int) -> int:
+	## Prepare 终态有人 field 舰（击杀金同口径）；无人不计。
+	@warning_ignore("unsafe_cast")
+	var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
+	var n: int = 0
+	for e_v: Variant in cached:
+		var e: Dictionary = TypedVariant.as_dict(e_v)
+		if e.is_empty():
+			continue
+		if str(e.get("slot_type", "")) != "field":
+			continue
+		if TypedVariant.as_bool(e.get("is_unmanned", false), false):
+			continue
+		n += 1
+	return n
+
 
 func push_prepare_fleet_snapshot(ships: Array) -> void:
 	if local_seat < 0:
@@ -1536,34 +1589,41 @@ func push_prepare_fleet_snapshot(ships: Array) -> void:
 		SessionDiagnostics.log("mp.fleet_push", "seat=%d n=%d" % [local_seat, n])
 	if not has_peer:
 		return
+	var data: PackedByteArray = NetWireCodec.encode_fleet(
+		local_seat, ships, NetConnectivity.wire_compress_min_bytes()
+	)
 	if is_host:
-		rpc("rpc_prepare_fleet_snapshot", local_seat, ships)
+		_deliver_fleet_bin_to_rivals(local_seat, data)
+		## Host applying own push for local spectate/debug is N/A — rivals only.
 	else:
-		rpc_id(1, "rpc_prepare_fleet_report", local_seat, ships)
+		rpc_id(1, "rpc_prepare_fleet_report_bin", local_seat, data)
 
 
 @rpc("any_peer", "reliable")
-func rpc_prepare_fleet_report(seat: int, ships: Array) -> void:
+func rpc_prepare_fleet_report_bin(seat: int, data: PackedByteArray) -> void:
 	if not is_host:
 		return
 	var sender: int = multiplayer.get_remote_sender_id()
 	if TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
 		print("[mp.diag] fleet_report REJECT seat=%d sender=%d" % [seat, sender])
 		return
+	var decoded: Dictionary = NetWireCodec.decode_fleet(data)
+	var ships: Array = TypedVariant.as_array(decoded.get("ships", []))
 	_prepare_fleet_cache[seat] = ships
-	print("[mp.diag] fleet_report seat=%d n=%d → broadcast" % [seat, ships.size()])
+	print("[mp.diag] fleet_report seat=%d n=%d → rivals" % [seat, ships.size()])
 	SessionDiagnostics.log("mp.fleet_report", "seat=%d n=%d" % [seat, ships.size()])
-	rpc("rpc_prepare_fleet_snapshot", seat, ships)
-	## Host does not receive authority rpc locally — apply here.
-	prepare_fleet_snapshot_received.emit(seat, ships)
+	_deliver_fleet_bin_to_rivals(seat, data)
 
 
 @rpc("authority", "reliable")
-func rpc_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
-	_prepare_fleet_cache[seat] = ships
-	print("[mp.diag] fleet_snap_rx seat=%d n=%d" % [seat, ships.size()])
-	SessionDiagnostics.log("mp.fleet_snap_rx", "seat=%d n=%d" % [seat, ships.size()])
-	prepare_fleet_snapshot_received.emit(seat, ships)
+func rpc_prepare_fleet_snapshot_bin(seat: int, data: PackedByteArray) -> void:
+	var decoded: Dictionary = NetWireCodec.decode_fleet(data)
+	var ships: Array = TypedVariant.as_array(decoded.get("ships", []))
+	var seat_wire: int = TypedVariant.as_int(decoded.get("seat", seat), seat)
+	_prepare_fleet_cache[seat_wire] = ships
+	print("[mp.diag] fleet_snap_rx seat=%d n=%d" % [seat_wire, ships.size()])
+	SessionDiagnostics.log("mp.fleet_snap_rx", "seat=%d n=%d" % [seat_wire, ships.size()])
+	prepare_fleet_snapshot_received.emit(seat_wire, ships)
 
 
 func request_prepare_fleet_snapshot(seat: int) -> void:
@@ -1587,7 +1647,55 @@ func rpc_request_prepare_fleet(seat: int) -> void:
 	var sender: int = multiplayer.get_remote_sender_id()
 	@warning_ignore("unsafe_cast")
 	var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
-	rpc_id(sender, "rpc_prepare_fleet_snapshot", seat, cached)
+	var data: PackedByteArray = NetWireCodec.encode_fleet(
+		seat, cached, NetConnectivity.wire_compress_min_bytes()
+	)
+	rpc_id(sender, "rpc_prepare_fleet_snapshot_bin", seat, data)
+
+
+## Same first-other-contender rule as MatchRoot._nullsec_rival_seat (2p correct).
+func contestant_rival_seat(for_seat: int) -> int:
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			continue
+		var sid: int = TypedVariant.as_int(row.get("seat_id", i), i)
+		if sid == for_seat or sid < 0:
+			continue
+		if not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		return sid
+	return -1
+
+
+func _deliver_fleet_bin_to_rivals(from_seat: int, data: PackedByteArray) -> void:
+	## Deliver to every contestant whose rival is from_seat (preserves apply filter).
+	var delivered: Dictionary = {}
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not TypedVariant.as_bool(row.get("occupied", false), false):
+			continue
+		var sid: int = TypedVariant.as_int(row.get("seat_id", i), i)
+		if sid == from_seat or sid < 0:
+			continue
+		if not is_player_race(str(row.get("titan_race", ""))):
+			continue
+		if contestant_rival_seat(sid) != from_seat:
+			continue
+		if TypedVariant.as_bool(row.get("is_ai", false), false):
+			continue
+		if sid == local_seat:
+			## Host is the rival — apply locally.
+			var decoded: Dictionary = NetWireCodec.decode_fleet(data)
+			var ships: Array = TypedVariant.as_array(decoded.get("ships", []))
+			prepare_fleet_snapshot_received.emit(from_seat, ships)
+			delivered[sid] = true
+			continue
+		var peer_id: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+		if peer_id <= 0 or delivered.has(peer_id):
+			continue
+		delivered[peer_id] = true
+		rpc_id(peer_id, "rpc_prepare_fleet_snapshot_bin", from_seat, data)
 
 
 ## --- First-prepare spend clock ---
@@ -1716,6 +1824,18 @@ func _arm_prepare_clock() -> void:
 
 func is_battle_done_gate_open() -> bool:
 	return _battle_done_gate_open
+
+
+## True while battle_done gate waits on ≥1 human contestant (conditional wall-draw arm).
+func has_battle_done_missing_humans() -> bool:
+	if not _battle_done_gate_open:
+		return false
+	for i: int in _iter_barrier_seats():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
+		if not TypedVariant.as_bool(_battle_done_seats.get(i, false), false):
+			return true
+	return false
 
 
 func is_prepare_done_gate_open() -> bool:
@@ -2107,7 +2227,18 @@ func _check_battle_done_ready() -> void:
 			_sync_cohort.append(i)
 	print("[mp.diag] battle_done_ALL_READY -> arm clock cohort=[%s]" % _cohort_csv())
 	SessionDiagnostics.log("mp.barrier", "battle_done_all cohort=[%s]" % _cohort_csv())
+	if multiplayer.has_multiplayer_peer() and is_host:
+		rpc("rpc_battle_done_all_ready")
+	else:
+		battle_done_all_ready.emit()
 	_arm_prepare_clock()
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_battle_done_all_ready() -> void:
+	print("[mp.diag] battle_done_all_ready")
+	SessionDiagnostics.log("mp.wall_draw", "all_ready")
+	battle_done_all_ready.emit()
 
 
 ## --- MULTIPLAYER_PVP §7 end-of-match report (settlement rows + §7.1 titles) ---
@@ -2462,9 +2593,13 @@ func rpc_transfer_host_promote(generation: int, seat: int) -> void:
 func _complete_outgoing_host_transfer(hip: String, hport: int) -> void:
 	is_host = false
 	var keep_seat: int = local_seat
+	var gen: int = host_migrate_generation
+	var new_host: int = TypedVariant.as_int(last_match_payload.get("host_seat", -1), -1)
 	_teardown_peer_only()
 	pending_rejoin_seat = keep_seat
 	pending_rejoin_secret = session_secret
+	## Match scene flips remote_watch_only via this signal (same path as failover).
+	host_migrated.emit(gen, new_host)
 	var tree: SceneTree = get_tree()
 	if tree == null or hip == "":
 		_pending_transfer_seat = -1

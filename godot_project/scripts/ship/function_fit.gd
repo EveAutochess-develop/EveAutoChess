@@ -475,6 +475,23 @@ static func resolve_function_fx_kind(def: Dictionary) -> String:
 	return ""
 
 
+## SEMI_ASYNC §3.3.1 B — the light packet ships only a function-target index, so
+## guests look the FX kind up from the local fit instead of receiving it.
+static func guest_visual_fx(ship: ShipUnit) -> Dictionary:
+	for entry: Variant in ship.get_function_fit():
+		var def: Dictionary = TypedVariant.as_dict(TypedVariant.as_dict(entry).get("def", {}))
+		if def.is_empty() or is_cyno_def(def) or TypedVariant.as_bool(def.get("passive", false)):
+			continue
+		var kind: String = resolve_function_fx_kind(def)
+		if kind == "":
+			continue
+		return {
+			"kind": kind,
+			"duration_s": maxf(0.35, TypedVariant.as_float(def.get("duration_s", 1.0))),
+		}
+	return {}
+
+
 static func _play_function_fx(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) -> void:
 	var kind: String = resolve_function_fx_kind(def)
 	if kind == "":

@@ -1,6 +1,9 @@
 extends Node3D
 class_name BoardController
 
+## Deck plane y used by combat manned hulls (BOARD §2 / COMBAT).
+const DECK_Y: float = 0.2
+
 signal board_changed()
 
 var _ships: Array[ShipUnit] = []
@@ -355,6 +358,23 @@ static func clamp_to_combat_play_area(pos: Vector3, margin_wu: float = 0.75) -> 
 	var bb: Vector4 = combat_play_bounds_xz(margin_wu)
 	pos.x = clampf(pos.x, bb.x, bb.y)
 	pos.z = clampf(pos.z, bb.z, bb.w)
+	return pos
+
+
+## Vertical play band [y_min, y_max] from hangar cell width × floor/ceiling cells.
+static func play_volume_y() -> Vector2:
+	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
+	var step: float = absf(hangar_step_x())
+	var floor_cells: float = TypedVariant.as_float(b.get("play_floor_cells", 1), 1.0)
+	var ceil_cells: float = TypedVariant.as_float(b.get("play_ceiling_cells", 4), 4.0)
+	return Vector2(DECK_Y - floor_cells * step, DECK_Y + ceil_cells * step)
+
+
+## Manned only: XZ combat bounds + Y fence. Unmanned keep clamp_to_combat_play_area.
+static func clamp_to_play_volume(pos: Vector3, margin_wu: float = 0.75) -> Vector3:
+	pos = clamp_to_combat_play_area(pos, margin_wu)
+	var yy: Vector2 = play_volume_y()
+	pos.y = clampf(pos.y, yy.x, yy.y)
 	return pos
 
 static func prepare_slot_bounds_xz(slot_type: String, team: int, margin_wu: float = 0.0) -> Vector4:
@@ -740,11 +760,13 @@ func is_one_side_cleared() -> bool:
 ## True when neither side can ever finish the other off: both still have ≥1 alive
 ## manned field ship, but none of those ships carry offensive damage (e.g. all pure
 ## logistics/utility). Freighters and unmanned hulls are excluded like `count_alive_field`.
+## Covert cyno counts as combat presence (CAPITAL_AND_CYNO §2 清场计数 / MATCH_FLOW §4.2):
+## do not draw_no_offense while a cyno is on field — channel must run until kill/complete.
 func both_sides_no_offense() -> bool:
 	var player_alive: int = 0
 	var ai_alive: int = 0
-	var player_has_offense: bool = false
-	var ai_has_offense: bool = false
+	var player_has_presence: bool = false
+	var ai_has_presence: bool = false
 	for s: ShipUnit in _ships:
 		if s == null or not is_instance_valid(s):
 			continue
@@ -752,15 +774,16 @@ func both_sides_no_offense() -> bool:
 			continue
 		if s.slot_type != "field" or s.is_destroyed:
 			continue
+		var presence: bool = s.has_offensive_damage() or s.has_cyno_module()
 		if s.team_id == ShipUnit.TEAM_PLAYER:
 			player_alive += 1
-			if s.has_offensive_damage():
-				player_has_offense = true
+			if presence:
+				player_has_presence = true
 		elif s.team_id == ShipUnit.TEAM_AI:
 			ai_alive += 1
-			if s.has_offensive_damage():
-				ai_has_offense = true
-	return player_alive >= 1 and ai_alive >= 1 and not player_has_offense and not ai_has_offense
+			if presence:
+				ai_has_presence = true
+	return player_alive >= 1 and ai_alive >= 1 and not player_has_presence and not ai_has_presence
 
 func try_upgrades_all() -> void:
 	## 3-of-a-kind star merges only in Prepare (ECONOMY_AND_SHOP §5) — never mid-battle.

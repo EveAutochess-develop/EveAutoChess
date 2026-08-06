@@ -224,6 +224,47 @@ func face_dir_xz(dir: Vector3) -> void:
 	rotation.y = atan2(-flat.x, -flat.z)
 
 
+## Y-unlocked / unmanned: full 3D facing; near-vertical falls back to yaw-only.
+func face_dir_3d(dir: Vector3) -> void:
+	if (immobile_in_combat and not hull_morph_unstacking) or has_cyno_module():
+		return
+	if not y_axis_unlocked():
+		face_dir_xz(dir)
+		return
+	if dir.length_squared() < 0.0001:
+		return
+	var n: Vector3 = dir.normalized()
+	if absf(n.dot(Vector3.UP)) > 0.98:
+		face_dir_xz(dir)
+		return
+	look_at(global_position + n, Vector3.UP)
+
+
+func y_axis_unlocked() -> bool:
+	if is_unmanned:
+		return true
+	var ship_doc: Dictionary = DataStore.get_ship(ship_id)
+	var sg: String = str(ship_doc.get("ship_group", "")).to_lower()
+	return sg == "frigate" or sg == "destroyer"
+
+
+func off_deck_plane() -> bool:
+	## Deck plane matches BoardController.DECK_Y (0.2); local const avoids class cycle.
+	return absf(global_position.y - 0.2) > 0.05
+
+
+## AABB aft-center nozzle (COMBAT §14D single-strand drones).
+func rear_center_engine_local() -> Vector3:
+	if _model_root == null or not is_instance_valid(_model_root):
+		return _engine_local
+	var aabb: AABB = _aabb_in_ship_space(_model_root)
+	if aabb.size.length_squared() < 1e-8:
+		return _engine_local
+	var mid_y: float = maxf(aabb.get_center().y, aabb.size.y * 0.25)
+	var z_aft: float = aabb.position.z + aabb.size.z
+	return Vector3(0.0, mid_y, z_aft)
+
+
 func model_root() -> Node3D:
 	return _model_root
 
@@ -550,6 +591,11 @@ func _mesh_path_safe() -> String:
 		if ResourceLoader.exists(bundle_mesh):
 			return bundle_mesh
 	return ""
+
+func refresh_health_bar() -> void:
+	if _health_bar:
+		_health_bar.call("refresh")
+
 
 func _ensure_health_bar() -> void:
 	if _health_bar != null:
@@ -1387,20 +1433,25 @@ func clear_move_velocity() -> void:
 
 
 func combat_speed_now() -> float:
+	if y_axis_unlocked():
+		return move_velocity_wu.length()
 	return Vector3(move_velocity_wu.x, 0.0, move_velocity_wu.z).length()
 
 
 ## Accelerate / decelerate toward desired velocity (COMBAT §3.1). Returns this-step displacement.
 func tick_combat_velocity(desired_vel: Vector3, delta: float) -> Vector3:
-	desired_vel.y = 0.0
-	move_velocity_wu.y = 0.0
+	var unlock_y: bool = y_axis_unlocked()
+	if not unlock_y:
+		desired_vel.y = 0.0
+		move_velocity_wu.y = 0.0
 	var dt: float = maxf(delta, 0.0)
 	if dt <= 0.0:
 		return Vector3.ZERO
 	var tau: float = combat_inertia_tau_s()
 	var a: float = 1.0 - exp(-dt / tau)
 	move_velocity_wu = move_velocity_wu.lerp(desired_vel, a)
-	move_velocity_wu.y = 0.0
+	if not unlock_y:
+		move_velocity_wu.y = 0.0
 	return move_velocity_wu * dt
 
 func cap_fraction() -> float:
@@ -1987,6 +2038,51 @@ func _sort_nozzles_aft_first() -> void:
 		outs.append(_engine_outlines[i])
 	_engine_locals = locs
 	_engine_outlines = outs
+	_engine_local = _engine_locals[0]
+
+
+## TitanBerth `BOW_FLIP` (MULTIPLAYER_PVP §2.4a): unit yaw π swaps which length end
+## faces the enemy, but SOF nozzles stay at ship-local +Z (“aft”). After the flip that
+## +Z end is the visual bow — remirror on Z so trails stick to the stern (same end as
+## tonnage badge / stern_top_point). Skip when pack has baked bow_fit (already coherent).
+func compensate_bow_flip_for_engines() -> void:
+	if has_baked_bow_fit():
+		return
+	if _engine_locals.is_empty():
+		return
+	if _model_root == null or not is_instance_valid(_model_root):
+		return
+	var aabb: AABB = _aabb_in_ship_space(_model_root)
+	if aabb.size.z < 1e-4:
+		return
+	var cz: float = aabb.get_center().z
+	for i: int in range(_engine_locals.size()):
+		var p: Vector3 = _engine_locals[i]
+		p.z = 2.0 * cz - p.z
+		_engine_locals[i] = p
+	for i: int in range(_engine_outlines.size()):
+		var outline_v: Variant = _engine_outlines[i]
+		if typeof(outline_v) != TYPE_PACKED_VECTOR3_ARRAY:
+			continue
+		@warning_ignore("unsafe_cast")
+		var outline: PackedVector3Array = outline_v as PackedVector3Array
+		var flipped: PackedVector3Array = PackedVector3Array()
+		for q: Vector3 in outline:
+			flipped.append(Vector3(q.x, q.y, 2.0 * cz - q.z))
+		_engine_outlines[i] = flipped
+	## After remirror, visual stern is at local −Z; sort so primary emit is stern-most.
+	var order: Array[int] = []
+	for i: int in range(_engine_locals.size()):
+		order.append(i)
+	order.sort_custom(func(ia: int, ib: int) -> bool: return _engine_locals[ia].z < _engine_locals[ib].z)
+	var locs: Array[Vector3] = []
+	var outs: Array = []
+	for i: int in order:
+		locs.append(_engine_locals[i])
+		outs.append(_engine_outlines[i])
+	_engine_locals = locs
+	_engine_outlines = outs
+	_engine_local = _engine_locals[0]
 
 func _sof_hull_aabb(doc: Dictionary) -> AABB:
 	var hb: Variant = doc.get("hull_aabb", null)
@@ -2068,14 +2164,17 @@ func apply_hit(raw_emp: float, raw_thermal: float = 0.0, raw_kinetic: float = 0.
 	}
 	return apply_hit_dict(dmg)
 
-func apply_hit_dict(dmg: Dictionary) -> Dictionary:
+## `lethal` off = SEMI_ASYNC §3.1a guest estimate: paint the bar, never kill and
+## never touch authority-owned bookkeeping (first-damage hooks, capital HP drain).
+func apply_hit_dict(dmg: Dictionary, lethal: bool = true) -> Dictionary:
 	## COMBAT §6: per-layer resists, pierce recalculates with next-layer resists; no min_damage_pct floor.
 	if is_destroyed:
 		return {"destroyed": is_destroyed, "dealt": 0.0}
 	var total_raw: float = sum_damage_amount(dmg)
 	if total_raw <= 0.0:
 		return {"destroyed": is_destroyed, "dealt": 0.0}
-	FunctionFit.on_first_damage(self, _combat_sim_time)
+	if lethal:
+		FunctionFit.on_first_damage(self, _combat_sim_time)
 	var remaining: Dictionary = {
 		"emp": TypedVariant.as_float(dmg.get("emp", 0.0)),
 		"thermal": TypedVariant.as_float(dmg.get("thermal", 0.0)),
@@ -2139,11 +2238,18 @@ func apply_hit_dict(dmg: Dictionary) -> Dictionary:
 		var keep: float = 1.0 - frac_absorbed
 		for key2: Variant in ["emp", "thermal", "kinetic", "explosive"]:
 			remaining[key2] = TypedVariant.as_float(remaining.get(key2, 0.0)) * keep
-	if is_capital_flagship() and applied > 0.0:
+	if lethal and is_capital_flagship() and applied > 0.0:
 		var loss_pct: float = TypedVariant.as_float(DataStore.combat.get("capital_max_hp_loss_from_damage_pct", 0.10))
 		if loss_pct > 0.0:
 			_apply_capital_max_hp_loss(applied * loss_pct)
 	if shield_hp <= 0.0 and armor_hp <= 0.0 and structure_hp <= 0.0:
+		if not lethal:
+			## Hold one sliver of structure until authority confirms the kill.
+			shield_hp = 0.0
+			armor_hp = 0.0
+			structure_hp = 1.0
+			refresh_health_bar()
+			return {"destroyed": false, "dealt": applied}
 		is_destroyed = true
 		## Titan-same explode FX scaled; no wreck for non-titans.
 		var parent_n: Node = get_parent()

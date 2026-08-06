@@ -649,7 +649,11 @@ func _on_nullsec_kicked() -> void:
 func _on_nullsec_start_match(assignments: Dictionary) -> void:
 	var net: NullsecNetSession = _ensure_nullsec_net()
 	SessionDiagnostics.log("net.match_start", "seat=%d host=%s" % [net.local_seat, net.is_host])
-	MatchLoadOverlay.set_phase("正在进入对局场景", 0.28)
+	## Guest: keep「从房主拉取…」visible until ships material is present (SEMI_ASYNC §3.7).
+	if net.is_host or not net.opening_host_ships.is_empty():
+		MatchLoadOverlay.set_phase("正在进入对局场景", 0.28)
+	else:
+		MatchLoadOverlay.set_phase("正在从房主拉取全舰船与全游戏数据", 0.16)
 	net.persist_across_scenes()
 	var spectate: bool = net.local_is_spectator()
 	GameSession.pending_mode = "nullsec"

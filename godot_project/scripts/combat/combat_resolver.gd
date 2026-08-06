@@ -5,6 +5,8 @@ class_name CombatResolver
 
 var _board: BoardController
 var _active: bool = false
+## SEMI_ASYNC §3.1a — guest watch-only: skip local drone/aux spawn; authority rebuilds them.
+var authority_only: bool = false
 var _retarget_acc: float = 0.0
 var _combat_sim_time: float = 0.0
 var _fx: Object = null  # FiringFx
@@ -14,7 +16,9 @@ var _debris: Array = []  # {node: Node3D, cooldown: Dictionary}
 var _drone_orbit_phase: Dictionary = {}  # instance_id -> float
 ## Orbit tangent sign: +1 / -1 (reverse when stuck ~2s).
 var _drone_orbit_dir: Dictionary = {}  # instance_id -> float
-var _drone_orbit_last_xz: Dictionary = {}  # instance_id -> Vector3
+## Orbit plane tilt degrees [20, 89]; seeded via orbit_tilt.
+var _drone_orbit_tilt: Dictionary = {}  # instance_id -> float
+var _drone_orbit_last_pos: Dictionary = {}  # instance_id -> Vector3
 var _drone_orbit_stuck_s: Dictionary = {}  # instance_id -> float
 ## Per-combat fighter damage accounting (for session DPS audit).
 var _fighter_dealt_total: float = 0.0
@@ -104,7 +108,8 @@ func start_combat() -> void:
 	_missile_queue.clear()
 	_drone_orbit_phase.clear()
 	_drone_orbit_dir.clear()
-	_drone_orbit_last_xz.clear()
+	_drone_orbit_tilt.clear()
+	_drone_orbit_last_pos.clear()
 	_drone_orbit_stuck_s.clear()
 	_fighter_dealt_total = 0.0
 	_fighter_hit_count = 0
@@ -120,8 +125,9 @@ func start_combat() -> void:
 		if s.slot_type == "field" and not s.is_destroyed:
 			s.set_combat_tint(true)
 			s.reset_combat_runtime()
-	_spawn_combat_drones()
-	_spawn_capital_auxiliaries()
+	if not authority_only:
+		_spawn_combat_drones()
+		_spawn_capital_auxiliaries()
 	## Opening pose: both sides on shared cells shift ±X before first tick.
 	_board.refresh_cross_team_cell_offsets(true)
 	## Capitals: unstack if clipped, then hull_morph (siege / industrial).
@@ -362,7 +368,7 @@ func _move_ship(s: ShipUnit, tgt: ShipUnit, delta: float, now_s: float) -> void:
 		move_goal = _combat_position(s, tgt, desired_wu, deadband)
 		move_goal = _apply_screen_margin(s, tgt, move_goal)
 	var dir: Vector3 = move_goal - s.global_position
-	dir.y = 0.0
+	dir = _flatten_move_dir(s, dir)
 	var step_len: float = dir.length()
 	_ensure_ship_trail(s)
 	var desired_dir: Vector3 = Vector3.ZERO
@@ -371,15 +377,15 @@ func _move_ship(s: ShipUnit, tgt: ShipUnit, delta: float, now_s: float) -> void:
 	## Clamp can pin short-range hulls outside R — close on the target (COMBAT §3).
 	if not s.is_logistic and not s.in_retreat(now_s) and _needs_weapon_range_nudge(s, tgt):
 		var to_tgt: Vector3 = tgt.global_position - s.global_position
-		to_tgt.y = 0.0
+		to_tgt = _flatten_move_dir(s, to_tgt)
 		if to_tgt.length_squared() > 0.0001:
 			desired_dir = to_tgt.normalized()
 	if desired_dir.length_squared() > 0.0001:
-		s.face_dir_xz(desired_dir)
+		_face_move_dir(s, desired_dir)
 	else:
 		var aim: Vector3 = tgt.global_position - s.global_position
-		aim.y = 0.0
-		s.face_dir_xz(aim)
+		aim = _flatten_move_dir(s, aim)
+		_face_move_dir(s, aim)
 	_apply_accelerated_displacement(s, desired_dir, delta)
 
 
@@ -403,8 +409,7 @@ func _apply_accelerated_displacement(s: ShipUnit, desired_dir: Vector3, delta: f
 		desired_vel = desired_dir.normalized() * vmax
 	var disp: Vector3 = s.tick_combat_velocity(desired_vel, delta)
 	s.global_position += disp
-	s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
-	s.global_position.y = 0.2
+	_clamp_after_move(s)
 	var emit_min: float = TypedVariant.as_float(DataStore.combat.get("move_trail_emit_speed_wu_s", 0.15), 0.15)
 	EngineBoosterTrail.set_emitting_on(s, s.combat_speed_now() > emit_min)
 
@@ -415,9 +420,34 @@ func _apply_instant_displacement(s: ShipUnit, desired_dir: Vector3, delta: float
 	if moving:
 		var step: float = s.combat_move_speed() * delta
 		s.global_position += desired_dir.normalized() * step
-	s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
-	s.global_position.y = 0.2
+	_clamp_after_move(s)
 	EngineBoosterTrail.set_emitting_on(s, moving)
+
+
+## Unmanned: XZ only. Manned Y-unlocked: XZ+Y fence. Other manned: XZ + deck y.
+func _clamp_after_move(s: ShipUnit) -> void:
+	if s.is_unmanned:
+		s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
+		return
+	if s.y_axis_unlocked():
+		s.global_position = BoardController.clamp_to_play_volume(s.global_position)
+		return
+	s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
+	s.global_position.y = BoardController.DECK_Y
+
+
+func _flatten_move_dir(s: ShipUnit, dir: Vector3) -> Vector3:
+	if s.y_axis_unlocked():
+		return dir
+	dir.y = 0.0
+	return dir
+
+
+func _face_move_dir(s: ShipUnit, dir: Vector3) -> void:
+	if s.y_axis_unlocked():
+		s.face_dir_3d(dir)
+	else:
+		s.face_dir_xz(dir)
 
 
 func _desired_engagement_cells(s: ShipUnit, tgt: ShipUnit) -> float:
@@ -546,8 +576,7 @@ func _move_logistic_idle(s: ShipUnit, delta: float, now_s: float) -> void:
 			desired_vel = drift * vmax * signf(wobble)
 		var disp: Vector3 = s.tick_combat_velocity(desired_vel, delta)
 		s.global_position += disp
-		s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
-		s.global_position.y = 0.2
+		_clamp_after_move(s)
 		var emit_min: float = TypedVariant.as_float(DataStore.combat.get("move_trail_emit_speed_wu_s", 0.15), 0.15)
 		EngineBoosterTrail.set_emitting_on(s, s.combat_speed_now() > emit_min)
 
@@ -611,8 +640,7 @@ func _move_mining_ship(s: ShipUnit, delta: float, now_s: float) -> void:
 			desired_vel = tangent * vmax * signf(wobble)
 		var disp: Vector3 = s.tick_combat_velocity(desired_vel, delta)
 		s.global_position += disp
-		s.global_position = BoardController.clamp_to_combat_play_area(s.global_position)
-		s.global_position.y = 0.2
+		_clamp_after_move(s)
 		var emit_min: float = TypedVariant.as_float(DataStore.combat.get("move_trail_emit_speed_wu_s", 0.15), 0.15)
 		EngineBoosterTrail.set_emitting_on(s, s.combat_speed_now() > emit_min)
 		return
@@ -895,6 +923,9 @@ func _apply_separation() -> void:
 			## Only push when deeper than allowed slight clip.
 			var soft_min: float = sum_r * (1.0 - allow)
 			var delta: Vector3 = a.global_position - b.global_position
+			## Vertically clear → skip XZ push (COMBAT §14.2).
+			if absf(delta.y) > sum_r:
+				continue
 			delta.y = 0.0
 			var d: float = delta.length()
 			if d >= soft_min:
@@ -929,10 +960,8 @@ func _apply_separation() -> void:
 				var inv: float = 1.0 / (wa + wb)
 				a.global_position += push * (wb * inv * 2.0)
 				b.global_position -= push * (wa * inv * 2.0)
-			a.global_position = BoardController.clamp_to_combat_play_area(a.global_position)
-			b.global_position = BoardController.clamp_to_combat_play_area(b.global_position)
-			a.global_position.y = 0.2
-			b.global_position.y = 0.2
+			_clamp_after_move(a)
+			_clamp_after_move(b)
 
 func _find_target(s: ShipUnit, exclude: ShipUnit = null) -> ShipUnit:
 	## §6.3 ties: nearest (grid cells) → lowest HP fraction → lowest instance_id.
@@ -1182,7 +1211,8 @@ func _clear_drones() -> void:
 		_board.remove_ship_node(ship2)
 	_drone_orbit_phase.clear()
 	_drone_orbit_dir.clear()
-	_drone_orbit_last_xz.clear()
+	_drone_orbit_tilt.clear()
+	_drone_orbit_last_pos.clear()
 	_drone_orbit_stuck_s.clear()
 	_mining_wander_anchor.clear()
 	_mining_wander_cd.clear()
@@ -1208,7 +1238,8 @@ func _cull_orphan_drones() -> void:
 		var iid: int = ship.get_instance_id()
 		_drone_orbit_phase.erase(iid)
 		_drone_orbit_dir.erase(iid)
-		_drone_orbit_last_xz.erase(iid)
+		_drone_orbit_tilt.erase(iid)
+		_drone_orbit_last_pos.erase(iid)
 		_drone_orbit_stuck_s.erase(iid)
 		_mining_wander_anchor.erase(iid)
 		_mining_wander_cd.erase(iid)
@@ -1227,7 +1258,7 @@ func _orbit_drone(s: ShipUnit, tgt: ShipUnit, delta: float) -> void:
 		radius = orbit_cells * CombatFormulas.world_units_per_cell()
 	else:
 		radius = maxf(0.9, minf(s.world_range_wu() * 0.8, 1.6))
-	_orbit_around_xz(s, tgt.global_position, delta, radius, true)
+	_orbit_around_3d(s, tgt.global_position, delta, radius, true)
 
 
 func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
@@ -1261,26 +1292,31 @@ func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
 		return
 	var radius: float = TypedVariant.as_float(DataStore.visual.get("mining_drone_orbit_radius_wu", 1.35), 1.35)
 	radius = maxf(0.75, radius)
-	_orbit_around_xz(s, anchor.global_position, delta, radius, true)
+	_orbit_around_3d(s, anchor.global_position, delta, radius, true)
 	EngineBoosterTrail.set_emitting_on(s, true)
 
 
-func _orbit_around_xz(s: ShipUnit, center: Vector3, delta: float, radius: float, face_center: bool) -> void:
+func _orbit_around_3d(s: ShipUnit, center: Vector3, delta: float, radius: float, face_center: bool) -> void:
 	var id: int = s.get_instance_id()
 	var phase: float = TypedVariant.as_float(_drone_orbit_phase.get(id, 0.0), 0.0)
 	var orbit_dir: float = TypedVariant.as_float(_drone_orbit_dir.get(id, 0.0), 0.0)
 	if absf(orbit_dir) < 0.5:
 		orbit_dir = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 		_drone_orbit_dir[id] = orbit_dir
-	var flat_self: Vector3 = Vector3(s.global_position.x, 0.0, s.global_position.z)
+	var tilt_deg: float = TypedVariant.as_float(_drone_orbit_tilt.get(id, -1.0), -1.0)
+	if tilt_deg < 0.0:
+		tilt_deg = _auth_randf_range("orbit_tilt", 20.0, 89.0)
+		_drone_orbit_tilt[id] = tilt_deg
+	var tilt: float = deg_to_rad(tilt_deg)
+	var self_pos: Vector3 = s.global_position
 	## Net world motion since last orbit tick (includes post-separation pushback).
 	var stuck_eps: float = TypedVariant.as_float(DataStore.combat.get("unmanned_orbit_stuck_eps_wu", 0.06), 0.06)
 	var stuck_limit: float = TypedVariant.as_float(DataStore.combat.get("unmanned_orbit_stuck_reverse_s", 2.0), 2.0)
 	var stuck_s: float = TypedVariant.as_float(_drone_orbit_stuck_s.get(id, 0.0), 0.0)
-	if _drone_orbit_last_xz.has(id):
+	if _drone_orbit_last_pos.has(id):
 		@warning_ignore("unsafe_cast")
-		var last_xz: Vector3 = _drone_orbit_last_xz[id]
-		if flat_self.distance_to(last_xz) < stuck_eps:
+		var last_pos: Vector3 = _drone_orbit_last_pos[id]
+		if self_pos.distance_to(last_pos) < stuck_eps:
 			stuck_s += delta
 		else:
 			stuck_s = 0.0
@@ -1289,9 +1325,8 @@ func _orbit_around_xz(s: ShipUnit, center: Vector3, delta: float, radius: float,
 			_drone_orbit_dir[id] = orbit_dir
 			stuck_s = 0.0
 	_drone_orbit_stuck_s[id] = stuck_s
-	_drone_orbit_last_xz[id] = flat_self
-	var flat_center: Vector3 = Vector3(center.x, 0.0, center.z)
-	var to_center: Vector3 = flat_center - flat_self
+	_drone_orbit_last_pos[id] = self_pos
+	var to_center: Vector3 = center - self_pos
 	var dist: float = to_center.length()
 	var enter_band: float = radius * 0.35
 	var desired_dir: Vector3 = Vector3.ZERO
@@ -1300,13 +1335,33 @@ func _orbit_around_xz(s: ShipUnit, center: Vector3, delta: float, radius: float,
 	else:
 		phase += delta * 0.9 * orbit_dir
 		_drone_orbit_phase[id] = phase
-		var away: Vector3 = flat_self - flat_center
+		var away: Vector3 = self_pos - center
 		if away.length_squared() < 0.0001:
 			away = Vector3(cos(phase), 0.0, sin(phase))
 		else:
 			away = away.normalized()
-		## CCW when orbit_dir > 0; CW when < 0.
-		var tangent: Vector3 = Vector3(-away.z, 0.0, away.x) * orbit_dir
+		## Horizontal radial in XZ for building the tilted orbit basis.
+		var radial_h: Vector3 = Vector3(away.x, 0.0, away.z)
+		if radial_h.length_squared() < 0.0001:
+			radial_h = Vector3(cos(phase), 0.0, sin(phase))
+		else:
+			radial_h = radial_h.normalized()
+		## Tangent in XZ (CCW when orbit_dir > 0), then project into tilted plane.
+		var u: Vector3 = Vector3(-radial_h.z, 0.0, radial_h.x) * orbit_dir
+		## Tilted plane normal: mix world up with outward radial (θ=0 → horizontal).
+		var plane_n: Vector3 = (Vector3.UP * cos(tilt) + radial_h * sin(tilt)).normalized()
+		if plane_n.length_squared() < 0.0001:
+			plane_n = Vector3.UP
+		var tangent: Vector3 = u - plane_n * u.dot(plane_n)
+		if tangent.length_squared() < 0.0001:
+			tangent = u
+		else:
+			tangent = tangent.normalized()
+		## Add a vertical component along the tilted plane so height oscillates.
+		var lift: Vector3 = plane_n.cross(u)
+		if lift.length_squared() > 0.0001:
+			lift = lift.normalized()
+			tangent = (tangent + lift * sin(tilt) * 0.35).normalized()
 		var radial_error: float = dist - radius
 		desired_dir = tangent + away * clampf(-radial_error * 1.4, -0.65, 0.65)
 		if desired_dir.length_squared() > 0.0001:
@@ -1316,13 +1371,12 @@ func _orbit_around_xz(s: ShipUnit, center: Vector3, delta: float, radius: float,
 		else:
 			desired_dir = Vector3.ZERO
 	if desired_dir.length_squared() > 0.0001:
-		s.face_dir_xz(desired_dir)
+		s.face_dir_3d(desired_dir)
 	_apply_accelerated_displacement(s, desired_dir, delta)
-	s.global_position.y = 0.35
 	if face_center:
-		var aim: Vector3 = flat_center - Vector3(s.global_position.x, 0.0, s.global_position.z)
+		var aim: Vector3 = center - s.global_position
 		if aim.length_squared() > 0.0001:
-			s.face_dir_xz(aim)
+			s.face_dir_3d(aim)
 	## Displacement already set emit (instant step for unmanned). Do NOT re-gate on
 	## combat_speed_now — unmanned clear velocity, so that check permanently kills trails.
 	_attach_trail_once(s)
@@ -1559,7 +1613,7 @@ func _tick_morph_unstack(delta: float) -> void:
 		@warning_ignore("unsafe_cast")
 		var to_p: Vector3 = to_v as Vector3
 		ship.global_position = from_p.lerp(to_p, smooth)
-		ship.global_position.y = 0.2
+		_clamp_after_move(ship)
 		EngineBoosterTrail.set_emitting_on(ship, u < 0.98 and from_p.distance_to(to_p) > 0.05)
 		if u < 1.0:
 			left.append(entry_d)
