@@ -36,7 +36,7 @@ const TONNAGE_ICON_MAP: Dictionary = {
 	"battleship": "battleship_32.png",
 	"carrier": "carrier_32.png",
 	"dreadnought": "dreadnought_32.png",
-	"force_auxiliary": "force_auxiliary_32.png",
+	"force_auxiliary": "carrier_32.png",
 	"drone_light": "droneAttack_16.png",
 	"drone_medium": "droneAttack_16.png",
 	"drone_heavy": "droneAttack_16.png",

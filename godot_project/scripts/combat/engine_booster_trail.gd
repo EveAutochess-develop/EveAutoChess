@@ -33,6 +33,8 @@ var _last_stamp_centers: Array[Vector3] = []
 var _meshes: Array[MeshInstance3D] = []
 var _tint: Color = Color(0.15, 0.55, 1.0, 1.0)
 var _world: Node3D = null
+## Non-fighter unmanned: one camera-facing strand instead of crossed ribbons.
+var _single_strand: bool = false
 var _mat: StandardMaterial3D = null
 var _is_unmanned: bool = false
 var _idle_plume_wu: float = 0.0
@@ -103,12 +105,35 @@ static func _purge_legacy(unit: Node3D) -> void:
 func setup(unit: Node3D, team_player: bool) -> void:
 	_ship = unit
 	_team_player = team_player
-	_is_unmanned = TypedVariant.as_bool(unit.get("is_unmanned"), false) if unit else false
-	_locals = _engine_locals_for(unit)
-	_outlines = _engine_outlines_for(unit, _locals)
-	_radii = _radii_from_outlines(_locals, _outlines)
+	_is_unmanned = false
+	var kind: String = ""
+	if unit != null:
+		var um_v: Variant = unit.get("is_unmanned")
+		_is_unmanned = TypedVariant.as_bool(um_v, false)
+		var kind_v: Variant = unit.get("unmanned_kind")
+		kind = str(kind_v)
+	var single_on: bool = TypedVariant.as_bool(_vis().get("unmanned_single_strand_trail", true), true)
+	_single_strand = _is_unmanned and kind != "fighter" and single_on
+	_locals.clear()
+	_outlines.clear()
+	_radii.clear()
+	if _single_strand and unit != null and unit.has_method("rear_center_engine_local"):
+		var aft_v: Variant = unit.call("rear_center_engine_local")
+		var aft: Vector3 = Vector3.ZERO
+		if aft_v is Vector3:
+			@warning_ignore("unsafe_cast")
+			aft = aft_v as Vector3
+		_locals.append(aft)
+		var width_mul: float = TypedVariant.as_float(_vis().get("unmanned_single_strand_width_mul", 1.0), 1.0)
+		_radii.append(maxf(0.05, width_mul * FALLBACK_RADIUS))
+		_outlines.append(PackedVector3Array())
+	else:
+		_locals = _engine_locals_for(unit)
+		_outlines = _engine_outlines_for(unit, _locals)
+		_radii = _radii_from_outlines(_locals, _outlines)
 	_tint = _team_tint(team_player)
-	_world = unit.get_parent() as Node3D
+	if unit != null:
+		_world = unit.get_parent() as Node3D
 	_apply_configured_mesh_style()
 	_ensure_mesh_slots()
 	set_process(true)
@@ -422,7 +447,7 @@ func _rebuild_ribbons() -> void:
 		if samples.size() < 2:
 			mi.mesh = null
 			continue
-		mi.mesh = _build_crossed_ribbon(samples, _tint)
+		mi.mesh = _build_crossed_ribbon(samples, _tint, _single_strand)
 
 
 func _idle_plume_ribbon_sample(live: Dictionary) -> Dictionary:
@@ -439,12 +464,15 @@ func _idle_plume_ribbon_sample(live: Dictionary) -> Dictionary:
 	}
 
 
-func _build_crossed_ribbon(samples: Array, tint: Color) -> ArrayMesh:
-	## Two orthogonal strips along the wake. Packed arrays — no SurfaceTool alloc storm.
+func _build_crossed_ribbon(samples: Array, tint: Color, single_strand: bool = false) -> ArrayMesh:
+	## Crossed strips by default; single_strand = one camera-facing ribbon (non-fighter unmanned).
 	var verts: PackedVector3Array = PackedVector3Array()
 	var cols: PackedColorArray = PackedColorArray()
 	var indices: PackedInt32Array = PackedInt32Array()
 	var bright: float = clampf(TypedVariant.as_float(_vis().get("booster_trail_brightness", 0.5), 0.5), 0.0, 2.0)
+	var width_mul: float = 1.0
+	if single_strand:
+		width_mul = maxf(0.25, TypedVariant.as_float(_vis().get("unmanned_single_strand_width_mul", 1.0), 1.0))
 	var centers: Array[Vector3] = []
 	var radii: Array[float] = []
 	var colors: Array[Color] = []
@@ -454,9 +482,16 @@ func _build_crossed_ribbon(samples: Array, tint: Color) -> ArrayMesh:
 		if center_v is Vector3:
 			@warning_ignore("unsafe_cast")
 			centers.append(center_v as Vector3)
-		radii.append(maxf(TypedVariant.as_float(s.get("radius", FALLBACK_RADIUS), FALLBACK_RADIUS), 0.04))
+		radii.append(maxf(TypedVariant.as_float(s.get("radius", FALLBACK_RADIUS), FALLBACK_RADIUS) * width_mul, 0.04))
 		var a: float = tint.a * _fade_alpha(TypedVariant.as_float(s.get("age", 0.0))) * bright
 		colors.append(Color(tint.r, tint.g, tint.b, a))
+	var cam_fwd: Vector3 = Vector3(0.0, 0.0, -1.0)
+	if single_strand and _ship != null and is_instance_valid(_ship):
+		var vp: Viewport = _ship.get_viewport()
+		if vp != null:
+			var cam: Camera3D = vp.get_camera_3d()
+			if cam != null:
+				cam_fwd = -cam.global_transform.basis.z
 	for i: int in range(centers.size() - 1):
 		var p0: Vector3 = centers[i]
 		var p1: Vector3 = centers[i + 1]
@@ -468,14 +503,22 @@ func _build_crossed_ribbon(samples: Array, tint: Color) -> ArrayMesh:
 		var up: Vector3 = Vector3.UP
 		if absf(dir.dot(up)) > 0.92:
 			up = Vector3.RIGHT
-		var side_a: Vector3 = dir.cross(up).normalized()
-		var side_b: Vector3 = dir.cross(side_a).normalized()
+		var side_a: Vector3
+		if single_strand:
+			side_a = dir.cross(cam_fwd)
+			if side_a.length_squared() < 0.0001:
+				side_a = dir.cross(up)
+			side_a = side_a.normalized()
+		else:
+			side_a = dir.cross(up).normalized()
 		var r0: float = radii[i]
 		var r1: float = radii[i + 1]
 		var c0: Color = colors[i]
 		var c1: Color = colors[i + 1]
 		_push_ribbon_quad(verts, cols, indices, p0, p1, side_a * r0, side_a * r1, c0, c1)
-		_push_ribbon_quad(verts, cols, indices, p0, p1, side_b * r0, side_b * r1, c0, c1)
+		if not single_strand:
+			var side_b: Vector3 = dir.cross(side_a).normalized()
+			_push_ribbon_quad(verts, cols, indices, p0, p1, side_b * r0, side_b * r1, c0, c1)
 	if verts.is_empty():
 		return null
 	var arrays: Array = []

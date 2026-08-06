@@ -50,6 +50,7 @@ func request_verify_content_version() -> void:
 func _ready() -> void:
 	_load_settings()
 	_apply_platform_render_profile()
+	apply_adaptive_fps()
 
 func _load_settings() -> void:
 	var cf: ConfigFile = ConfigFile.new()
@@ -94,6 +95,20 @@ func set_target_fps(fps: int) -> void:
 	save_settings()
 	SessionDiagnostics.log("settings", "fps_cap=%d nomodel=%d" % [target_fps, 1 if no_model_perf_mode else 0])
 
+## UI_AND_SHELL §3.0 — max(floor, refresh×0.75); PC floor 60, mobile floor 30.
+func apply_adaptive_fps() -> void:
+	var mobile: bool = OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
+	var floor_fps: int = 30 if mobile else 60
+	var refresh: float = DisplayServer.screen_get_refresh_rate()
+	if refresh < 1.0:
+		refresh = 60.0
+	var adaptive: int = int(roundf(refresh * 0.75))
+	target_fps = maxi(floor_fps, adaptive)
+	Engine.max_fps = target_fps
+	save_settings()
+	SessionDiagnostics.log("settings", "fps_adaptive=%d refresh=%.1f floor=%d" % [target_fps, refresh, floor_fps])
+	print("[GameSession] adaptive fps=%d (refresh=%.1f ×0.75, floor=%d)" % [target_fps, refresh, floor_fps])
+
 func set_camera_breathe_enabled(on: bool) -> void:
 	camera_breathe_enabled = on
 	save_settings()
@@ -132,7 +147,7 @@ func enemy_layout_adjust_active() -> bool:
 	return developer_debug_enabled and enemy_layout_adjust
 
 func _apply_platform_render_profile() -> void:
-	## PC: high 3D resolve + MSAA8. Mobile: 1.0 / MSAA off (4× greyscreens phones).
+	## PC: 1.5 + MSAA4 (was 3.0 + 8×). Mobile: 1.0 / MSAA off. UI_AND_SHELL §3.0.
 	var mobile: bool = OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS"
 	var root: Window = get_tree().root
 	if root == null:
@@ -143,8 +158,7 @@ func _apply_platform_render_profile() -> void:
 		root.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
 		print("[GameSession] mobile render profile: scaling_3d=1.0 msaa=off")
 		return
-	# Editor preview: lighter 3D resolve so first frame isn't a multi-second GPU hitch.
-	var scale: float = 1.5 if OS.has_feature("editor") else 3.0
+	var scale: float = 1.5
 	var data_store: Node = get_node_or_null(^"/root/DataStore")
 	var visual: Dictionary = TypedVariant.as_dict(data_store.get("visual")) if data_store else {}
 	if not visual.is_empty():
@@ -154,13 +168,13 @@ func _apply_platform_render_profile() -> void:
 	scale = clampf(scale, 1.0, 4.0)
 	root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
 	root.scaling_3d_scale = scale
-	root.msaa_3d = Viewport.MSAA_4X if OS.has_feature("editor") else Viewport.MSAA_8X
+	root.msaa_3d = Viewport.MSAA_4X
 	root.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	root.anisotropic_filtering_level = Viewport.ANISOTROPY_16X
 	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
 		var sz: Vector2i = DisplayServer.window_get_size()
 		if sz.x < 1600 or sz.y < 900:
 			DisplayServer.window_set_size(Vector2i(1920, 1080))
-	print("[GameSession] desktop render profile: scaling_3d=%.1f msaa=%s editor=%s" % [
-		scale, "4x" if OS.has_feature("editor") else "8x", OS.has_feature("editor")
+	print("[GameSession] desktop render profile: scaling_3d=%.1f msaa=4x editor=%s" % [
+		scale, OS.has_feature("editor")
 	])

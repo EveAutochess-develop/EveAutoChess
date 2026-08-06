@@ -23,6 +23,8 @@ var _settlement_panel: NullsecSettlementPanel
 var _applying_rival_fleet: bool = false
 var _fleet_push_sig: String = ""
 var _fleet_apply_sig: String = ""
+## True after rival Prepare fleet snapshot applied this prepare (empty roster counts).
+var _rival_fleet_synced: bool = false
 ## Barrier released but rival fleet not yet synced — defer commit_prepare_complete.
 var _pending_enter_battle: bool = false
 var _fleet_push_last_msec: int = 0
@@ -748,6 +750,8 @@ func _wire_nullsec_prepare_sync() -> void:
 		net.enter_battle_released.connect(_on_enter_battle_released)
 	if not net.seat_battle_finished.is_connected(_on_seat_battle_finished_speed):
 		net.seat_battle_finished.connect(_on_seat_battle_finished_speed)
+	if not net.battle_done_all_ready.is_connected(_on_battle_done_all_ready_clear_speed):
+		net.battle_done_all_ready.connect(_on_battle_done_all_ready_clear_speed)
 	_apply_nullsec_prepare_stage_gates()
 
 
@@ -768,27 +772,11 @@ func _apply_nullsec_prepare_stage_gates() -> void:
 	match_ctrl.disarm_prepare_clock()
 	_fleet_push_sig = ""
 	_fleet_apply_sig = ""
+	_rival_fleet_synced = false
 	_fleet_push_pending = []
 	_pending_enter_battle = false
-	## Empty-open fake wipe must NOT join battle_done / 开钟 — peer may still be fighting.
-	if TypedVariant.as_bool(match_ctrl.last_round_empty_open, false):
-		print("[mp.diag] prepare_gates SKIP battle_done (empty_open)")
-		SessionDiagnostics.log("mp.prep_gate_skip", "empty_open")
-		## Stay frozen until we can re-sync fleet and re-enter; arm locally only if solo.
-		if not net.needs_stage_barrier():
-			match_ctrl.arm_prepare_clock()
-		else:
-			## Re-open prepare sync: request fleet and wait for next enter_battle from host barrier.
-			_push_local_prepare_fleet()
-			var rival_skip: int = _nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
-			if rival_skip >= 0 and not _seat_is_ai(rival_skip):
-				net.request_prepare_fleet_snapshot(rival_skip)
-			## Do not report battle_done — avoid pulling cohort into 开钟 on a phantom round.
-			if match_ctrl.battle_game_stage_count == 0:
-				net.begin_prepare_spend_gate()
-			## R2+: leave clock frozen; host will re-arm when real battles complete.
-			## If we were the only one who empty-wiped, urge a fresh prepare barrier via fleet.
-		return
+	## Legitimate empty boards (synced empty or local undeployed) still report battle_done.
+	## Only HOLD enter_battle until rival fleet RPC arrives — do not skip the barrier.
 	if match_ctrl.battle_game_stage_count == 0:
 		net.begin_prepare_spend_gate()
 		## Only arm if host already satisfied the gate (e.g. AI-only contestants).
@@ -838,6 +826,11 @@ func _on_enter_battle_released() -> void:
 		SessionDiagnostics.log("mp.enter_hold", "waiting_rival_fleet")
 		return
 	_pending_enter_battle = false
+	## Synced empty rival (or AI) → empty-open settle may skip the 12s phantom hold.
+	if match_ctrl.has_method("mark_empty_open_fleet_trusted"):
+		match_ctrl.mark_empty_open_fleet_trusted(_rival_fleet_synced or _seat_is_ai(
+			_nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
+		))
 	match_ctrl.commit_prepare_complete()
 
 
@@ -851,15 +844,8 @@ func _nullsec_human_rival_fleet_ready() -> bool:
 	var rival: int = _nullsec_rival_seat(local_seat)
 	if rival < 0 or _seat_is_ai(rival):
 		return true
-	## Need at least one manned rival ship on field or hangar after sync.
-	var n: int = 0
-	for s: ShipUnit in board.all_ships():
-		if s == null or not is_instance_valid(s) or s.is_unmanned or s.is_protect_target:
-			continue
-		if TypedVariant.as_int(s.team_id, 0) != ShipUnit.TEAM_AI:
-			continue
-		n += 1
-	return n > 0
+	## Empty roster is valid (rival undeployed) — only wait until the snapshot arrives.
+	return _rival_fleet_synced
 
 
 func _try_flush_pending_enter_battle() -> void:
@@ -873,6 +859,8 @@ func _try_flush_pending_enter_battle() -> void:
 	_pending_enter_battle = false
 	print("[mp.diag] enter_battle FLUSH after fleet ready")
 	SessionDiagnostics.log("mp.enter_flush", "fleet_ready")
+	if match_ctrl.has_method("mark_empty_open_fleet_trusted"):
+		match_ctrl.mark_empty_open_fleet_trusted(_rival_fleet_synced)
 	match_ctrl.commit_prepare_complete()
 
 
@@ -1321,14 +1309,17 @@ func _setup_net_battle_session() -> void:
 	if not payload.has("host_seat"):
 		payload["host_seat"] = TypedVariant.as_int(payload.get("host_seat", 0), 0)
 	_net_battle.setup(_nullsec_rng, net, payload)
+	_net_battle.manned_count_fn = Callable(self, "_net_manned_field_count_for_seat")
 	## SEMI_ASYNC §3.1a — watch peers skip CombatResolver; keep normal sync cadence.
 	## Do NOT densify snaps (≤5): full apply_authority each snap stutters guests.
-	if not net.authority_snapshot_received.is_connected(_on_net_authority_snapshot):
-		net.authority_snapshot_received.connect(_on_net_authority_snapshot)
-	if not net.authority_light_received.is_connected(_on_net_authority_light):
-		net.authority_light_received.connect(_on_net_authority_light)
+	if not net.authority_snapshot_bin_received.is_connected(_on_net_authority_snapshot):
+		net.authority_snapshot_bin_received.connect(_on_net_authority_snapshot)
+	if not net.authority_light_bin_received.is_connected(_on_net_authority_light):
+		net.authority_light_bin_received.connect(_on_net_authority_light)
 	if not net.battle_report_received.is_connected(_on_net_battle_report):
 		net.battle_report_received.connect(_on_net_battle_report)
+	if not _net_battle.battle_report.is_connected(_on_net_battle_report):
+		_net_battle.battle_report.connect(_on_net_battle_report)
 	if not net.battle_ended_received.is_connected(_on_net_battle_ended):
 		net.battle_ended_received.connect(_on_net_battle_ended)
 	if not net.anticheat_notice_received.is_connected(_on_net_anticheat_notice):
@@ -1342,14 +1333,14 @@ func _setup_net_battle_session() -> void:
 	_net_jobs_ready_for_titan = true
 
 
-func _on_net_authority_snapshot(snap: Dictionary) -> void:
+func _on_net_authority_snapshot(data: PackedByteArray) -> void:
 	if _net_battle:
-		_net_battle.apply_authority(snap, board, firing_fx, _net_float_text())
+		_net_battle.apply_full_bin(data, board, firing_fx, _net_float_text())
 
 
-func _on_net_authority_light(pkt: Dictionary) -> void:
+func _on_net_authority_light(data: PackedByteArray) -> void:
 	if _net_battle:
-		_net_battle.apply_light(pkt, board, firing_fx, _net_float_text())
+		_net_battle.apply_light_bin(data, board, firing_fx, _net_float_text())
 
 
 func _net_float_text() -> Object:
@@ -1365,6 +1356,65 @@ func _on_net_battle_report(report: Dictionary) -> void:
 		str(report.get("result", "")),
 	]
 	_append_battle_log(line)
+	if str(report.get("kind", "")) == "pvp_ai_instant" and str(report.get("result", "")) == "dual_win":
+		_apply_ai_vs_ai_instant_settle(report)
+
+
+func _net_manned_field_count_for_seat(seat_id: int) -> int:
+	## AI seats: prefer live TEAM_AI field when this seat is the current rival; else field_cap estimate.
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net != null:
+		var cached_n: int = net.manned_field_count_cached(seat_id)
+		if cached_n > 0:
+			return cached_n
+	if not _seat_is_ai(seat_id):
+		return 0
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	if rival == seat_id and board != null:
+		var live: int = 0
+		for s: ShipUnit in board.all_ships():
+			if s == null or not is_instance_valid(s) or s.is_unmanned:
+				continue
+			if TypedVariant.as_int(s.team_id, 0) != ShipUnit.TEAM_AI:
+				continue
+			if s.slot_type != "field":
+				continue
+			live += 1
+		if live > 0:
+			return live
+	if ai != null and ai.has_method("field_cap"):
+		return maxi(0, TypedVariant.as_int(ai.field_cap(), 0))
+	return 0
+
+
+func _apply_ai_vs_ai_instant_settle(report: Dictionary) -> void:
+	## MATCH_FLOW §5.0 — dual win, kill gold, no titan (local human tables unaffected).
+	var seat_a: int = TypedVariant.as_int(report.get("seat_a", -1), -1)
+	var seat_b: int = TypedVariant.as_int(report.get("seat_b", -1), -1)
+	var gold_a: int = TypedVariant.as_int(report.get("gold_a", 0), 0)
+	var gold_b: int = TypedVariant.as_int(report.get("gold_b", 0), 0)
+	_record_seat_win_only(seat_a)
+	_record_seat_win_only(seat_b)
+	## Shared local AI bank: grant both seat awards so handbook economy stays hot.
+	if ai != null and ai.has_method("add_gold"):
+		var grant: int = gold_a + gold_b
+		if grant > 0:
+			ai.add_gold(grant)
+		if ai.has_method("update_streaks"):
+			ai.update_streaks(true)
+	_append_battle_log("人机↔人机略过 · 席%02d/+%d · 席%02d/+%d · 双胜无扣血" % [
+		seat_a + 1, gold_a, seat_b + 1, gold_b
+	])
+
+
+func _record_seat_win_only(seat: int) -> void:
+	if seat < 0:
+		return
+	var cur: Dictionary = _wld_tuple(seat)
+	cur["w"] = TypedVariant.as_int(cur.get("w", 0), 0) + 1
+	_wld_by_seat[seat] = cur
+	_eval_human_streak[seat] = TypedVariant.as_int(_eval_human_streak.get(seat, 0), 0) + 1
 
 
 ## SEMI_ASYNC §3.1a — map host-seat W/L into local seat, then force Prepare.
@@ -1400,7 +1450,7 @@ func _on_net_anticheat_notice(message: String) -> void:
 
 func _on_net_spectate_stream(snap: Dictionary) -> void:
 	if _nullsec_spectating and _net_battle:
-		_net_battle.apply_authority(snap, board, firing_fx, _net_float_text())
+		_net_battle.apply_authority(snap)
 
 
 func _on_net_round_jobs_complete(_reports: Array) -> void:
@@ -1412,11 +1462,14 @@ func _tick_net_battle_enrich() -> void:
 		return
 	if not _net_battle.is_host:
 		return
+	## PVE creep fights are per-seat local — do not broadcast host board over guests.
+	if _nullsec_pve != null and _nullsec_pve.is_pve_task():
+		return
 	if _net_battle.should_enrich_this_tick():
 		var gold: int = TypedVariant.as_int(match_ctrl.player_gold_earned, 0) if match_ctrl else 0
 		_net_battle.enrich_and_broadcast(board, gold)
 		return
-	if _net_battle.should_light_this_tick():
+	if _net_battle.should_light_now():
 		_net_battle.enrich_and_broadcast_light(board)
 
 func _spawn_nullsec_creeps_with_slide() -> void:
@@ -1607,7 +1660,8 @@ func _nullsec_resolve_pvp_doomsday(result: String) -> void:
 	## Speed mark is via net.seat_battle_finished (battle_done); keep local fallback for solo.
 	if _nullsec_speed and (_nullsec_net_session() == null or not _nullsec_net_session().needs_stage_barrier()):
 		var cur: float = TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else 1.0
-		_nullsec_speed.mark_seat_finished(cur)
+		## Solo: no parallel tables — never arm conditional wall-clock draw.
+		_nullsec_speed.mark_seat_finished(cur, false)
 		_apply_resolved_speed()
 	var scout: ScoutIntelButton = hud.get_node_or_null("Root/TopRight/ScoutIntelBtn") as ScoutIntelButton
 	if scout:
@@ -1975,13 +2029,34 @@ func _on_nullsec_force_draw() -> void:
 		match_ctrl.force_draw_battle()
 
 
+func _nullsec_should_arm_wall_draw() -> bool:
+	## SEMI_ASYNC §4.5 — conditional: someone finished AND ≥1 contestant still fighting.
+	if match_ctrl != null and match_ctrl.stage == MatchController.Stage.BATTLE:
+		return true
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or not net.needs_stage_barrier():
+		return false
+	return net.has_battle_done_missing_humans()
+
+
 func _on_seat_battle_finished_speed(_seat: int) -> void:
-	## SEMI_ASYNC §4.5 — any finished → max(4×, 场上); auto floor must not stick next round.
+	## SEMI_ASYNC §4.5 — any finished → max(4×, 场上); wall draw only if remaining battles.
 	if _nullsec_speed == null:
 		return
 	var cur: float = TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else 1.0
-	_nullsec_speed.mark_seat_finished(cur)
+	var arm_wall: bool = _nullsec_should_arm_wall_draw()
+	_nullsec_speed.mark_seat_finished(cur, arm_wall)
 	_apply_resolved_speed()
+	SessionDiagnostics.log("mp.wall_draw", "arm=%s seat=%d" % [arm_wall, _seat])
+
+
+func _on_battle_done_all_ready_clear_speed() -> void:
+	## All tables finished this round — drop conditional wall draw + auto 4× before next Battle.
+	if _nullsec_speed == null:
+		return
+	_nullsec_speed.clear_finish_state()
+	_apply_resolved_speed()
+	SessionDiagnostics.log("mp.wall_draw", "cleared_all_ready")
 
 func _ensure_ground() -> void:
 	var g: MeshInstance3D = get_node_or_null("Ground") as MeshInstance3D
@@ -2365,6 +2440,12 @@ func _process(delta: float) -> void:
 		if _net_battle and _net_battle.is_host:
 			_net_jobs_ready_for_titan = _net_battle.host_sim == null \
 				or _net_battle.host_sim.pending_count() == 0
+		elif _net_battle:
+			## SEMI_ASYNC §3.1a — guests coast on inertia between packets.
+			_net_battle.guest_present_tick(
+				delta, firing_fx, _net_float_text(),
+				match_ctrl.speed_multiplier if match_ctrl else 1.0
+			)
 	_tick_prepare_stuck_pulse(delta)
 
 
@@ -3471,7 +3552,7 @@ func _apply_adaptive_hud_layout() -> void:
 		UiLayout.set_rect_frac(round_bar, rb_left, 0.008, rb_right, top_h)
 	var left_w: float = UiLayout.collapse_strip_frac() if _collapse_left else UiLayout.left_col_width_frac()
 	var right_w: float = UiLayout.collapse_strip_frac() if _collapse_right else UiLayout.right_col_width_frac()
-	var bottom_h: float = UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_height_frac()
+	var bottom_h: float = UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_height_frac(root)
 	@warning_ignore("unsafe_cast")
 	var left_col: Control = root.get_node_or_null("LeftCol") as Control
 	if left_col:
@@ -5135,6 +5216,28 @@ func _local_titan_race_for_ui() -> String:
 			return str(s.get("titan_race", ""))
 	return ""
 
+## UI_AND_SHELL §2.1.1 — COVERED scale, top-aligned (bright nebula stays in frame; Amarr fix).
+func _shop_tips_top_align(tips: TextureRect, host: Control) -> void:
+	if tips == null or host == null or tips.texture == null:
+		return
+	var hw: float = host.size.x
+	var hh: float = host.size.y
+	if hw < 1.0 or hh < 1.0:
+		return
+	var tw: float = float(tips.texture.get_width())
+	var th: float = float(tips.texture.get_height())
+	if tw < 1.0 or th < 1.0:
+		return
+	var s: float = maxf(hw / tw, hh / th)
+	var dw: float = tw * s
+	var dh: float = th * s
+	tips.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	tips.anchor_right = 0.0
+	tips.anchor_bottom = 0.0
+	tips.position = Vector2((hw - dw) * 0.5, 0.0)
+	tips.size = Vector2(dw, dh)
+
+
 func _shop_card_size(slot_count: int, box: Control) -> Vector2:
 	var avail_w: float = box.size.x
 	var avail_h: float = box.size.y
@@ -5151,11 +5254,14 @@ func _shop_card_size(slot_count: int, box: Control) -> Vector2:
 	var sep: float = float(UiLayout.margin_px(6, box))
 	var total_sep: float = sep * float(maxi(0, slot_count - 1))
 	var w: float = (avail_w - total_sep) / float(slot_count)
-	var min_w: float = UiLayout.px(88.0 if UiLayout.is_mobile() else 100.0, box)
-	var max_w: float = UiLayout.px(180.0 if UiLayout.is_mobile() else 210.0, box)
-	var min_h: float = UiLayout.px(120.0 if UiLayout.is_mobile() else 140.0, box)
-	var max_h: float = UiLayout.px(180.0 if UiLayout.is_mobile() else 210.0, box)
-	return Vector2(clampf(w, min_w, max_w), clampf(avail_h, min_h, max_h))
+	## Prefer portrait-ish cards that fill the shop strip height (透明站位框吃满可用高).
+	var target_h: float = avail_h
+	var aspect: float = 1.22
+	var from_w: float = w * aspect
+	var h: float = minf(target_h, maxf(from_w, UiLayout.px(110.0, box)))
+	h = clampf(h, UiLayout.px(100.0, box), avail_h)
+	w = clampf(w, UiLayout.px(64.0, box), UiLayout.px(220.0, box))
+	return Vector2(w, h)
 
 func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int, card_size: Vector2 = Vector2.ZERO) -> Control:
 	var card: PanelContainer = PanelContainer.new()
@@ -5191,19 +5297,45 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		done.add_theme_color_override("font_color", Color(0.85, 0.85, 0.8))
 		stack.add_child(done)
 		return card
-	## UI_AND_SHELL §2.1.1: tips skybox under ISIS portrait (keep source alpha fade).
+	## UI_AND_SHELL §2.1.1: tips skybox under ISIS portrait — top-aligned COVERED (not centered).
 	if tips_tex:
 		var tips: TextureRect = TextureRect.new()
 		tips.name = "TipsSkybox"
 		tips.texture = tips_tex
-		tips.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tips.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		tips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tips.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tips.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tips.stretch_mode = TextureRect.STRETCH_SCALE
+		stack.clip_contents = true
 		stack.add_child(tips)
-	# Large centered portrait (leave room below for fetter strip + name)
-	var psz: float = minf(sz.x * 0.88, sz.y * 0.58)
-	psz = maxf(psz, UiLayout.px(72 if UiLayout.is_mobile() else 90, card))
+		var realign: Callable = func() -> void: _shop_tips_top_align(tips, stack)
+		if not stack.resized.is_connected(realign):
+			stack.resized.connect(realign)
+		call_deferred("_shop_tips_top_align", tips, stack)
+	## Transparent placeholder column: top pad → art frame (expand) → fetters → name.
+	var col: VBoxContainer = VBoxContainer.new()
+	col.name = "CardLayout"
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", UiLayout.margin_px(2, card))
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.offset_left = UiLayout.px(4, card)
+	col.offset_right = -UiLayout.px(4, card)
+	col.offset_top = UiLayout.px(4, card)
+	col.offset_bottom = -UiLayout.px(4, card)
+	stack.add_child(col)
+	var top_pad: Control = Control.new()
+	top_pad.name = "TopPad"
+	top_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_pad.custom_minimum_size = Vector2(0, UiLayout.px(22, card))
+	top_pad.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	col.add_child(top_pad)
+	## Art station: transparent frame fills leftover height; portrait contain-centered inside.
+	var art_frame: Control = Control.new()
+	art_frame.name = "ArtFrame"
+	art_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	art_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	art_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	art_frame.custom_minimum_size = Vector2(0, UiLayout.px(56, card))
+	col.add_child(art_frame)
 	var tex: Texture2D = UiAssets.champion_icon(ship_name, TypedVariant.as_int(ship.get("id", 0), 0))
 	var art: Control
 	if tex:
@@ -5216,28 +5348,27 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		var ph: ColorRect = ColorRect.new()
 		ph.color = Color(0.12, 0.16, 0.24, 1.0)
 		art = ph
-	art.custom_minimum_size = Vector2(psz, psz)
-	art.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	art.anchor_left = 0.5
-	art.anchor_right = 0.5
-	art.offset_left = -psz * 0.5
-	art.offset_right = psz * 0.5
-	art.offset_top = UiLayout.px(28, card)
-	art.offset_bottom = art.offset_top + psz
-	stack.add_child(art)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## 立绘 = ArtFrame 的 70%（居中 contain），留出星空点缀边。
+	art.set_anchors_preset(Control.PRESET_FULL_RECT)
+	art.anchor_left = 0.15
+	art.anchor_top = 0.15
+	art.anchor_right = 0.85
+	art.anchor_bottom = 0.85
+	art.offset_left = 0.0
+	art.offset_top = 0.0
+	art.offset_right = 0.0
+	art.offset_bottom = 0.0
+	art_frame.add_child(art)
 	# 本舰可达成羁绊 · 立绘下方简展
 	var fids: Array = ship.get("fetter_ids", [])
 	var badge_icon: int = UiLayout.px(18 if UiLayout.is_mobile() else 22, card)
 	var fetter_box: HBoxContainer = HBoxContainer.new()
 	fetter_box.add_theme_constant_override("separation", UiLayout.margin_px(3, card))
 	fetter_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	fetter_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	fetter_box.anchor_left = 0.0
-	fetter_box.anchor_right = 1.0
-	fetter_box.offset_left = UiLayout.px(4, card)
-	fetter_box.offset_right = -UiLayout.px(4, card)
-	fetter_box.offset_top = art.offset_bottom + UiLayout.px(2, card)
-	fetter_box.offset_bottom = fetter_box.offset_top + badge_icon + 2.0
+	fetter_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fetter_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	fetter_box.custom_minimum_size = Vector2(0, badge_icon + 2.0)
 	for fid: Variant in fids:
 		var fdata: Dictionary = DataStore.fetters.get(str(fid), {})
 		var fname: String = str(fdata.get("name", fid))
@@ -5258,23 +5389,21 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 			fetter_box.add_child(ph2)
 			continue
 		fetter_box.add_child(fic)
-	stack.add_child(fetter_box)
+	col.add_child(fetter_box)
 	# Name under fetter strip
 	var name_l: Label = Label.new()
 	name_l.text = ship_name
 	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	name_l.offset_top = -UiLayout.px(28, card)
-	name_l.offset_bottom = -UiLayout.px(4, card)
-	name_l.offset_left = UiLayout.px(4, card)
-	name_l.offset_right = -UiLayout.px(4, card)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.size_flags_vertical = Control.SIZE_SHRINK_END
+	name_l.custom_minimum_size = Vector2(0, UiLayout.px(22, card))
 	UiAssets.apply_label_font(name_l, false, UiLayout.font_size(14, card))
 	name_l.add_theme_color_override("font_color", Color(1, 1, 1))
 	name_l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	name_l.add_theme_constant_override("outline_size", 3)
-	stack.add_child(name_l)
-	# ★ 角标 · 左上
+	col.add_child(name_l)
+	# ★ 角标 · 左上（叠在透明站位之上）
 	var star_badge: PanelContainer = _make_corner_badge("★1", Color(0.12, 0.1, 0.05, 0.92), Color(1.0, 0.88, 0.35), card)
 	star_badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	star_badge.offset_left = UiLayout.px(4, card)
@@ -5311,7 +5440,7 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 	cost_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	cost_badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	cost_badge.offset_right = -UiLayout.px(4, card)
-	cost_badge.offset_bottom = -UiLayout.px(30, card)
+	cost_badge.offset_bottom = -UiLayout.px(4, card)
 	cost_badge.offset_left = cost_badge.offset_right - UiLayout.px(56, card)
 	cost_badge.offset_top = cost_badge.offset_bottom - UiLayout.px(26, card)
 	stack.add_child(cost_badge)
@@ -7676,11 +7805,25 @@ func _on_nullsec_host_migrated(generation: int, new_host_seat: int) -> void:
 		net.write_rejoin_ticket()
 		if _net_battle and _net_battle.has_method("refresh_host_role"):
 			_net_battle.refresh_host_role()
+	## SEMI_ASYNC §5.3a — flip watch↔authority so the new host resumes CombatResolver tick
+	## (stuck units / frozen sim was caused by leaving remote_watch_only ON after promote).
+	_apply_remote_watch_only_for_battle()
+	if match_ctrl != null and match_ctrl.stage == MatchController.Stage.BATTLE \
+			and not match_ctrl.remote_watch_only and _net_battle != null and _net_battle.is_host:
+		## Mid-battle promote: board already has units; force a full snap so peers resync.
+		## Do NOT re-call on_local_battle_begin — that would duplicate HostSim jobs.
+		if _net_battle.has_method("request_force_full_sync"):
+			_net_battle.request_force_full_sync()
+		_net_jobs_ready_for_titan = true
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), 0)
 	if new_host_seat == local_seat:
 		show_notice("你已成为新房主 · 继续主持对局（迁移 #%d）" % generation)
+		SessionDiagnostics.log("mp.watch_only", "OFF after host_migrate gen=%d" % generation)
+		print("[mp.diag] remote_watch_only OFF (promoted host)")
 	else:
 		show_notice("房主已迁移 · 席位 %d 接手（#%d）" % [new_host_seat + 1, generation])
+		if match_ctrl != null and match_ctrl.remote_watch_only:
+			print("[mp.diag] remote_watch_only ON (following new host)")
 
 
 func _nullsec_net_session() -> NullsecNetSession:
@@ -7875,6 +8018,10 @@ func _on_stage_changed_ui(stage: int) -> void:
 	## Battle start: auto-collapse side chrome + shop once; toggles remain available.
 	## Right = battle log (auto-collapse once on enter Battle).
 	if stage == MatchController.Stage.BATTLE:
+		## SEMI_ASYNC §4.5 — never carry conditional wall draw / auto 4× into a new Battle.
+		if _nullsec_speed:
+			_nullsec_speed.reset_round()
+			_apply_resolved_speed()
 		## Skip the auto-collapse if the player just touched shop/side chrome — don't yank
 		## a panel out from under an in-progress tap/drag (< 2s grace window).
 		if Time.get_ticks_msec() - _hud_interact_ms >= 2000:
@@ -7901,11 +8048,14 @@ func _on_stage_changed_ui(stage: int) -> void:
 				_net_battle.on_local_battle_begin()
 			_begin_combat_eval_if_human_pvp()
 		elif GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_pve.is_pve_task():
+			## SEMI_ASYNC §3.2 — defending seat sims PVE locally (creeps). Never host-watch.
 			_apply_remote_watch_only_for_battle()
 			if _net_battle:
+				## Only enqueue lightweight reports for ai_player seats (no local client).
 				_net_jobs_ready_for_titan = false
 				_net_battle.on_local_battle_begin()
 			_combat_eval_active = false
+			SessionDiagnostics.log("mp.pve_local", "creep battle local sim")
 		else:
 			if match_ctrl:
 				match_ctrl.remote_watch_only = false
@@ -7970,23 +8120,33 @@ func _apply_nullsec_prepare_presentation() -> void:
 		_apply_camera_view_dict(_camera_secondary_view())
 
 
-## SEMI_ASYNC §3.1a — non-host peers on barrier tables only watch authority snaps.
+## SEMI_ASYNC §3.1a — non-host peers on **PVP** barrier tables only watch authority snaps.
+## PVE (creep / sleeper) rounds are always local on the defending seat (§3.2) — never watch-only.
 func _apply_remote_watch_only_for_battle() -> void:
 	if match_ctrl == null:
 		return
 	var net: NullsecNetSession = _nullsec_net_session()
+	var pve_local: bool = _nullsec_pve != null and _nullsec_pve.is_pve_task()
 	match_ctrl.remote_watch_only = (
-		net != null and net.needs_stage_barrier() and not net.is_host
+		not pve_local and net != null and net.needs_stage_barrier() and not net.is_host
 	)
 	if match_ctrl.remote_watch_only:
 		## Watch peers do not bookkeep titles — host eval is authoritative enough for UI.
 		_combat_eval_active = false
 		if _net_battle != null:
 			_net_battle.watch_only_apply = true
+		if combat != null:
+			combat.authority_only = true
 		SessionDiagnostics.log("mp.watch_only", "guest")
 		print("[mp.diag] remote_watch_only ON")
-	elif _net_battle != null:
-		_net_battle.watch_only_apply = false
+	else:
+		if _net_battle != null:
+			_net_battle.watch_only_apply = false
+		if combat != null:
+			combat.authority_only = false
+		if pve_local:
+			SessionDiagnostics.log("mp.watch_only", "OFF pve_local")
+			print("[mp.diag] remote_watch_only OFF (PVE local)")
 
 
 ## MULTIPLAYER_PVP §7.1 — only real human↔human PVP tables earn titles; PVE / AI-rival
@@ -8308,6 +8468,7 @@ func _nullsec_prepare_pvp_round() -> void:
 			board.remove_ship_node(s)
 	## Cleared AI side — must re-apply even if rival snapshot signature unchanged.
 	_fleet_apply_sig = ""
+	_rival_fleet_synced = false
 	## Human rivals: live Prepare fleet sync — never AI handbook. AI seats keep rebuild.
 	var rival_ai: bool = rival >= 0 and _seat_is_ai(rival)
 	print("[mp.diag] pvp_prepare local=%d rival=%d is_ai=%s lowsec=%s" % [
@@ -8489,6 +8650,7 @@ func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
 	if sig == _fleet_apply_sig and ai_alive <= 0:
 		print("[mp.diag] fleet_apply FORCE (same sig but ai empty n=%d)" % ships.size())
 	_fleet_apply_sig = sig
+	_rival_fleet_synced = true
 	_apply_rival_prepare_fleet(ships)
 	if empty_recover and _nullsec_human_rival_fleet_ready():
 		match_ctrl.resume_combat_after_empty_fleet()

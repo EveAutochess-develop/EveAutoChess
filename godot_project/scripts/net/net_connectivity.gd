@@ -95,6 +95,36 @@ static func sync_interval_ticks() -> int:
 	return light_sync_interval_ticks()
 
 
+## SEMI_ASYNC §3.4 — host light cadence is wall-clock: never denser than this.
+static func light_min_interval_ms() -> int:
+	return TypedVariant.as_int(load_cfg().get_value(SECTION, "light_min_interval_ms", 100), 100)
+
+
+## §3.4 — force a light packet once the gap grows past this (>=4 lights per full).
+static func light_max_gap_ms() -> int:
+	return TypedVariant.as_int(load_cfg().get_value(SECTION, "light_max_gap_ms", 500), 500)
+
+
+## §3.1a — guests coast this long on inertia before decaying to a stop.
+static func guest_extrapolate_max_s() -> float:
+	return TypedVariant.as_float(load_cfg().get_value(SECTION, "guest_extrapolate_max_s", 1.0), 1.0)
+
+
+## §3.1a — position error from a new packet is eased in over this window, never snapped.
+static func guest_pos_smooth_s() -> float:
+	return TypedVariant.as_float(load_cfg().get_value(SECTION, "guest_pos_smooth_s", 0.15), 0.15)
+
+
+## §3.1a — locally estimated HP converges to the full snapshot over this window.
+static func guest_hp_correct_smooth_s() -> float:
+	return TypedVariant.as_float(load_cfg().get_value(SECTION, "guest_hp_correct_smooth_s", 0.3), 0.3)
+
+
+## §3.3.1 — zstd only pays off above this payload size (light packets stay raw).
+static func wire_compress_min_bytes() -> int:
+	return TypedVariant.as_int(load_cfg().get_value(SECTION, "wire_compress_min_bytes", 512), 512)
+
+
 static func anticheat_gap_streak() -> int:
 	return TypedVariant.as_int(load_cfg().get_value(SECTION, "anticheat_gap_streak_to_investigate", 3), 3)
 

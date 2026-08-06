@@ -9,6 +9,8 @@
   "hex_offset_z": -2.5,
   "center_gap_z": 4.0,
   "isolation_enabled": true,
+  "play_ceiling_cells": 4,
+  "play_floor_cells": 1,
   "max_deployment": 999,
   "ship_count_buff": 0
 }

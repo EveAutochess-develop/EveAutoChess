@@ -84,6 +84,29 @@ func enqueue_pve(seat: int, task: String) -> int:
 	return _serial
 
 
+## MULTIPLAYER_MATCH_FLOW §5.0 — both seats ai_player: no CombatResolver, dual win + kill gold.
+func enqueue_ai_vs_ai_instant(seat_a: int, seat_b: int, ships_a: int, ships_b: int, kill_gold_per_ship: int) -> int:
+	_serial += 1
+	var kg: int = maxi(0, kill_gold_per_ship)
+	var sa: int = maxi(0, ships_a)
+	var sb: int = maxi(0, ships_b)
+	_pending.append({
+		"serial": _serial,
+		"kind": "pvp_ai_instant",
+		"seat_a": seat_a,
+		"seat_b": seat_b,
+		"home_seat": -1,
+		"deputy_seat": -1,
+		"ships_a": sa,
+		"ships_b": sb,
+		"kill_gold_per_ship": kg,
+		"gold_a": sb * kg,
+		"gold_b": sa * kg,
+		"seeds": {},
+	})
+	return _serial
+
+
 func tick_authority(_logic_dt: float) -> void:
 	## Resolve up to budget jobs per authority tick (deterministic report from MatchRng).
 	var n: int = 0
@@ -98,6 +121,30 @@ func tick_authority(_logic_dt: float) -> void:
 func _simulate_job(job: Dictionary) -> Dictionary:
 	var serial: int = TypedVariant.as_int(job.get("serial", 0), 0)
 	var kind: String = str(job.get("kind", ""))
+	if kind == "pvp_ai_instant":
+		var gold_a: int = TypedVariant.as_int(job.get("gold_a", 0), 0)
+		var gold_b: int = TypedVariant.as_int(job.get("gold_b", 0), 0)
+		return {
+			"serial": serial,
+			"kind": kind,
+			"result": "dual_win",
+			"seat_a": TypedVariant.as_int(job.get("seat_a", -1), -1),
+			"seat_b": TypedVariant.as_int(job.get("seat_b", -1), -1),
+			"ships_a": TypedVariant.as_int(job.get("ships_a", 0), 0),
+			"ships_b": TypedVariant.as_int(job.get("ships_b", 0), 0),
+			"gold_a": gold_a,
+			"gold_b": gold_b,
+			"job": job,
+			"deputy_seat": -1,
+			"skip_titan": true,
+			"state_hash": "%08x" % hash("pvp_ai_instant:dual_win:%d:%d:%d:%d" % [
+				TypedVariant.as_int(job.get("seat_a", -1), -1),
+				TypedVariant.as_int(job.get("seat_b", -1), -1),
+				gold_a,
+				gold_b,
+			]),
+			"spot_sample": [{"kind": kind, "result": "dual_win"}],
+		}
 	## Lightweight authority outcome from battle seeds (full board sim shares CombatResolver on host client).
 	var roll_a: float = 0.5
 	var roll_b: float = 0.5

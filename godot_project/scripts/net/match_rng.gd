@@ -74,6 +74,7 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"turret_hit": 0,
 		"retarget_tiebreak": 1,
 		"orbit_dir": 2,
+		"orbit_tilt": 2,
 		"deploy_cell": 3,
 		"cyno_cell": 4,
 		"cyno_anchor": 4,

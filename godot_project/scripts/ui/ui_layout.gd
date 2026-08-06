@@ -64,7 +64,8 @@ static func set_right_strip(c: Control, width_frac: float, top_frac: float = 0.0
 	set_rect_frac(c, 1.0 - right_margin - width_frac, top_frac, 1.0 - right_margin, 1.0 - bottom_frac)
 
 static func set_bottom_strip(c: Control, height_frac: float, left_frac: float = 0.01, right_frac: float = 0.01, bottom_margin: float = 0.01) -> void:
-	height_frac = clampf(height_frac, 0.08, 0.32)
+	var hi: float = 0.44 if is_ultrawide(c) else 0.32
+	height_frac = clampf(height_frac, 0.08, hi)
 	set_rect_frac(c, left_frac, 1.0 - bottom_margin - height_frac, 1.0 - right_frac, 1.0 - bottom_margin)
 
 static func set_center_panel_frac(c: Control, width_frac: float, height_frac: float) -> void:
@@ -84,19 +85,28 @@ static func right_col_width_frac() -> float:
 	## Mobile needs a bit more width so InfoPanel weapon squares / portrait fit.
 	return 0.22 if is_mobile() else 0.2
 
-static func bottom_shop_height_frac() -> float:
-	return 0.22 if is_mobile() else 0.26
+static func is_ultrawide(from: Node = null) -> bool:
+	## D-EAC-49：视口宽:高 ≥ 2:1
+	var s: Vector2 = viewport_size(from)
+	return s.y > 1.0 and (s.x / s.y) >= 2.0
+
+static func bottom_shop_height_frac(from: Node = null) -> float:
+	var base: float = 0.22 if is_mobile() else 0.26
+	if is_ultrawide(from):
+		## Raise floor so Meta / refresh / lock stay in the safe area on ultrawide.
+		return maxf(base, 0.36 if is_mobile() else 0.40)
+	return base
 
 ## Collapsed strip thickness (fraction of viewport).
 static func collapse_strip_frac() -> float:
 	return 0.028 if is_mobile() else 0.024
 
 ## Playfield open window as viewport fractions: left, top, right, bottom edges.
-static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, collapse_bottom: bool) -> Rect2:
+static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, collapse_bottom: bool, from: Node = null) -> Rect2:
 	var top: float = top_bar_height_frac() + 0.01
 	var left: float = collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
 	var right: float = (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
-	var bottom: float = (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac() - 0.012)
+	var bottom: float = (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac(from) - 0.012)
 	return Rect2(left, top, maxf(0.2, right - left), maxf(0.2, bottom - top))
 
 ## Deprecated name kept for callers; prefer left_col_width_frac.

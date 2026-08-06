@@ -1,7 +1,8 @@
 extends RefCounted
 class_name RoundSpeedController
-## Priority: unanimous non-1x > finished→max(4x,场上) > disagree/1x. Wall-clock 2min draw.
-## Auto finish floor must not persist as preferred (SEMI_ASYNC §4.5).
+## Priority: unanimous non-1x > finished→max(4x,场上) > disagree/1x.
+## Conditional wall-clock 2min draw: only while remaining mid-round battles (SEMI_ASYNC §4.5).
+## Auto finish floor must not persist as preferred.
 ## Unanimous requires EVERY occupied human seat to have voted the same speed.
 
 signal speed_changed(speed: float)
@@ -48,23 +49,34 @@ func waiting_count() -> int:
 			return required_human_seats.size()
 	return missing
 
-func mark_seat_finished(battlefield_speed: float = 1.0) -> void:
+## arm_wall_draw: true only while ≥1 contestant still fighting this round.
+## When false (all done / no parallel tables), cancel any armed wall-clock draw.
+func mark_seat_finished(battlefield_speed: float = 1.0, arm_wall_draw: bool = true) -> void:
 	if not any_finished:
 		any_finished = true
-		first_finish_wall_ms = Time.get_ticks_msec()
 		_finish_floor = maxf(AUTO_FINISH_MIN, maxf(0.05, battlefield_speed))
+	if arm_wall_draw:
+		if first_finish_wall_ms <= 0:
+			first_finish_wall_ms = Time.get_ticks_msec()
+	else:
+		first_finish_wall_ms = 0
 	_recompute()
 
 func tick_wall_clock() -> void:
-	if any_finished and first_finish_wall_ms > 0:
+	if first_finish_wall_ms > 0:
 		if Time.get_ticks_msec() - first_finish_wall_ms >= WALL_DRAW_MS:
 			force_draw_remaining.emit()
 			first_finish_wall_ms = 0
 
-func reset_round() -> void:
+## Drop conditional wall draw + auto 4× floor (keep speed votes until reset_round).
+func clear_finish_state() -> void:
 	any_finished = false
 	first_finish_wall_ms = 0
 	_finish_floor = AUTO_FINISH_MIN
+	_recompute()
+
+func reset_round() -> void:
+	clear_finish_state()
 	## Keep votes across round or clear — clear each round for fairness
 	human_votes.clear()
 	manual_override_active = false

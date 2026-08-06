@@ -74,6 +74,9 @@ func set_race(p_race: String) -> bool:
 	_orient_bow_at_opposing_half()
 	_fit_scale()
 	_pin_bow_to_belt()
+	## BOW_FLIP put SOF +Z “aft” nozzles on the visual bow — remirror before trails.
+	if unit.has_method("compensate_bow_flip_for_engines"):
+		unit.compensate_bow_flip_for_engines()
 	_attach_tonnage_badge()
 	_attach_key_light()
 	_engine_trail = EngineBoosterTrail.ensure_on(unit, home_side)

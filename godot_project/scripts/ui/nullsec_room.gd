@@ -621,7 +621,11 @@ func _on_match_loading(phase: String, progress: float) -> void:
 
 
 func _on_match_start(payload: Dictionary) -> void:
-	MatchLoadOverlay.set_phase("正在进入对局场景", 0.25)
+	## Guest pull copy must stay readable; do not cover with「进入对局场景」before ships land.
+	if session != null and not session.is_host and session.opening_host_ships.is_empty():
+		MatchLoadOverlay.set_phase("正在从房主拉取全舰船与全游戏数据", 0.16)
+	else:
+		MatchLoadOverlay.set_phase("正在进入对局场景", 0.25)
 	var rng: MatchRng = MatchRng.new()
 	rng.configure(TypedVariant.as_int(payload.get("match_seed", 1), 1), str(payload.get("rules_hash", "")))
 	var dir: NullsecMatchDirector = NullsecMatchDirector.new()

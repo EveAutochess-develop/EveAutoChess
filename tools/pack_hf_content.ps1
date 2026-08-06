@@ -1,5 +1,5 @@
 # Build split content PCKs + HF staging (does NOT push HF).
-# Five packs: data / logic / ui / models / audio — data uses presence skip; others sha256.
+# Five packs: data / logic / ui / models / audio ? data uses presence skip; others sha256.
 $ErrorActionPreference = "Stop"
 $godot = "H:\game_dev\eveautochess-dev\tools\godot\Godot_v4.7.1-stable_win64.exe"
 $proj = "H:\game_dev\eveautochess-dev\godot_project"
@@ -8,12 +8,12 @@ $packsDir = Join-Path $hfRoot "packs"
 $projData = Join-Path $proj "data"
 New-Item -ItemType Directory -Force -Path $packsDir | Out-Null
 
-# GDScript gate (DIAGNOSTICS §7): fail before any export-pack.
+# GDScript gate (DIAGNOSTICS ?7): fail before any export-pack.
 $checkScript = Join-Path $PSScriptRoot "check_gdscript.ps1"
 Write-Host "Running GDScript check gate..."
 & $checkScript -Godot $godot -Project $proj
 if ($LASTEXITCODE -ne 0) {
-  throw "check_gdscript.ps1 failed (exit=$LASTEXITCODE) — fix per-file blocks above before packing"
+  throw "check_gdscript.ps1 failed (exit=$LASTEXITCODE) ? fix per-file blocks above before packing"
 }
 
 # Remove legacy monolithic pack from staging so it is not re-uploaded as current.
@@ -45,7 +45,7 @@ $packDefs = @(
 
 $requiredRelPaths = Get-RequiredRelPaths
 if ($requiredRelPaths.Count -lt 2) {
-  throw "requiredRelPaths too small ($($requiredRelPaths.Count)) — expected ships+equipment JSON"
+  throw "requiredRelPaths too small ($($requiredRelPaths.Count)) ? expected ships+equipment JSON"
 }
 
 $manifestFiles = @()
@@ -67,7 +67,7 @@ foreach ($def in $packDefs) {
   $size = (Get-Item $outPck).Length
   Write-Host "  OK size=$size sha=$sha"
   if ($size -lt 1024) {
-    throw "PCK too small ($size) for $($def.Preset) — check include_filter"
+    throw "PCK too small ($size) for $($def.Preset) ? check include_filter"
   }
   $entry = [ordered]@{
     path       = $def.Rel
@@ -82,7 +82,7 @@ foreach ($def in $packDefs) {
   $manifestFiles += $entry
 }
 
-$ver = "202608.6.2"
+$ver = "202608.6.13"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{

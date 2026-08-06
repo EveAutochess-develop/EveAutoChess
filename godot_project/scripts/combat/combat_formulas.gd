@@ -12,6 +12,20 @@ static func grid_distance_cells(a: Node3D, b: Node3D) -> float:
 	var wu: float = world_units_per_cell()
 	if wu <= 0.0001:
 		return 0.0
+	## Off-deck either side → true 3D (COMBAT §11 / §14.2). Both on deck → flatten XZ.
+	var off: bool = false
+	if a != null:
+		@warning_ignore("unsafe_method_access")
+		if a.has_method("off_deck_plane"):
+			@warning_ignore("unsafe_method_access")
+			off = TypedVariant.as_bool(a.call("off_deck_plane"), false)
+	if not off and b != null:
+		@warning_ignore("unsafe_method_access")
+		if b.has_method("off_deck_plane"):
+			@warning_ignore("unsafe_method_access")
+			off = TypedVariant.as_bool(b.call("off_deck_plane"), false)
+	if off:
+		return a.global_position.distance_to(b.global_position) / wu
 	var flat_a: Vector3 = Vector3(a.global_position.x, 0.0, a.global_position.z)
 	var flat_b: Vector3 = Vector3(b.global_position.x, 0.0, b.global_position.z)
 	return flat_a.distance_to(flat_b) / wu

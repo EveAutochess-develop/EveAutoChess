@@ -5,7 +5,7 @@
 .DESCRIPTION
   Reusable dual-emulator install helper for local acceptance.
   Defaults to H:\disv1\EveAutochess.apk and serials emulator-5554 / emulator-5556.
-  Waits for devices, installs with -r -g, prints versionName/versionCode, optionally launches.
+  Optionally starts EchoesDump A/B AVDs when offline, waits for boot, then install -r -g.
 
 .EXAMPLE
   .\install_dual_emulators.ps1
@@ -14,21 +14,34 @@
   .\install_dual_emulators.ps1 -Apk H:\disv1\EveAutochess.apk -Launch
 
 .EXAMPLE
-  .\install_dual_emulators.ps1 -Serials @('emulator-5554','emulator-5556') -AllDevices
+  .\install_dual_emulators.ps1 -NoStartEmulators
 #>
 param(
   [string]$Apk = "H:\disv1\EveAutochess.apk",
   [string[]]$Serials = @("emulator-5554", "emulator-5556"),
+  ## Parallel AVD names for -StartEmulators (index-aligned with default Serials).
+  [string[]]$Avds = @("EchoesDump_API34_x86_64", "EchoesDump_API34_x86_64_B"),
+  [int[]]$Ports = @(5554, 5556),
   [string]$Package = "com.eveautochess.game",
   [string]$Activity = "com.eveautochess.game/com.godot.game.GodotApp",
   [string]$Adb = "",
-  # If set, install to every `adb devices` entry that is "device" (ignores -Serials filter when empty list falls back).
+  [string]$Emulator = "",
   [switch]$AllDevices,
   [switch]$Launch,
-  [switch]$NoLaunch
+  [switch]$NoLaunch,
+  ## Default: start offline EchoesDump A/B before install.
+  [switch]$StartEmulators,
+  [switch]$NoStartEmulators,
+  [int]$BootTimeoutSec = 180
 )
 
 $ErrorActionPreference = "Stop"
+
+## -StartEmulators is the default unless -NoStartEmulators.
+$doStart = -not $NoStartEmulators
+if ($PSBoundParameters.ContainsKey("StartEmulators") -and $StartEmulators) {
+  $doStart = $true
+}
 
 if (-not $Adb) {
   $cands = @(
@@ -40,6 +53,14 @@ if (-not $Adb) {
 }
 if (-not $Adb -or -not (Test-Path $Adb)) {
   throw "adb.exe not found. Pass -Adb or install Android SDK platform-tools."
+}
+if (-not $Emulator) {
+  $ecands = @(
+    "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe",
+    "$env:ANDROID_HOME\emulator\emulator.exe",
+    "$env:ANDROID_SDK_ROOT\emulator\emulator.exe"
+  )
+  $Emulator = $ecands | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 }
 if (-not (Test-Path $Apk)) {
   throw "APK missing: $Apk"
@@ -61,7 +82,6 @@ function Wait-SerialOnline {
   do {
     $online = Get-OnlineSerials
     if ($online -contains $Serial) { return $true }
-    ## Soft reconnect once if listed offline.
     $raw = & $Adb devices
     if ($raw -match [regex]::Escape($Serial)) {
       & $Adb -s $Serial wait-for-device 2>$null | Out-Null
@@ -69,6 +89,39 @@ function Wait-SerialOnline {
     Start-Sleep -Seconds 2
   } while ((Get-Date) -lt $deadline)
   return $false
+}
+
+function Wait-BootCompleted {
+  param([string]$Serial, [int]$TimeoutSec = 180)
+  $deadline = (Get-Date).AddSeconds($TimeoutSec)
+  & $Adb -s $Serial wait-for-device | Out-Null
+  do {
+    $boot = (& $Adb -s $Serial shell getprop sys.boot_completed 2>$null | Out-String).Trim()
+    if ($boot -eq "1") { return $true }
+    Start-Sleep -Seconds 3
+  } while ((Get-Date) -lt $deadline)
+  return $false
+}
+
+function Start-AvdIfNeeded {
+  param([string]$Serial, [string]$AvdName, [int]$Port)
+  $online = Get-OnlineSerials
+  if ($online -contains $Serial) {
+    Write-Host "Already online: $Serial"
+    return
+  }
+  if (-not $Emulator -or -not (Test-Path $Emulator)) {
+    throw "emulator.exe not found; cannot start $AvdName. Pass -Emulator or -NoStartEmulators."
+  }
+  Write-Host "Starting AVD $AvdName on port $Port → $Serial ..."
+  Start-Process -FilePath $Emulator -ArgumentList @("-avd", $AvdName, "-port", "$Port", "-no-snapshot-save") -WindowStyle Minimized | Out-Null
+  if (-not (Wait-SerialOnline -Serial $Serial -TimeoutSec $BootTimeoutSec)) {
+    throw "Timed out waiting for $Serial after starting $AvdName"
+  }
+  if (-not (Wait-BootCompleted -Serial $Serial -TimeoutSec $BootTimeoutSec)) {
+    throw "Timed out waiting for boot_completed on $Serial"
+  }
+  Write-Host "Booted: $Serial"
 }
 
 function Get-PackageVersion {
@@ -85,7 +138,18 @@ function Get-PackageVersion {
 
 Write-Host "APK: $Apk ($((Get-Item $Apk).Length) bytes)"
 Write-Host "adb: $Adb"
-& $Adb start-server | Out-Null
+## adb may write "daemon not running" to stderr — do not treat as terminating error.
+$prevEapStart = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& $Adb start-server 2>&1 | Out-Null
+$ErrorActionPreference = $prevEapStart
+
+if ($doStart -and -not $AllDevices) {
+  $n = [Math]::Min($Serials.Count, [Math]::Min($Avds.Count, $Ports.Count))
+  for ($i = 0; $i -lt $n; $i++) {
+    Start-AvdIfNeeded -Serial $Serials[$i] -AvdName $Avds[$i] -Port $Ports[$i]
+  }
+}
 
 $targets = @()
 if ($AllDevices) {
@@ -99,6 +163,9 @@ if ($AllDevices) {
     if (-not (Wait-SerialOnline -Serial $s)) {
       Write-Warning "Skip offline: $s"
       continue
+    }
+    if (-not (Wait-BootCompleted -Serial $s -TimeoutSec 60)) {
+      Write-Warning "boot_completed not ready: $s (continuing install anyway)"
     }
     $targets += $s
   }
@@ -120,8 +187,17 @@ foreach ($s in $targets) {
   $results += $ver
   Write-Host ("  {0} versionName={1} versionCode={2}" -f $ver.Serial, $ver.VersionName, $ver.VersionCode)
   if (-not $NoLaunch) {
-    & $Adb -s $s shell am start -n $Activity 2>&1 | Out-Null
-    Write-Host "  launched $Activity"
+    ## GodotApp may be non-exported; monkey LAUNCHER is reliable on API 34.
+    ## adb writes progress to stderr — do not treat as terminating error.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $launchOut = & $Adb -s $s shell monkey -p $Package -c android.intent.category.LAUNCHER 1 2>&1 | Out-String
+    $ErrorActionPreference = $prevEap
+    if ($launchOut -match "Events injected:\s*1") {
+      Write-Host "  launched via monkey LAUNCHER"
+    } else {
+      Write-Warning ("launch may have failed on {0}: {1}" -f $s, $launchOut.Trim())
+    }
   }
 }
 
