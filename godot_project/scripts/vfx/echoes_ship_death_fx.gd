@@ -450,7 +450,8 @@ func _hide_all() -> void:
 
 func _add_player(volume_db: float) -> AudioStreamPlayer:
 	var p: AudioStreamPlayer = AudioStreamPlayer.new()
-	p.bus = "Master"
+	SfxBus.route(p)
+	p.set_meta("sfx_base_db", volume_db)
 	p.volume_db = volume_db
 	add_child(p)
 	return p
@@ -468,6 +469,8 @@ func _play_once(player: AudioStreamPlayer, file: String) -> void:
 		wav.loop_mode = AudioStreamWAV.LOOP_DISABLED
 	player.stream = stream
 	player.pitch_scale = 1.0
+	var base_db: float = TypedVariant.as_float(player.get_meta("sfx_base_db", 0.0), 0.0)
+	SfxBus.begin_play(player, base_db)
 	player.play()
 
 
@@ -520,4 +523,5 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 func _stop_audio() -> void:
 	for p: AudioStreamPlayer in [_sfx_boom, _sfx_wreck, _sfx_spark]:
 		if p:
+			SfxBus.end_play(p)
 			p.stop()

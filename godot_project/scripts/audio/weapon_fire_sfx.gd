@@ -11,13 +11,15 @@ var _players: Array[AudioStreamPlayer] = []
 var _pools: Dictionary = {}
 var _rr: Dictionary = {}
 var _stream_cache: Dictionary = {}
+var _logged_empty: bool = false
 
 func setup() -> void:
 	_build_pools()
+	SfxBus.ensure()
 	for i: int in range(MAX_VOICES):
 		var p: AudioStreamPlayer = AudioStreamPlayer.new()
 		p.name = "WeaponSfx_%d" % i
-		p.bus = "Master"
+		SfxBus.route(p)
 		p.volume_db = BASE_VOLUME_DB
 		add_child(p)
 		_players.append(p)
@@ -34,6 +36,10 @@ func play_for(firer: Node, kind: String) -> void:
 	var family: String = _family_for_kind(k)
 	if family == "":
 		return
+	if _pools.is_empty() and not _logged_empty:
+		_logged_empty = true
+		push_warning("WeaponFireSfx: empty pools — catalog/DirAccess failed")
+		SessionDiagnostics.log("sfx.weapon", "empty_pools kind=%s" % k)
 	var size: String = _size_bucket(firer, family)
 	var path: String = _pick_path(family, size)
 	if path == "":
@@ -49,7 +55,7 @@ func play_for(firer: Node, kind: String) -> void:
 		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_DISABLED
 	player.stream = stream
 	player.pitch_scale = 1.0
-	player.volume_db = BASE_VOLUME_DB
+	SfxBus.begin_play(player, BASE_VOLUME_DB)
 	player.play()
 
 func _family_for_kind(kind: String) -> String:
@@ -133,6 +139,7 @@ func _acquire_player() -> AudioStreamPlayer:
 	if _players.is_empty():
 		return null
 	var steal: AudioStreamPlayer = _players[0]
+	SfxBus.end_play(steal)
 	steal.stop()
 	return steal
 
@@ -194,6 +201,30 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 
 func _build_pools() -> void:
 	_pools.clear()
+	if _load_catalog():
+		return
+	_scan_dir_pools()
+
+func _load_catalog() -> bool:
+	## COMBAT §8.1 — baked GDScript paths survive exported PCK (DirAccess often lists only *.wav.remap).
+	var d: Dictionary = WeaponSfxCatalog.pools()
+	if d.is_empty():
+		return false
+	var n: int = 0
+	for k: Variant in d.keys():
+		var arr: Array = TypedVariant.as_array(d[k])
+		var files: Array = []
+		for p: Variant in arr:
+			var path: String = str(p).strip_edges()
+			if path.ends_with(".wav"):
+				files.append(path)
+		if not files.is_empty():
+			files.sort()
+			_pools[str(k)] = files
+			n += files.size()
+	return n > 0
+
+func _scan_dir_pools() -> void:
 	var root_dir: DirAccess = DirAccess.open(ROOT)
 	if root_dir == null:
 		push_warning("WeaponFireSfx: missing %s" % ROOT)
@@ -222,11 +253,22 @@ func _scan_family(family: String) -> void:
 				sd.list_dir_begin()
 				var fn: String = sd.get_next()
 				while fn != "":
-					if not sd.current_is_dir() and fn.to_lower().ends_with(".wav"):
-						files.append(fam_path.path_join(size_name).path_join(fn))
+					if not sd.current_is_dir():
+						var asset: String = _strip_godot_sidecar(fn)
+						if asset.to_lower().ends_with(".wav"):
+							files.append(fam_path.path_join(size_name).path_join(asset))
 					fn = sd.get_next()
 				sd.list_dir_end()
 			files.sort()
 			_pools[key] = files
 		size_name = d.get_next()
 	d.list_dir_end()
+
+func _strip_godot_sidecar(fn: String) -> String:
+	## Exported PCK DirAccess often yields `foo.wav.remap` instead of `foo.wav`.
+	var n: String = fn
+	if n.ends_with(".remap"):
+		n = n.substr(0, n.length() - 6)
+	if n.ends_with(".import"):
+		return ""
+	return n

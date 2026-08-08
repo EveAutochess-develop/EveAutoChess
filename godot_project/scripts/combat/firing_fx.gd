@@ -72,6 +72,9 @@ func _play_kind(
 	projectile_travel_s: float,
 	projectile_speed_cells: float
 ) -> void:
+	## COMBAT §8.1 — SFX even if weapon_fx kind missing (VFX may no-op).
+	if _sfx:
+		_sfx.play_for(firer, kind)
 	var cfg: Dictionary = DataStore.weapon_fx
 	var kinds: Dictionary = TypedVariant.as_dict(cfg.get("kinds", {}))
 	var kdef: Dictionary = TypedVariant.as_dict(kinds.get(kind, kinds.get("laser", {})))
@@ -110,8 +113,6 @@ func _play_kind(
 		)
 	else:
 		_spawn_beam(firer, target, color, width, dur, jitter_a, jitter_b, anchor)
-	if _sfx:
-		_sfx.play_for(firer, kind)
 
 func _process(delta: float) -> void:
 	var t0: int = Time.get_ticks_usec()

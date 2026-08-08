@@ -45,9 +45,10 @@ func stream_randi_range(stream: String, from_v: int, to_v: int) -> int:
 
 
 static func compute_rules_hash() -> String:
-	## Content+shell version string; callers may override.
-	var ver: String = str(ProjectSettings.get_setting("application/config/version", "dev"))
-	return ver
+	## 联机版本门：只读内容热更版号字符串（YYYYMM.D.N），不做壳号回落。
+	if DataStore == null:
+		return "local"
+	return str(DataStore.content_version).strip_edges()
 
 
 func has_battle(battle_serial: int) -> bool:
@@ -75,6 +76,8 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"retarget_tiebreak": 1,
 		"orbit_dir": 2,
 		"orbit_tilt": 2,
+		"orbit_az": 2,
+		"orbit_phase": 2,
 		"deploy_cell": 3,
 		"cyno_cell": 4,
 		"cyno_anchor": 4,
@@ -85,6 +88,7 @@ func begin_battle(battle_serial: int, master_entropy: int = 0) -> Dictionary:
 		"mining_wander": 8,
 		"isolation_debris": 9,
 		"isolation_debris_dmg": 9,
+		"misc_combat": 0,
 	}
 	var keys: Array = apply_table.keys()
 	for i: int in range(keys.size()):
@@ -106,7 +110,9 @@ func roll(battle_serial: int, event_kind: String) -> float:
 		begin_battle(battle_serial)
 	var job: Dictionary = TypedVariant.as_dict(_battles[battle_serial])
 	var table: Dictionary = TypedVariant.as_dict(job.get("apply_table", {}))
-	var slot_i: int = TypedVariant.as_int(table.get(event_kind, 0))
+	var slot_i: int = TypedVariant.as_int(
+		table.get(event_kind, table.get("misc_combat", 0)), 0
+	)
 	var slots: Array = TypedVariant.as_array(job.get("slots", []))
 	if slot_i < 0 or slot_i >= slots.size():
 		slot_i = 0
@@ -122,7 +128,9 @@ func roll_int(battle_serial: int, event_kind: String, from_v: int, to_v: int) ->
 		begin_battle(battle_serial)
 	var job: Dictionary = TypedVariant.as_dict(_battles[battle_serial])
 	var table: Dictionary = TypedVariant.as_dict(job.get("apply_table", {}))
-	var slot_i: int = TypedVariant.as_int(table.get(event_kind, 0))
+	var slot_i: int = TypedVariant.as_int(
+		table.get(event_kind, table.get("misc_combat", 0)), 0
+	)
 	var slots: Array = TypedVariant.as_array(job.get("slots", []))
 	if slot_i < 0 or slot_i >= slots.size():
 		slot_i = 0

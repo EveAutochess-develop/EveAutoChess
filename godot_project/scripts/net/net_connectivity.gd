@@ -26,6 +26,14 @@ static func public_stun_enabled() -> bool:
 	return TypedVariant.as_bool(cfg.get_value(SECTION, "public_stun_enabled", true), true)
 
 
+static func upnp_enabled() -> bool:
+	var cfg: ConfigFile = load_cfg()
+	## Desktop default ON (SEMI_ASYNC §7.2); mobile often has no IGD — still try briefly.
+	if not cfg.has_section_key(SECTION, "upnp_enabled"):
+		return true
+	return TypedVariant.as_bool(cfg.get_value(SECTION, "upnp_enabled", true), true)
+
+
 static func stun_urls() -> PackedStringArray:
 	var cfg: ConfigFile = load_cfg()
 	var raw: Variant = cfg.get_value(SECTION, "stun_urls", "")
@@ -52,6 +60,63 @@ static func turn_urls() -> PackedStringArray:
 		if u != "":
 			out.append(u)
 	return out
+
+
+## SEMI_ASYNC §7.5 — parse turn_urls into ENet join targets (not WebRTC ICE).
+## Accepts: "1.2.3.4:3478" | "udp:1.2.3.4:3478" | "turn:1.2.3.4:3478" | "[::1]:3478"
+static func turn_join_endpoints() -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for raw_u: String in turn_urls():
+		var ep: Dictionary = _parse_host_port(raw_u)
+		if ep.is_empty():
+			continue
+		var key: String = "%s:%d" % [str(ep.get("ip", "")), TypedVariant.as_int(ep.get("port", 0), 0)]
+		if seen.has(key):
+			continue
+		seen[key] = true
+		out.append(ep)
+	return out
+
+
+static func _parse_host_port(raw: String) -> Dictionary:
+	var s: String = raw.strip_edges()
+	if s == "":
+		return {}
+	var low: String = s.to_lower()
+	if low.begins_with("turns:"):
+		s = s.substr(6)
+	elif low.begins_with("turn:"):
+		s = s.substr(5)
+	elif low.begins_with("udp:"):
+		s = s.substr(4)
+	elif low.begins_with("tcp:"):
+		s = s.substr(4)
+	s = s.strip_edges()
+	## Strip optional ?transport=udp query.
+	var q: int = s.find("?")
+	if q >= 0:
+		s = s.substr(0, q)
+	if s.begins_with("["):
+		var close: int = s.find("]")
+		if close < 0:
+			return {}
+		var host6: String = s.substr(1, close - 1)
+		var rest: String = s.substr(close + 1)
+		if not rest.begins_with(":"):
+			return {}
+		var port6: int = TypedVariant.as_int(rest.substr(1), 0)
+		if host6 == "" or port6 <= 0:
+			return {}
+		return {"ip": host6, "port": port6, "via": "turn"}
+	var colon: int = s.rfind(":")
+	if colon <= 0:
+		return {}
+	var host: String = s.substr(0, colon).strip_edges()
+	var port: int = TypedVariant.as_int(s.substr(colon + 1), 0)
+	if host == "" or port <= 0:
+		return {}
+	return {"ip": host, "port": port, "via": "turn"}
 
 
 static func turn_user() -> String:

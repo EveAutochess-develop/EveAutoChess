@@ -211,6 +211,7 @@ func _play_capital_jump(ship: ShipUnit, land: Vector3) -> void:
 	var world: Node3D = _board.get_world_root() if _board else null
 	if world == null or ship == null:
 		ship.global_position = land
+		ship.capital_jumping = false
 		ship.set_combat_tint(true)
 		if ship.has_method("rebuild_health_bar"):
 			ship.rebuild_health_bar()

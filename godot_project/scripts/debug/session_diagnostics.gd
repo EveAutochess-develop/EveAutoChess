@@ -21,6 +21,9 @@ var _perf: Dictionary = {}
 var _perf_steps_sum: int = 0
 var _perf_steps_n: int = 0
 var _spike_ms: float = SPIKE_MS_DEFAULT
+## Host MP / match boot: denser flush so last lines survive process death (DIAGNOSTICS §2.2).
+var _critical_window: String = ""
+var _critical_depth: int = 0
 
 static var _pending: Node = null
 
@@ -56,6 +59,33 @@ static func log(tag: String, detail: String = "") -> void:
 	var d: Node = instance()
 	if d != null and d.has_method("log_event"):
 		d.call("log_event", tag, detail)
+
+
+## Sparse crash-window breadcrumb: queue + sync flush (not for combat Tick).
+static func log_critical(tag: String, detail: String = "") -> void:
+	var d: Node = instance()
+	if d == null:
+		return
+	if d.has_method("log_event"):
+		d.call("log_event", tag, detail)
+	if d.has_method("flush_now"):
+		d.call("flush_now")
+
+
+static func begin_critical_window(reason: String = "critical") -> void:
+	var d: Node = instance()
+	if d != null and d.has_method("begin_critical_window_inner"):
+		d.call("begin_critical_window_inner", reason)
+
+
+static func end_critical_window() -> void:
+	var d: Node = instance()
+	if d != null and d.has_method("end_critical_window_inner"):
+		d.call("end_critical_window_inner")
+
+
+static func mem_detail() -> String:
+	return "mem=%d" % OS.get_static_memory_usage()
 
 
 ## Hot path: integer usec only — no string alloc when disabled.
@@ -107,6 +137,32 @@ func log_event(tag: String, detail: String = "") -> void:
 	_queue.append(line)
 	if _queue.size() > 4000:
 		_queue = _queue.slice(_queue.size() - 2000)
+
+
+func begin_critical_window_inner(reason: String) -> void:
+	## Idempotent: host open → scene → match.enter all share one window until boot_done.
+	if _critical_depth > 0:
+		log_event(
+			"diag.critical_keep",
+			"reason=%s was=%s %s" % [reason, _critical_window, SessionDiagnostics.mem_detail()]
+		)
+		flush_now()
+		return
+	_critical_depth = 1
+	_critical_window = reason if reason != "" else "critical"
+	_heartbeat_accum = 0.0
+	_flush_accum = 0.0
+	log_event("diag.critical_begin", "reason=%s %s" % [_critical_window, SessionDiagnostics.mem_detail()])
+	flush_now()
+
+
+func end_critical_window_inner() -> void:
+	if _critical_depth <= 0:
+		return
+	log_event("diag.critical_end", "reason=%s %s" % [_critical_window, SessionDiagnostics.mem_detail()])
+	_critical_depth = 0
+	_critical_window = ""
+	flush_now()
 
 
 func add_usec_inner(key: StringName, usec: int) -> void:
@@ -198,13 +254,18 @@ func _process(delta: float) -> void:
 		b["frame"] = 0
 	_heartbeat_accum += delta
 	_flush_accum += delta
-	if _heartbeat_accum >= 1.0:
+	var hb_every: float = 0.5 if _critical_depth > 0 else 1.0
+	var flush_every: float = 0.25 if _critical_depth > 0 else 2.0
+	if _heartbeat_accum >= hb_every:
 		_heartbeat_accum = 0.0
 		_emit_heartbeat()
 		_emit_perf()
-	if _flush_accum >= 2.0:
+	if _flush_accum >= flush_every:
 		_flush_accum = 0.0
-		_flush_async()
+		if _critical_depth > 0:
+			flush_now()
+		else:
+			_flush_async()
 
 
 func _emit_heartbeat() -> void:
@@ -215,7 +276,9 @@ func _emit_heartbeat() -> void:
 	var speed: float = 1.0
 	var units: int = -1
 	var mobile_n: int = -1
+	var boot_phase: int = -1
 	if _match != null:
+		boot_phase = TypedVariant.as_int(_match.get("_boot_phase"), -1)
 		var mc_v: Variant = _match.get("match_ctrl")
 		if mc_v is Object:
 			@warning_ignore("unsafe_cast")
@@ -254,8 +317,9 @@ func _emit_heartbeat() -> void:
 	if GameSession != null:
 		nomodel = 1 if GameSession.no_model_perf_mode else 0
 		fps_cap = GameSession.target_fps
-	var detail: String = "fps=%s mem=%s stage=%s round=%s speed=%s nomodel=%d fps_cap=%d" % [
-		fps, mem, stage, round_n, speed, nomodel, fps_cap
+	var crit: String = _critical_window if _critical_depth > 0 else ""
+	var detail: String = "fps=%s mem=%s stage=%s round=%s speed=%s nomodel=%d fps_cap=%d boot_phase=%d crit=%s" % [
+		fps, mem, stage, round_n, speed, nomodel, fps_cap, boot_phase, crit
 	]
 	if units >= 0:
 		detail += " units=%d" % units

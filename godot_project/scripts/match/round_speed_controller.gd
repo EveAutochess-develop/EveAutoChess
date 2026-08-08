@@ -9,13 +9,16 @@ signal speed_changed(speed: float)
 signal force_draw_remaining
 
 var human_votes: Dictionary = {} ## peer/seat -> speed
-## Seats that must agree before a non-1× vote takes effect. Empty = legacy (any voters).
+## Seats that must agree before a non-1× vote takes effect. Empty = solo legacy (any agreeing voters).
 var required_human_seats: PackedInt32Array = PackedInt32Array()
+## SEMI_ASYNC §4.5 MP: empty required_human_seats must NOT treat partial votes as unanimous.
+var strict_seat_list: bool = false
 var any_finished: bool = false
 var first_finish_wall_ms: int = 0
 var manual_override_active: bool = false
 ## Floor while any_finished: max(4×, battlefield speed at first finish).
 var _finish_floor: float = 4.0
+var _last_emitted_speed: float = -999.0
 const WALL_DRAW_MS: int = 120_000
 const AUTO_FINISH_MIN: float = 4.0
 
@@ -25,12 +28,32 @@ func set_vote(seat_id: int, speed: float) -> void:
 	_recompute()
 
 func set_required_human_seats(seats: PackedInt32Array) -> void:
+	## Avoid no-op recompute → speed_changed storms during match boot.
+	if seats.size() == required_human_seats.size():
+		var same: bool = true
+		for i: int in range(seats.size()):
+			if seats[i] != required_human_seats[i]:
+				same = false
+				break
+		if same:
+			return
 	required_human_seats = seats.duplicate()
 	_recompute()
+
+
+func _recompute() -> void:
+	var resolved: float = _resolve()
+	if is_equal_approx(resolved, _last_emitted_speed):
+		return
+	_last_emitted_speed = resolved
+	speed_changed.emit(resolved)
 
 ## How many required human seats still need to vote (or disagree). 0 = unanimous ready.
 func waiting_count() -> int:
 	if required_human_seats.is_empty():
+		if strict_seat_list:
+			## Barrier MP with unknown roster — treat as still waiting.
+			return maxi(1, human_votes.size())
 		return 0 if not human_votes.is_empty() else 1
 	var unanimous: float = _unanimous_human()
 	if unanimous > 0.0:
@@ -98,9 +121,6 @@ func should_persist_preferred() -> bool:
 		return true
 	return false
 
-func _recompute() -> void:
-	speed_changed.emit(_resolve())
-
 func _resolve() -> float:
 	var unanimous: float = _unanimous_human()
 	if unanimous > 0.0 and not is_equal_approx(unanimous, 1.0):
@@ -111,6 +131,9 @@ func _resolve() -> float:
 
 func _unanimous_human() -> float:
 	if required_human_seats.is_empty():
+		if strict_seat_list:
+			## SEMI_ASYNC §4.5: never treat "whoever voted so far" as full consensus under MP.
+			return -1.0
 		## Solo / unset: any voters that agree.
 		if human_votes.is_empty():
 			return -1.0

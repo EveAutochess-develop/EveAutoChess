@@ -17,6 +17,17 @@ static func build(ships_table: Dictionary, seeds_payload: Dictionary) -> Diction
 	}
 
 
+## Hash-only path for lowsec ACK sidecar — avoids a second multi-MB encode on mobile hosts.
+static func pack_hash_only(ships_table: Dictionary, seeds_payload: Dictionary) -> String:
+	var ships_json: String = JSON.stringify(ships_table)
+	var seeds_json: String = JSON.stringify(seeds_payload)
+	return _hash_str(ships_json + "\n" + seeds_json)
+
+
+static func pack_hash_from_json(ships_json: String, seeds_json: String) -> String:
+	return _hash_str(ships_json + "\n" + seeds_json)
+
+
 static func unpack(bytes: PackedByteArray) -> Dictionary:
 	var parts: Dictionary = _unpack_framed(bytes)
 	if parts.is_empty():

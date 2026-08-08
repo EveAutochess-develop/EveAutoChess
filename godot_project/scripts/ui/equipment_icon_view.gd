@@ -13,22 +13,25 @@ static func make_icon_cell(icon_size: Vector2, mod: Dictionary, from: Node, fill
 	else:
 		root.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		root.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var tex: Texture2D = UiAssets.function_module_icon(mod)
 	var art: Control
-	if tex:
-		var tex_rect: TextureRect = TextureRect.new()
-		tex_rect.texture = tex
-		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		tex_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		tex_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		art = tex_rect
+	if MixedLanceIcon.is_mixed_lance(mod):
+		art = MixedLanceIcon.make_anim_rect()
 	else:
-		var ph: ColorRect = ColorRect.new()
-		ph.color = Color(0.14, 0.18, 0.26, 1.0)
-		ph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		art = ph
+		var tex: Texture2D = UiAssets.function_module_icon(mod)
+		if tex:
+			var tex_rect: TextureRect = TextureRect.new()
+			tex_rect.texture = tex
+			tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tex_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			tex_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art = tex_rect
+		else:
+			var ph: ColorRect = ColorRect.new()
+			ph.color = Color(0.14, 0.18, 0.26, 1.0)
+			ph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art = ph
 	root.add_child(art)
 	## Implants: no size badge anywhere (EQUIPMENT.md §5 / §7).
 	if TypedVariant.as_bool(mod.get("implant", false), false):

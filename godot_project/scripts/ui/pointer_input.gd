@@ -1,6 +1,8 @@
 extends Node
 class_name PointerInput
 ## PC primary + touch auxiliary unified pointer (INPUT_PC_TOUCH_MAP).
+## Mouse and single-finger touch both feed _pointer_*; board picks use the same
+## camera ray + model/solid-cell hit tests (BOARD_AND_INPUT §4) — no touch-only soft sphere.
 
 signal drag_begin(ship: ShipUnit)
 signal drag_move(world: Vector3)
@@ -175,7 +177,6 @@ func _pointer_up(screen: Vector2) -> void:
 				"swap_instance_id": under.get_instance_id(),
 			}
 		else:
-			var w: Vector3 = _screen_to_ground(screen)
 			var team: int = ShipUnit.TEAM_PLAYER
 			var field_side: int = -1
 			if _press_ship:
@@ -184,7 +185,9 @@ func _pointer_up(screen: Vector2) -> void:
 					field_side = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
 				elif _press_ship.slot_type == "field":
 					field_side = _board.ship_world_side(_press_ship)
-			slot = _board.pick_slot_at(w, team, field_side)
+			var origin: Vector3 = _camera.project_ray_origin(screen)
+			var dir: Vector3 = _camera.project_ray_normal(screen)
+			slot = _board.pick_slot_by_ray(origin, dir, team, field_side)
 	drag_end.emit(sell, slot)
 	_press_ship = null
 

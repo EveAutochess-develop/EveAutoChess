@@ -155,7 +155,8 @@ func _build() -> void:
 
 	var ver: Label = Label.new()
 	ver.name = "VersionLabel"
-	ver.text = "游戏版本:%s | 内容 %s" % [GameSession.shell_version, DataStore.content_version]
+	## UI_AND_SHELL §1：玩家可见只显示内容热更版。
+	ver.text = "游戏版本:%s" % DataStore.content_version
 	ver.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ver.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 	ver.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
@@ -224,6 +225,7 @@ func _apply_adaptive_layout() -> void:
 		declare.add_theme_constant_override("outline_size", UiLayout.margin_px(2, self))
 	var ver: Label = _footer.get_node_or_null("VersionLabel") as Label
 	if ver:
+		ver.text = "游戏版本:%s" % DataStore.content_version
 		UiAssets.apply_label_font(ver, false, UiLayout.font_size(13, self))
 		ver.add_theme_constant_override("outline_size", UiLayout.margin_px(2, self))
 
@@ -508,6 +510,11 @@ func _build_about() -> Control:
 	UiAssets.apply_label_font(qq, false, UiLayout.font_size(14, self))
 	box.add_child(qq)
 
+	var about_ver: Label = Label.new()
+	about_ver.text = "游戏版本:%s" % DataStore.content_version
+	UiAssets.apply_label_font(about_ver, false, UiLayout.font_size(13, self))
+	box.add_child(about_ver)
+
 	var qr: TextureRect = TextureRect.new()
 	qr.custom_minimum_size = Vector2(UiLayout.px(140, self), UiLayout.px(140, self))
 	qr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -648,7 +655,16 @@ func _on_nullsec_kicked() -> void:
 
 func _on_nullsec_start_match(assignments: Dictionary) -> void:
 	var net: NullsecNetSession = _ensure_nullsec_net()
-	SessionDiagnostics.log("net.match_start", "seat=%d host=%s" % [net.local_seat, net.is_host])
+	SessionDiagnostics.begin_critical_window("mp_host_match" if net.is_host else "mp_guest_match")
+	SessionDiagnostics.log_critical(
+		"net.scene_change_match",
+		"seat=%d host=%s ships=%d %s" % [
+			net.local_seat,
+			net.is_host,
+			net.opening_host_ships.size(),
+			SessionDiagnostics.mem_detail(),
+		]
+	)
 	## Guest: keep「从房主拉取…」visible until ships material is present (SEMI_ASYNC §3.7).
 	if net.is_host or not net.opening_host_ships.is_empty():
 		MatchLoadOverlay.set_phase("正在进入对局场景", 0.28)
@@ -714,13 +730,61 @@ func _nullsec_match_public_run() -> void:
 	var ignore_started: bool = _nullsec_lobby.ignore_in_match_rooms()
 	_nullsec_lobby.set_status("正在扫描局域网…")
 	var rules: String = MatchRng.compute_rules_hash()
+	LanJoinDebug.log_locals("match_public")
 	## -1 → platform default (emulator waits longer for shared-net peers).
 	var rooms: Array = await LanBeacon.discover(self, -1.0)
+	SessionDiagnostics.log("net.discover", "rooms=%d rules=%s" % [rooms.size(), rules])
+	var room_log_n: int = 0
+	var saw_same_lan: bool = false
+	for rv: Variant in rooms:
+		if typeof(rv) != TYPE_DICTIONARY:
+			continue
+		var rd: Dictionary = rv
+		if room_log_n < 12:
+			LanJoinDebug.log_room(rd, room_log_n)
+			SessionDiagnostics.log(
+				"net.discover.room",
+				"ip=%s port=%s code=%s rules=%s occ=%s/%s in_match=%s packet_ip=%s payload_ip=%s aff=%s" % [
+					str(rd.get("ip", "")),
+					str(rd.get("port", 0)),
+					str(rd.get("code", 0)),
+					str(rd.get("rules", "")),
+					str(rd.get("occupied", 0)),
+					str(rd.get("cap", 0)),
+					str(rd.get("in_match", false)),
+					str(rd.get("packet_ip", "")),
+					str(rd.get("payload_ip", "")),
+					LanAffinity.affinity(str(rd.get("ip", ""))),
+				]
+			)
+		if LanAffinity.is_same_lan(str(rd.get("ip", ""))):
+			saw_same_lan = true
+		room_log_n += 1
 	var mismatch_n: int = PublicRoomEnumerator.count_rules_mismatch(rooms, rules)
 	var started_n: int = PublicRoomEnumerator.count_in_match(rooms, rules)
 	var full_n: int = PublicRoomEnumerator.count_full(rooms, rules)
 	var candidates: Array = PublicRoomEnumerator.list_join_candidates(rooms, rules, ignore_started)
+	## Prefer same-/24 endpoints first (multi-NIC hosts often advertise VPN last).
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var aa: int = 1 if LanAffinity.affinity(str(a.get("ip", ""))) == "same_24" else 0
+		var ba: int = 1 if LanAffinity.affinity(str(b.get("ip", ""))) == "same_24" else 0
+		if aa != ba:
+			return aa > ba
+		var ca: int = TypedVariant.as_int(a.get("code", 0), 0)
+		var cb: int = TypedVariant.as_int(b.get("code", 0), 0)
+		if ca != cb:
+			return ca < cb
+		return TypedVariant.as_int(a.get("occupied", 0), 0) < TypedVariant.as_int(b.get("occupied", 0), 0)
+	)
+	SessionDiagnostics.log(
+		"net.discover",
+		"cand=%d mismatch=%d started=%d full=%d ignore_started=%s same_lan_seen=%s" % [
+			candidates.size(), mismatch_n, started_n, full_n,
+			"1" if ignore_started else "0", "1" if saw_same_lan else "0"
+		]
+	)
 	var private_n: int = 0
+	var tried_same_lan: bool = false
 	var net: NullsecNetSession = _ensure_nullsec_net()
 	## Same room_code may map to multiple endpoints — try each; one reject does not skip siblings.
 	for pick: Variant in candidates:
@@ -728,17 +792,28 @@ func _nullsec_match_public_run() -> void:
 			continue
 		var d: Dictionary = pick
 		var code: int = TypedVariant.as_int(d.get("code", 0), 0)
-		var ip: String = str(d.get("ip", "127.0.0.1"))
+		var ip: String = str(d.get("ip", "")).strip_edges()
 		var port: int = TypedVariant.as_int(d.get("port", NullsecNetSession.port_for_code(code)), NullsecNetSession.port_for_code(code))
 		var in_match_ad: bool = TypedVariant.as_bool(d.get("in_match", false), false)
+		if ip == "" or ip.begins_with("127.") or ip == "0.0.0.0":
+			LanJoinDebug.log_fail(ip, port, code, "bad_ip", "match")
+			continue
+		if LanAffinity.is_same_lan(ip):
+			tried_same_lan = true
 		net.close()
 		_nullsec_lobby.set_status("正在试加入房间…")
+		LanJoinDebug.log_try(ip, port, code, "match")
 		var err: Error = net.join(ip, port, nick, rules, "")
 		if err != OK:
+			LanJoinDebug.log_fail(ip, port, code, "enet:%d" % err, "match")
 			continue
-		var join_res: Dictionary = await _await_nullsec_join_ex(net, 2.0)
+		## SEMI_ASYNC §7.5 — wait ≥5s (align with rejoin); mobile Wi‑Fi handshake is slow.
+		var join_res: Dictionary = await _await_nullsec_join_ex(net, 5.0)
 		if not TypedVariant.as_bool(join_res.get("ok", false), false):
 			var reason: String = str(join_res.get("reason", ""))
+			if reason == "":
+				reason = "timeout"
+			LanJoinDebug.log_fail(ip, port, code, reason, "match")
 			net.close()
 			if reason == "need_password" or reason.find("需要房间密码") >= 0:
 				private_n += 1
@@ -746,9 +821,12 @@ func _nullsec_match_public_run() -> void:
 			if reason.find("已满") >= 0 or reason == "room full":
 				full_n += 1
 				continue
+			if reason == "timeout" or reason == "enet":
+				var tip: String = "同网段信标见但连不上 · 试下一终点…" if LanAffinity.is_same_lan(ip) else "信标见但连不上 · 试下一终点…"
+				_nullsec_lobby.set_status(tip)
 			continue
 		PublicRoomEnumerator.advance_past(code)
-		SessionDiagnostics.log("net.join", "ok match code=%04d ep=%s:%d" % [code, ip, port])
+		LanJoinDebug.log_ok(ip, port, code, "match")
 		var joined_in_match: bool = TypedVariant.as_bool(join_res.get("in_match", false), false) or in_match_ad or net.match_started
 		var tip_extra: String = _nullsec_match_skip_suffix(started_n if ignore_started else 0, full_n, private_n, mismatch_n)
 		if joined_in_match:
@@ -769,7 +847,16 @@ func _nullsec_match_public_run() -> void:
 		_nullsec_lobby.set_status("已加入房间%s" % tip_extra)
 		_show_nullsec_room()
 		return
-	var parts: PackedStringArray = ["未发现可加入房间"]
+	var parts: PackedStringArray = []
+	if rooms.size() > 0 and candidates.size() > 0:
+		if tried_same_lan or saw_same_lan:
+			parts.append("同网段信标见但连不上（已试 %d 终点·查防火墙/AP隔离）" % candidates.size())
+		else:
+			parts.append("信标见但连不上（已试 %d 终点）" % candidates.size())
+	elif rooms.size() > 0:
+		parts.append("信标见 %d · 无可试加入" % rooms.size())
+	else:
+		parts.append("未发现可加入房间")
 	if ignore_started and started_n > 0:
 		parts.append("已略过 %d 间已开局" % started_n)
 	if full_n > 0:
@@ -777,8 +864,9 @@ func _nullsec_match_public_run() -> void:
 	if private_n > 0:
 		parts.append("私密房 %d 间" % private_n)
 	if mismatch_n > 0:
-		parts.append("版本不符 %d 间" % mismatch_n)
+		parts.append("版本不符 %d 间（本机 %s）" % [mismatch_n, rules])
 	parts.append("可点「主持房间」开一间")
+	LanJoinDebug.log_summary("match_fail " + " · ".join(parts))
 	_nullsec_lobby.set_status(" · ".join(parts))
 
 
@@ -863,25 +951,60 @@ func _on_nullsec_join_full_share(blob: String) -> void:
 		host_rules = local_rules
 	if host_rules != local_rules:
 		_nullsec_lobby.set_status("版本不符 · 房间主持 %s · 本机 %s" % [host_rules, local_rules])
+		LanJoinDebug.log_summary("share_rules_mismatch host=%s local=%s" % [host_rules, local_rules])
 		return
-	## Build try order: LAN same room → ipv6 → ipv4 → reflexive.
+	LanJoinDebug.log_locals("join_share")
+	## Build try order: LAN same room (all ips) → blob ipv4 → ipv6 → reflexive → TURN.
 	var endpoints: Array = []
 	if room_code >= 1 and room_code <= 9999:
 		_nullsec_lobby.set_status("正在扫描局域网…")
 		var rooms: Array = await LanBeacon.discover(self, -1.0)
+		var lan_i: int = 0
 		for r: Variant in rooms:
 			if typeof(r) != TYPE_DICTIONARY:
 				continue
 			var d: Dictionary = r
 			if TypedVariant.as_int(d.get("code", 0), 0) != room_code:
 				continue
-			endpoints.append({
-				"ip": str(d.get("ip", "")),
-				"port": TypedVariant.as_int(d.get("port", NullsecNetSession.port_for_code(room_code)), NullsecNetSession.port_for_code(room_code)),
-			})
-	for e: Dictionary in InviteBlobHelper.join_endpoints(decoded):
-		endpoints.append(e)
-	## Dedup
+			LanJoinDebug.log_room(d, lan_i)
+			lan_i += 1
+			var port_lan: int = TypedVariant.as_int(d.get("port", NullsecNetSession.port_for_code(room_code)), NullsecNetSession.port_for_code(room_code))
+			var lan_ips: Array = []
+			var primary: String = str(d.get("ip", "")).strip_edges()
+			if primary != "":
+				lan_ips.append(primary)
+			for key: String in ["alt_ips", "ips"]:
+				var arr_v: Variant = d.get(key, [])
+				if arr_v is Array:
+					for a_v: Variant in arr_v:
+						var a: String = str(a_v).strip_edges()
+						if a != "" and not lan_ips.has(a):
+							lan_ips.append(a)
+			for lip_v: Variant in lan_ips:
+				endpoints.append({
+					"ip": str(lip_v),
+					"port": port_lan,
+					"via": "lan_beacon",
+				})
+	## Prefer blob IPv4 before IPv6 on home Wi‑Fi (global v6 often blackholes).
+	var blob_eps: Array = InviteBlobHelper.join_endpoints(decoded)
+	blob_eps.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ai: String = str(a.get("ip", ""))
+		var bi: String = str(b.get("ip", ""))
+		var av4: int = 0 if ai.find(":") >= 0 else 1
+		var bv4: int = 0 if bi.find(":") >= 0 else 1
+		return av4 > bv4
+	)
+	for e: Dictionary in blob_eps:
+		var be: Dictionary = e.duplicate(true)
+		if str(be.get("via", "")) == "":
+			be["via"] = "room_blob"
+		endpoints.append(be)
+	## SEMI_ASYNC §7.5 step ⑤ — local turn_urls as extra ENet targets (relay / port-map).
+	for te: Variant in NetConnectivity.turn_join_endpoints():
+		if typeof(te) == TYPE_DICTIONARY:
+			endpoints.append(te)
+	## Dedup; same_24 first.
 	var seen: Dictionary = {}
 	var uniq: Array = []
 	for e: Variant in endpoints:
@@ -893,43 +1016,65 @@ func _on_nullsec_join_full_share(blob: String) -> void:
 			continue
 		seen[key] = true
 		uniq.append(ep)
+	uniq.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var aa: int = 2 if LanAffinity.affinity(str(a.get("ip", ""))) == "same_24" else (1 if LanAffinity.is_same_lan(str(a.get("ip", ""))) else 0)
+		var ba: int = 2 if LanAffinity.affinity(str(b.get("ip", ""))) == "same_24" else (1 if LanAffinity.is_same_lan(str(b.get("ip", ""))) else 0)
+		return aa > ba
+	)
 	if uniq.is_empty():
 		var addr: Dictionary = InviteBlobHelper.join_address(decoded)
 		var room: String = str(addr.get("room", decoded.get("room", "")))
 		var resolved: Dictionary = ShortcodeSignaling.resolve_join_sync("public", room, host_rules)
 		if TypedVariant.as_bool(resolved.get("ok", false), false):
-			uniq.append({"ip": str(resolved.get("ip", "")), "port": TypedVariant.as_int(resolved.get("port", 0), 0)})
+			uniq.append({"ip": str(resolved.get("ip", "")), "port": TypedVariant.as_int(resolved.get("port", 0), 0), "via": "signaling"})
 	if uniq.is_empty():
-		_nullsec_lobby.set_status("房间码无有效地址（可配 signaling_url / TURN）")
+		_nullsec_lobby.set_status("房间码无有效地址（可配 signaling_url / turn_urls）")
+		LanJoinDebug.log_summary("share_no_endpoints code=%04d" % room_code)
 		return
 	var net: NullsecNetSession = _ensure_nullsec_net()
 	var last_err: String = ""
+	var tried_same_lan: bool = false
 	for e: Variant in uniq:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
 		var ep: Dictionary = e
 		var ip: String = str(ep.get("ip", ""))
 		var port: int = TypedVariant.as_int(ep.get("port", 0), 0)
-		if ip == "" or port <= 0:
+		if ip == "" or port <= 0 or ip.begins_with("127."):
 			continue
+		if LanAffinity.is_same_lan(ip):
+			tried_same_lan = true
 		net.close()
-		_nullsec_lobby.set_status("正在试连 %s:%d… · 房间主持 %s" % [ip, port, host_rules])
+		var via: String = str(ep.get("via", ""))
+		if via == "turn":
+			_nullsec_lobby.set_status("正在经 TURN/中继试连 %s:%d…" % [ip, port])
+		elif LanAffinity.is_same_lan(ip):
+			_nullsec_lobby.set_status("正在同网段试连 %s:%d…" % [ip, port])
+		else:
+			_nullsec_lobby.set_status("正在试连 %s:%d… · 房间主持 %s" % [ip, port, host_rules])
+		LanJoinDebug.log_try(ip, port, room_code, via if via != "" else "share")
 		var err: Error = net.join(ip, port, nick, local_rules, password)
 		if err != OK:
 			last_err = error_string(err)
+			LanJoinDebug.log_fail(ip, port, room_code, "enet:%s" % last_err, via)
 			continue
-		var join_share: Dictionary = await _await_nullsec_join_ex(net, 1.5)
+		## Same 5s gate as public match — 1.5s was too short on phone↔PC Wi‑Fi.
+		var wait_s: float = 5.0 if LanAffinity.is_same_lan(ip) or via == "lan_beacon" else 2.5
+		var join_share: Dictionary = await _await_nullsec_join_ex(net, wait_s)
 		if TypedVariant.as_bool(join_share.get("ok", false), false):
+			LanJoinDebug.log_ok(ip, port, room_code, via if via != "" else "share")
 			_nullsec_lobby.set_status("已通过房间码加入 · 房间主持 %s" % host_rules)
 			_show_nullsec_room()
 			return
 		last_err = str(join_share.get("reason", "超时"))
+		LanJoinDebug.log_fail(ip, port, room_code, last_err, via)
 		net.close()
-	var turn_n: int = NetConnectivity.turn_urls().size()
-	if turn_n > 0:
-		_nullsec_lobby.set_status("双栈试连失败 · 已配置 TURN 但仍不可达: %s" % last_err)
-	else:
-		_nullsec_lobby.set_status("加入失败: %s（可在 user://net_connectivity.cfg 配 TURN）" % last_err)
+	var turn_n: int = NetConnectivity.turn_join_endpoints().size()
+	var tip: String = LanJoinDebug.fail_status_hint(tried_same_lan, last_err, turn_n)
+	LanJoinDebug.log_summary("share_fail tried_same_lan=%s last=%s tip=%s" % [
+		"1" if tried_same_lan else "0", last_err, tip
+	])
+	_nullsec_lobby.set_status(tip)
 
 
 func _await_nullsec_join(net: NullsecNetSession, timeout_s: float) -> bool:

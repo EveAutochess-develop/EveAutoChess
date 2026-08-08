@@ -16,8 +16,10 @@ var _debris: Array = []  # {node: Node3D, cooldown: Dictionary}
 var _drone_orbit_phase: Dictionary = {}  # instance_id -> float
 ## Orbit tangent sign: +1 / -1 (reverse when stuck ~2s).
 var _drone_orbit_dir: Dictionary = {}  # instance_id -> float
-## Orbit plane tilt degrees [20, 89]; seeded via orbit_tilt.
+## Orbit plane tilt degrees [20, 89] vs horizontal; seeded via orbit_tilt.
 var _drone_orbit_tilt: Dictionary = {}  # instance_id -> float
+## Fixed ascending-node azimuth (radians); plane must not rebuild from live radial.
+var _drone_orbit_az: Dictionary = {}  # instance_id -> float
 var _drone_orbit_last_pos: Dictionary = {}  # instance_id -> Vector3
 var _drone_orbit_stuck_s: Dictionary = {}  # instance_id -> float
 ## Per-combat fighter damage accounting (for session DPS audit).
@@ -109,6 +111,7 @@ func start_combat() -> void:
 	_drone_orbit_phase.clear()
 	_drone_orbit_dir.clear()
 	_drone_orbit_tilt.clear()
+	_drone_orbit_az.clear()
 	_drone_orbit_last_pos.clear()
 	_drone_orbit_stuck_s.clear()
 	_fighter_dealt_total = 0.0
@@ -299,6 +302,8 @@ func tick(delta: float) -> void:
 		else:
 			_move_ship(s, tgt, delta, now)
 		_try_attack(s, tgt, now)
+	## Mixed lance: board-wide salvo after all ships ticked (CAPITAL §4.1).
+	MixedLance.flush_salvo(_board)
 	_tick_debris_contacts(delta)
 	_apply_drone_lod()
 	_apply_separation()
@@ -790,6 +795,8 @@ func _best_heal_ally(logi: ShipUnit) -> ShipUnit:
 func _try_attack(s: ShipUnit, tgt: ShipUnit, now: float) -> void:
 	if s.has_cyno_module():
 		return
+	if s.has_method("is_lance_suppressing") and TypedVariant.as_bool(s.call("is_lance_suppressing"), false):
+		return
 	if not s.is_logistic and not s.has_offensive_damage():
 		return
 	if now - s.last_attack_time < s.attack_duration:
@@ -1023,7 +1030,7 @@ func _on_hit(payload: Dictionary) -> Dictionary:
 			_fighter_dealt_total += dealt
 			_fighter_hit_count += 1
 	if dealt > 0.0 and _float_text:
-		_float_text.spawn(target.global_position, "-%d" % roundi(dealt), Color(1.0, 0.45, 0.35))
+		_float_text.add_damage(target.global_position, dealt, target.get_instance_id())
 	return {"accepted": true, "destroyed": res.get("destroyed", false), "dealt": dealt}
 
 func _on_heal(payload: Dictionary) -> Dictionary:
@@ -1048,7 +1055,7 @@ func _on_heal(payload: Dictionary) -> Dictionary:
 		FunctionFit.apply_armor_support_on_repair(src, target)
 	var full: bool = TypedVariant.as_bool(res.get("full", false), false)
 	if healed > 0.0 and _float_text:
-		_float_text.spawn(target.global_position, "+%d" % roundi(healed), Color(0.35, 0.95, 0.55))
+		_float_text.add_heal(target.global_position, healed, target.get_instance_id())
 	if full and src:
 		src.combat_target = null
 	return {"accepted": true, "full": full, "applied": healed}
@@ -1212,6 +1219,7 @@ func _clear_drones() -> void:
 	_drone_orbit_phase.clear()
 	_drone_orbit_dir.clear()
 	_drone_orbit_tilt.clear()
+	_drone_orbit_az.clear()
 	_drone_orbit_last_pos.clear()
 	_drone_orbit_stuck_s.clear()
 	_mining_wander_anchor.clear()
@@ -1239,6 +1247,7 @@ func _cull_orphan_drones() -> void:
 		_drone_orbit_phase.erase(iid)
 		_drone_orbit_dir.erase(iid)
 		_drone_orbit_tilt.erase(iid)
+		_drone_orbit_az.erase(iid)
 		_drone_orbit_last_pos.erase(iid)
 		_drone_orbit_stuck_s.erase(iid)
 		_mining_wander_anchor.erase(iid)
@@ -1296,6 +1305,29 @@ func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
 	EngineBoosterTrail.set_emitting_on(s, true)
 
 
+func _orbit_plane_basis(tilt_deg: float, az: float) -> Array:
+	## Fixed plane: inclination θ vs horizontal; lean(az) is ascending-node direction.
+	## n = up·cos(θ)+lean·sin(θ); θ=0 → horizontal circle; θ→90° → near-vertical.
+	var tilt: float = deg_to_rad(clampf(tilt_deg, 0.0, 89.5))
+	var lean: Vector3 = Vector3(cos(az), 0.0, sin(az))
+	var plane_n: Vector3 = (Vector3.UP * cos(tilt) + lean * sin(tilt)).normalized()
+	if plane_n.length_squared() < 0.0001:
+		plane_n = Vector3.UP
+	var e1: Vector3 = plane_n.cross(Vector3.UP)
+	if e1.length_squared() < 1e-8:
+		## Near-horizontal plane: use lean as in-plane axis.
+		e1 = lean.cross(plane_n)
+		if e1.length_squared() < 1e-8:
+			e1 = Vector3.RIGHT
+	e1 = e1.normalized()
+	var e2: Vector3 = plane_n.cross(e1)
+	if e2.length_squared() < 1e-8:
+		e2 = Vector3.FORWARD
+	else:
+		e2 = e2.normalized()
+	return [e1, e2]
+
+
 func _orbit_around_3d(s: ShipUnit, center: Vector3, delta: float, radius: float, face_center: bool) -> void:
 	var id: int = s.get_instance_id()
 	var phase: float = TypedVariant.as_float(_drone_orbit_phase.get(id, 0.0), 0.0)
@@ -1307,7 +1339,12 @@ func _orbit_around_3d(s: ShipUnit, center: Vector3, delta: float, radius: float,
 	if tilt_deg < 0.0:
 		tilt_deg = _auth_randf_range("orbit_tilt", 20.0, 89.0)
 		_drone_orbit_tilt[id] = tilt_deg
-	var tilt: float = deg_to_rad(tilt_deg)
+	if not _drone_orbit_az.has(id):
+		_drone_orbit_az[id] = _auth_randf("orbit_az") * TAU
+	var az: float = TypedVariant.as_float(_drone_orbit_az[id], 0.0)
+	var basis: Array = _orbit_plane_basis(tilt_deg, az)
+	var e1: Vector3 = basis[0]
+	var e2: Vector3 = basis[1]
 	var self_pos: Vector3 = s.global_position
 	## Net world motion since last orbit tick (includes post-separation pushback).
 	var stuck_eps: float = TypedVariant.as_float(DataStore.combat.get("unmanned_orbit_stuck_eps_wu", 0.06), 0.06)
@@ -1326,48 +1363,35 @@ func _orbit_around_3d(s: ShipUnit, center: Vector3, delta: float, radius: float,
 			stuck_s = 0.0
 	_drone_orbit_stuck_s[id] = stuck_s
 	_drone_orbit_last_pos[id] = self_pos
-	var to_center: Vector3 = center - self_pos
-	var dist: float = to_center.length()
+	## Offset projected into the fixed orbit plane (not live XZ radial).
+	var offset: Vector3 = self_pos - center
+	var in_plane: Vector3 = e1 * offset.dot(e1) + e2 * offset.dot(e2)
+	var planar_r: float = in_plane.length()
+	var nearest_phase: float = phase
+	if planar_r > 0.05:
+		nearest_phase = atan2(in_plane.dot(e2), in_plane.dot(e1))
+	var on_circle: Vector3 = center + (e1 * cos(nearest_phase) + e2 * sin(nearest_phase)) * radius
+	var dist_circle: float = self_pos.distance_to(on_circle)
 	var enter_band: float = radius * 0.35
 	var desired_dir: Vector3 = Vector3.ZERO
-	if dist > radius + enter_band:
-		desired_dir = to_center.normalized()
+	if dist_circle > enter_band:
+		## Approach nearest point on the tilted circle — never dive through the pole/overhead.
+		desired_dir = (on_circle - self_pos).normalized()
+		_drone_orbit_phase[id] = nearest_phase
 	else:
-		phase += delta * 0.9 * orbit_dir
+		## Advance along the fixed circle; re-sync angle from projection so pushback cannot polar-stall.
+		phase = nearest_phase + delta * 0.9 * orbit_dir
 		_drone_orbit_phase[id] = phase
-		var away: Vector3 = self_pos - center
-		if away.length_squared() < 0.0001:
-			away = Vector3(cos(phase), 0.0, sin(phase))
-		else:
-			away = away.normalized()
-		## Horizontal radial in XZ for building the tilted orbit basis.
-		var radial_h: Vector3 = Vector3(away.x, 0.0, away.z)
-		if radial_h.length_squared() < 0.0001:
-			radial_h = Vector3(cos(phase), 0.0, sin(phase))
-		else:
-			radial_h = radial_h.normalized()
-		## Tangent in XZ (CCW when orbit_dir > 0), then project into tilted plane.
-		var u: Vector3 = Vector3(-radial_h.z, 0.0, radial_h.x) * orbit_dir
-		## Tilted plane normal: mix world up with outward radial (θ=0 → horizontal).
-		var plane_n: Vector3 = (Vector3.UP * cos(tilt) + radial_h * sin(tilt)).normalized()
-		if plane_n.length_squared() < 0.0001:
-			plane_n = Vector3.UP
-		var tangent: Vector3 = u - plane_n * u.dot(plane_n)
-		if tangent.length_squared() < 0.0001:
-			tangent = u
-		else:
+		on_circle = center + (e1 * cos(phase) + e2 * sin(phase)) * radius
+		var tangent: Vector3 = (-e1 * sin(phase) + e2 * cos(phase)) * orbit_dir
+		if tangent.length_squared() > 0.0001:
 			tangent = tangent.normalized()
-		## Add a vertical component along the tilted plane so height oscillates.
-		var lift: Vector3 = plane_n.cross(u)
-		if lift.length_squared() > 0.0001:
-			lift = lift.normalized()
-			tangent = (tangent + lift * sin(tilt) * 0.35).normalized()
-		var radial_error: float = dist - radius
-		desired_dir = tangent + away * clampf(-radial_error * 1.4, -0.65, 0.65)
+		var pull: Vector3 = on_circle - self_pos
+		desired_dir = tangent + pull * 1.6
 		if desired_dir.length_squared() > 0.0001:
 			desired_dir = desired_dir.normalized()
 		elif tangent.length_squared() > 0.0001:
-			desired_dir = tangent.normalized()
+			desired_dir = tangent
 		else:
 			desired_dir = Vector3.ZERO
 	if desired_dir.length_squared() > 0.0001:
@@ -1711,5 +1735,5 @@ func _tick_debris_contacts(delta: float) -> void:
 			s.apply_hit_dict({"emp": 0.0, "thermal": 0.0, "kinetic": 0.0, "explosive": dealt})
 			cds[sid] = 1.25
 			if _float_text:
-				_float_text.spawn(s.global_position, "-%d" % int(dealt), Color(0.8, 0.7, 0.4))
+				_float_text.add_damage(s.global_position, dealt, s.get_instance_id())
 		d_entry["hit_cd"] = cds
