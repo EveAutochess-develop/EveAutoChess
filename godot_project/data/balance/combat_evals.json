@@ -44,6 +44,23 @@
     {"id": "deadly_silence", "name": "致命沉默", "condition": "自动防御单位之无人机触发解锁并击毁护卫或驱逐"},
     {"id": "advanced_tactics", "name": "高级战术", "condition": "胜；己方上场有人舰 ewar+cap_warfare 件数合计 >16"},
     {"id": "self_strengthen", "name": "自强不息", "condition": "己方 repair 类件数合计 >16"},
-    {"id": "firepower_first", "name": "火力优先", "condition": "己方 weapon 类件数合计 >10"}
+    {"id": "firepower_first", "name": "火力优先", "condition": "己方 weapon 类件数合计 >10"},
+    {"id": "dread_pastry", "name": "无畏糕手", "condition": "本回合长枪对友军伤害合计 > 对敌军伤害合计 ×2"},
+    {"id": "lance_rainbow", "name": "惊世长虹", "condition": "本回合打出长枪并击杀 ≥2 艘敌方有人单位"},
+    {"id": "mosquito_expert", "name": "灭蚊专家", "condition": "本回合长枪击杀 ≥2 护卫或 ≥10 舰载机"},
+    {"id": "dread_master", "name": "无畏高手", "condition": "本回合长枪对开场时场上每一艘敌方有人单位至少造成过一次伤害"},
+    {"id": "deadly_luxury", "name": "致命奢华", "condition": "本回合己方成功打出长枪 ≥5 次"},
+    {"id": "coal_boss", "name": "煤窑老板", "condition": "本回合本席收益 ≥200 黄"},
+    {"id": "mine_rich", "name": "挖矿致富", "condition": "本回合本席收益 ≥100 黄"},
+    {"id": "fantasy_time", "name": "幻想时间", "condition": "本回合本席收益 ≥50 黄"},
+    {"id": "calf_guard", "name": "护犊狂魔", "condition": "本回合上场长须鲸且其挖矿无人机均未被击毁"},
+    {"id": "bloody_coin", "name": "血色钱币", "condition": "本回合未上场挖矿船且本席收益 ≥40 黄"},
+    {"id": "pawn_first", "name": "小兵先行", "condition": "本回合己方损毁无人单位 ≥10 且有人单位零损毁"},
+    {"id": "fifth_persona", "name": "第五人格", "condition": "房间恰 5 真人时连续 4 个真人 PVP 回合胜且对手席互不相同"},
+    {"id": "dawn_star", "name": "初窥晨星", "condition": "本回合上场 ≥1 艘三星舰并获胜"},
+    {"id": "orion_belt", "name": "猎户腰带", "condition": "本回合上场 ≥3 艘三星舰并获胜"},
+    {"id": "beidou_entry", "name": "北斗入局", "condition": "本回合上场 ≥7 艘三星舰并获胜"},
+    {"id": "starry_sky", "name": "繁星满天", "condition": "本回合上场 ≥15 艘三星护卫舰"},
+    {"id": "aurora_lock", "name": "极光定空", "condition": "本回合上场 ≥1 艘三星旗舰并获胜"}
   ]
 }

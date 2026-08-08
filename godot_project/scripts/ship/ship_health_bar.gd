@@ -118,6 +118,8 @@ const _LAYER_KEYS: Array[String] = ["shield", "armor", "structure", "cap"]
 var _ship: Node3D
 var _style_bars: bool = false
 var _fit_slots: Array = []
+var _fit_lance_mats: Array = []
+## Wall-clock for mixed-lance fit-icon sweep.
 var _sector_fills: Array[MeshInstance3D] = []
 var _sector_blacks: Array[MeshInstance3D] = []
 var _sector_trails: Array[MeshInstance3D] = []
@@ -338,17 +340,14 @@ func _build_ring_sectors(badge_y: float) -> void:
 
 
 func _ring_use_enemy_mirror() -> bool:
-	## bars: no geometric mirror. Ring: opposing half (UI_AND_SHELL ?2.3.0 TEAM_AI ??).
+	## bars: no geometric mirror. Ring: same key as 声望 overlay (UI_AND_SHELL §2.3.0 / UI_ICONS §6.1).
+	## Mirror when reputation set is enemy (team_id == TEAM_AI) — NOT field_side_team / half-field.
 	if _style_bars:
 		return false
 	if _ship == null or not is_instance_valid(_ship):
 		return false
-	## Avoid class_name cast (this script is preloaded before ShipUnit may resolve).
+	## Same mapping as `_overlay_set_key` fleet/enemy (ignore unmanned / freighter specials for HP angles).
 	const TEAM_AI: int = 1
-	var slot: String = str(_ship.get("slot_type"))
-	var side: int = __as_int(_ship.get("field_side_team"), -1)
-	if slot == "field" and side >= 0:
-		return side == TEAM_AI
 	return __as_int(_ship.get("team_id"), 0) == TEAM_AI
 
 
@@ -540,6 +539,16 @@ func _set_fit_mesh_tex(mi: MeshInstance3D, tex: Texture2D) -> void:
 	mat.albedo_color = Color.WHITE
 
 
+func _set_fit_lance_icon(mi: MeshInstance3D, side: float) -> void:
+	if mi == null:
+		return
+	_resize_fit_icon_mesh(mi, side)
+	var sm: ShaderMaterial = MixedLanceIcon.make_3d_material(14)
+	mi.material_override = sm
+	_fit_lance_mats.append(sm)
+	mi.visible = true
+
+
 func _resize_fit_icon_mesh(mi: MeshInstance3D, side: float, tex: Texture2D = null) -> void:
 	if mi == null:
 		return
@@ -554,6 +563,7 @@ func _resize_fit_icon_mesh(mi: MeshInstance3D, side: float, tex: Texture2D = nul
 
 func _refresh_fit_strip() -> void:
 	var side: float = _fit_slot_side()
+	_fit_lance_mats.clear()
 	for i: int in range(_fit_slots.size()):
 		@warning_ignore("unsafe_cast")
 		var slot: Dictionary = _fit_slots[i] as Dictionary
@@ -565,13 +575,19 @@ func _refresh_fit_strip() -> void:
 		if su != null:
 			var fit: Array = su.get_function_fit()
 			if i < fit.size() and typeof(fit[i]) == TYPE_DICTIONARY:
-				@warning_ignore("unsafe_cast")
-				mod = __as_dict((fit[i] as Dictionary).get("def", {}))
+				var entry: Dictionary = __as_dict(fit[i])
+				mod = __as_dict(entry.get("def", {}))
+				if mod.is_empty():
+					var mid: String = str(entry.get("id", ""))
+					if mid != "":
+						mod = DataStore.get_function_module(mid)
 		var filled: bool = not mod.is_empty()
 		if frame:
 			frame.visible = false
 		if icon:
-			if filled:
+			if filled and MixedLanceIcon.is_mixed_lance(mod):
+				_set_fit_lance_icon(icon, side)
+			elif filled:
 				var tex: Texture2D = UiAssets.function_module_icon(mod)
 				if tex:
 					_resize_fit_icon_mesh(icon, side, tex)
@@ -1346,6 +1362,12 @@ func _apply_ring_greens(idx: int, a0_eff: float, a1: float, fill_ang: Vector2, f
 func _process(delta: float) -> void:
 	if _ship == null or not is_instance_valid(_ship):
 		return
+	if not _fit_lance_mats.is_empty():
+		var t: float = Time.get_ticks_msec() * 0.001
+		for m_v: Variant in _fit_lance_mats:
+			if typeof(m_v) == TYPE_OBJECT and m_v is ShaderMaterial:
+				var sm: ShaderMaterial = m_v
+				sm.set_shader_parameter("sweep_rad", t * 0.28)
 	_sync_layer_values()
 	_tick_fx(delta)
 	_apply_visuals()

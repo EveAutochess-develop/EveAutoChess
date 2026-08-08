@@ -44,10 +44,33 @@ func setup(net: NullsecNetSession) -> void:
 		session.lobby_notice.connect(_on_lobby_notice)
 	if not session.urge_prepare_received.is_connected(_on_urge_prepare):
 		session.urge_prepare_received.connect(_on_urge_prepare)
+	## After host transfer — restore local_seat / host UI (功能·加人机·安等).
+	if not session.join_accepted.is_connected(_on_join_accepted_refresh):
+		session.join_accepted.connect(_on_join_accepted_refresh)
+	if not session.host_migrated.is_connected(_on_host_migrated_refresh):
+		session.host_migrated.connect(_on_host_migrated_refresh)
+	if not session.host_role_changed.is_connected(_on_host_role_changed_refresh):
+		session.host_role_changed.connect(_on_host_role_changed_refresh)
 	_mobile_cap = 5 if (OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()) else 20
 	_build()
 	_on_seats(session.seats)
 	_on_security_mode(session.security_mode)
+
+
+func _on_join_accepted_refresh(_seat: int, _in_match: bool) -> void:
+	if session != null:
+		_on_seats(session.seats)
+
+
+func _on_host_migrated_refresh(_generation: int, _new_host_seat: int) -> void:
+	if session != null:
+		_on_seats(session.seats)
+
+
+func _on_host_role_changed_refresh(_is_host_now: bool) -> void:
+	if session != null:
+		_on_seats(session.seats)
+
 
 func _build() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -92,7 +115,7 @@ func _build() -> void:
 	_ships_lbl.modulate = Color(1.0, 0.82, 0.35)
 	_ships_lbl.visible = false
 	root.add_child(_ships_lbl)
-	if session and not session.is_host and session.host_ships_hash != "" \
+	if session and not session.is_room_host() and session.host_ships_hash != "" \
 			and session.host_ships_hash != DataStore.ships_table_hash():
 		_on_ships_mismatch(session.host_ships_hash)
 	var sec_row: HBoxContainer = HBoxContainer.new()
@@ -186,7 +209,7 @@ func _code_text() -> String:
 
 
 func _on_sec_selected(idx: int) -> void:
-	if session == null or not session.is_host:
+	if session == null or not session.is_room_host():
 		return
 	session.set_security_mode(NullsecNetSession.SECURITY_LOWSEC if idx == 1 else NullsecNetSession.SECURITY_NULLSEC)
 
@@ -198,7 +221,7 @@ func _on_security_mode(mode: String) -> void:
 	_sec_opt.set_block_signals(true)
 	_sec_opt.select(1 if low else 0)
 	_sec_opt.set_block_signals(false)
-	_sec_opt.disabled = session == null or not session.is_host or session.match_started
+	_sec_opt.disabled = session == null or not session.is_room_host() or session.match_started
 	var tip: Label = null
 	var tip_node: Node = get_node_or_null("RoomContent/HBoxContainer/SecTip")
 	if tip_node is Label:
@@ -215,7 +238,7 @@ func _on_security_mode(mode: String) -> void:
 
 
 func _copy_room_share() -> void:
-	if session == null or not session.is_host:
+	if session == null or not session.is_room_host():
 		return
 	var blob: String = session.make_invite_blob()
 	if blob == "":
@@ -390,7 +413,7 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 		_apply_titan_opt_tips(opt, pick_race if NullsecNetSession.is_player_race(pick_race) else "")
 		if session.local_seat == idx:
 			session.set_local_titan(pick_race)
-		elif session.is_host:
+		elif session.is_room_host():
 			session.set_seat_titan(idx, pick_race)
 	)
 	row.add_child(opt)
@@ -428,10 +451,10 @@ func _opt_index_from_race(race: String) -> int:
 func _on_seats(seats: Array) -> void:
 	_code_lbl.text = _code_text()
 	if _copy_share_btn:
-		_copy_share_btn.visible = session != null and session.is_host
+		_copy_share_btn.visible = session != null and session.is_room_host()
 	if _copy_key_btn:
-		_copy_key_btn.visible = session != null and session.is_host and not session.room_password.is_empty()
-	_ai_btn.visible = session != null and session.is_host and not session.match_started
+		_copy_key_btn.visible = session != null and session.is_room_host() and not session.room_password.is_empty()
+	_ai_btn.visible = session != null and session.is_room_host() and not session.match_started
 	_on_security_mode(session.security_mode if session else NullsecNetSession.SECURITY_NULLSEC)
 	var local_race: String = ""
 	var local_ready: bool = false
@@ -484,27 +507,35 @@ func _on_seats(seats: Array) -> void:
 		slash.visible = false
 		var occupied: bool = TypedVariant.as_bool(s.get("occupied", false), false)
 		var is_ai: bool = TypedVariant.as_bool(s.get("is_ai", false), false)
-		## Own seat, or host editing an AI seat.
 		var can_edit_titan: bool = occupied and (
-			session.local_seat == i or (session.is_host and is_ai)
+			session.local_seat == i or (session.is_room_host() and is_ai)
 		) and not session.match_started
+		var race: String = str(s.get("titan_race", "")) if occupied else ""
+		var sel: int = _opt_index_from_race(race) if occupied else 0
+		## Block signals around disabled+select — some platforms emit item_selected on disable
+		## and would rpc empty titan to host (wipes loadout after mode switch / seat sync).
+		opt.set_block_signals(true)
 		opt.disabled = not can_edit_titan
-		var can_kick: bool = session != null and session.is_host and occupied \
+		if not occupied:
+			opt.select(0)
+			opt.set_block_signals(false)
+			nick.text = "空席"
+			## Kick / leave must drop tips_skybox panel fill (otherwise starfield lingers).
+			_apply_titan_opt_tips(opt, "")
+			var can_kick_empty: bool = false
+			if i < _kick_btns.size() and _kick_btns[i] != null:
+				var kb0_v: Variant = _kick_btns[i]
+				if kb0_v is Button:
+					var kb0: Button = kb0_v
+					kb0.visible = can_kick_empty
+			continue
+		var can_kick: bool = session != null and session.is_room_host() and occupied \
 				and i != session.local_seat and not TypedVariant.as_bool(s.get("ghost", false), false)
 		if i < _kick_btns.size() and _kick_btns[i] != null:
 			var kb_v: Variant = _kick_btns[i]
 			if kb_v is Button:
 				var kb: Button = kb_v
 				kb.visible = can_kick
-		if not occupied:
-			nick.text = "空席"
-			opt.set_block_signals(true)
-			opt.select(0)
-			opt.set_block_signals(false)
-			## Kick / leave must drop tips_skybox panel fill (otherwise starfield lingers).
-			_apply_titan_opt_tips(opt, "")
-			continue
-		var race: String = str(s.get("titan_race", ""))
 		var mark: String = "✓" if TypedVariant.as_bool(s.get("ready", false), false) else "…"
 		if NullsecNetSession.is_spectate_race(race):
 			mark = "观"
@@ -518,8 +549,6 @@ func _on_seats(seats: Array) -> void:
 			rtt_s = " —" if rtt < 0 else (" %dms" % rtt)
 		nick.text = "%s%s%s%s %s" % [shown, rtt_s, ai, ghost, mark]
 		nick.tooltip_text = NickCodec.tooltip_full(raw_nick)
-		var sel: int = _opt_index_from_race(race)
-		opt.set_block_signals(true)
 		opt.select(sel)
 		opt.set_block_signals(false)
 		_apply_titan_opt_tips(opt, race if NullsecNetSession.is_player_race(race) else "")
@@ -622,7 +651,7 @@ func _on_match_loading(phase: String, progress: float) -> void:
 
 func _on_match_start(payload: Dictionary) -> void:
 	## Guest pull copy must stay readable; do not cover with「进入对局场景」before ships land.
-	if session != null and not session.is_host and session.opening_host_ships.is_empty():
+	if session != null and not session.is_room_host() and session.opening_host_ships.is_empty():
 		MatchLoadOverlay.set_phase("正在从房主拉取全舰船与全游戏数据", 0.16)
 	else:
 		MatchLoadOverlay.set_phase("正在进入对局场景", 0.25)

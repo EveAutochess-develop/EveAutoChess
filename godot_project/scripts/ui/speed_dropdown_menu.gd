@@ -35,8 +35,8 @@ func _ready() -> void:
 		var speed: float = s
 		b.pressed.connect(func() -> void:
 			opened_by.emit(local_nick)
-			if controller:
-				controller.set_vote(local_seat, speed)
+			## SEMI_ASYNC §4.5: dropdown only proposes a vote — never set_vote / apply speed here.
+			## MatchRoot → push_speed_vote → rpc_speed_vote_apply is the sole authority path under MP.
 			vote_changed.emit(speed)
 			hide()
 		)

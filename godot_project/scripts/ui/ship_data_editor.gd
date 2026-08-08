@@ -86,6 +86,7 @@ var _last_equipment_saved: bool = false
 var _cap: Label
 var _list: ItemList
 var _search: LineEdit
+var _title_icon: TextureRect
 var _title: Label
 var _grid: GridContainer
 var _status: Label
@@ -368,6 +369,8 @@ func _build() -> void:
 	_left_panel.add_child(_search)
 	_list = ItemList.new()
 	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_list.fixed_icon_size = Vector2i(UiLayout.px(28, self), UiLayout.px(28, self))
+	_list.icon_mode = ItemList.ICON_MODE_LEFT
 	_list.item_selected.connect(_on_list_selected)
 	_left_panel.add_child(_list)
 
@@ -375,9 +378,21 @@ func _build() -> void:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(right)
+	var title_row: HBoxContainer = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", UiLayout.margin_px(8, self))
+	right.add_child(title_row)
+	_title_icon = TextureRect.new()
+	_title_icon.visible = false
+	_title_icon.custom_minimum_size = Vector2(UiLayout.px(36, self), UiLayout.px(36, self))
+	_title_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_title_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_title_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title_row.add_child(_title_icon)
 	_title = Label.new()
+	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	UiAssets.apply_label_font(_title, true, UiLayout.font_size(18, self))
-	right.add_child(_title)
+	title_row.add_child(_title)
 	_field_scroll = ScrollContainer.new()
 	_field_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_field_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -442,6 +457,7 @@ func _set_tab(tab: Tab, force: bool) -> void:
 			_current_fn_id = ""
 			_current_id = -1
 			_title.text = "（无条目）"
+			_set_title_icon(null)
 			for c: Node in _grid.get_children():
 				c.queue_free()
 			if _status:
@@ -453,6 +469,7 @@ func _set_tab(tab: Tab, force: bool) -> void:
 		_current_id = -1
 		_current_fn_id = ""
 		_title.text = "（无条目）"
+		_set_title_icon(null)
 		for c: Node in _grid.get_children():
 			c.queue_free()
 		if _status:
@@ -475,7 +492,7 @@ func _reload_list_stepwise(gen: int) -> void:
 			var label: String = _fn_list_label(fid)
 			_filtered_fn.append(fid)
 			if _list:
-				_list.add_item(label)
+				_list.add_item(label, _fn_list_icon(fid))
 			if _status and (i == 0 or i + 1 == nfn or (Time.get_ticks_msec() - t0) >= _STEP_BUDGET_MS):
 				_status.text = "正在加载列表… %d / %d" % [i + 1, nfn]
 			if (Time.get_ticks_msec() - t0) >= _STEP_BUDGET_MS:
@@ -543,7 +560,7 @@ func _apply_filter(query: String) -> void:
 				continue
 			_filtered_fn.append(fid)
 			if _list:
-				_list.add_item(label)
+				_list.add_item(label, _fn_list_icon(fid))
 		return
 	for sid: int in _ids:
 		var label: String = _list_label(sid)
@@ -558,6 +575,20 @@ func _apply_filter(query: String) -> void:
 func _fn_list_label(fid: String) -> String:
 	var m: Dictionary = _working_function_modules.get(fid, DataStore.get_function_module(fid))
 	return "%s · %s" % [fid, str(m.get("name", "?"))]
+
+
+func _fn_list_icon(fid: String) -> Texture2D:
+	var m: Dictionary = TypedVariant.as_dict(
+		_working_function_modules.get(fid, DataStore.get_function_module(fid))
+	)
+	return UiAssets.function_module_icon(m)
+
+
+func _set_title_icon(tex: Texture2D) -> void:
+	if _title_icon == null:
+		return
+	_title_icon.texture = tex
+	_title_icon.visible = tex != null
 
 
 func _list_label(sid: int) -> String:
@@ -604,6 +635,7 @@ func _select_fn_id(item_id: String) -> void:
 	_current_id = -1
 	var d: Dictionary = _ensure_working_fn(item_id)
 	_title.text = "副装备 %s · %s" % [item_id, str(d.get("name", "?"))]
+	_set_title_icon(UiAssets.function_module_icon(d))
 	var sel: int = _filtered_fn.find(item_id)
 	if _list and sel >= 0 and not _list.is_selected(sel):
 		_list.select(sel)
@@ -620,6 +652,7 @@ func _build_match_control_fields() -> void:
 	for c: Node in _grid.get_children():
 		c.queue_free()
 	_title.text = "对局控制参数（泰坦三管 / 末日伤）"
+	_set_title_icon(null)
 	if _working_titan_pvp.is_empty():
 		_working_titan_pvp = {
 			"pipe_shield_max": 100,
@@ -677,6 +710,7 @@ func _build_combat_eval_fields() -> void:
 	for c: Node in _grid.get_children():
 		c.queue_free()
 	_title.text = "战评称号目录（只读 · MULTIPLAYER_PVP §7.1）"
+	_set_title_icon(null)
 	_grid.columns = 1
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var items: Array = TypedVariant.as_array(DataStore.get("combat_evals"))
@@ -732,6 +766,7 @@ func _select_id(item_id: int) -> void:
 	_current_id = item_id
 	_current_fn_id = ""
 	var d: Dictionary = _ensure_working(item_id)
+	_set_title_icon(null)
 	match _tab:
 		Tab.SHIPS:
 			_title.text = "%d · %s（%s）" % [item_id, str(d.get("name", "?")), str(d.get("name_en", ""))]
@@ -767,6 +802,7 @@ func _build_visualization_stepwise(kind: Tab, gen: int) -> void:
 		if kind == Tab.DAMAGE
 		else "血量可视化 · 纵向滚轮表 · 盾 / 甲 / 结构"
 	)
+	_set_title_icon(null)
 	var root: VBoxContainer = VBoxContainer.new()
 	root.add_theme_constant_override("separation", UiLayout.px(18, self))
 	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL

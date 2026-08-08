@@ -115,7 +115,8 @@ func _build_slot_markers() -> void:
 				_boundary_markers.add_child(bm2)
 
 func _make_indicator(packed: PackedScene, is_hexa: bool) -> Node3D:
-	## Hollow outline GLB only — no solid thickness pad (that looked like filled disks).
+	## Visual: hollow outline GLB only (filled disks looked wrong).
+	## Pick volume is separate solid hex/square math in pick_slot_by_ray (BOARD_AND_INPUT §4).
 	var root: Node3D = Node3D.new()
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.25, 0.95, 0.85, 0.85) if is_hexa else Color(0.35, 0.65, 1.0, 0.88)
@@ -1189,41 +1190,114 @@ func _cancel_drag() -> void:
 	_drag_ship = null
 
 func pick_ship_at(origin: Vector3, dir: Vector3, exclude: ShipUnit = null) -> ShipUnit:
+	## Model AABB raycast (BOARD_AND_INPUT §4). No soft sphere around logic centre.
 	## Any team (player + AI) for hover/info; drag still gated in PointerInput / begin_drag.
 	_purge_freed_ships()
 	var best: ShipUnit = null
-	var best_d: float = 9999.0
+	var best_t: float = INF
+	var nd: Vector3 = dir.normalized()
+	if nd.length_squared() < 1e-12:
+		return null
 	for s: ShipUnit in _ships:
-		if s.is_destroyed:
+		if s == null or not is_instance_valid(s) or s.is_destroyed:
 			continue
 		if exclude != null and s == exclude:
 			continue
-		var to_s: Vector3 = s.global_position - origin
-		var t: float = to_s.dot(dir)
+		var t: float = s.ray_hit_model_distance(origin, nd)
 		if t < 0.0:
 			continue
-		var closest: Vector3 = origin + dir * t
-		var d: float = closest.distance_to(s.global_position)
-		# Slightly larger pick for distant AI field ships.
-		# Swap-drop (exclude set) also widens: big hulls extend past the cell centre.
-		var hit_r: float = 1.6 if s.team_id == ShipUnit.TEAM_AI else 1.35
-		if exclude != null:
-			hit_r = maxf(hit_r, 2.4)
-		if d < hit_r and d < best_d:
-			best_d = d
+		if t < best_t:
+			best_t = t
 			best = s
 	return best
 
-func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
+## Circumradius for pointy-top field hexes that tessellate with board spacing.
+static func field_hex_circumradius() -> float:
+	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
+	var hox: float = absf(TypedVariant.as_float(b.get("hex_offset_x", -3.0), -3.0))
+	var hoz: float = absf(TypedVariant.as_float(b.get("hex_offset_z", -2.5), -2.5))
+	## Pointy-top: same-row spacing = sqrt(3)*R; vertical neighbor spacing = 1.5*R.
+	var r_x: float = hox / sqrt(3.0)
+	var r_z: float = hoz / 1.5
+	return minf(r_x, r_z) * 0.98
+
+
+## Solid filled pointy-top hex in XZ (not a hollow ring; BOARD_AND_INPUT §4).
+static func point_in_field_hex_xz(world: Vector3, cell_center: Vector3, radius: float = -1.0) -> bool:
+	var R: float = radius if radius > 0.0 else field_hex_circumradius()
+	if R <= 1e-6:
+		return false
+	var dx: float = absf(world.x - cell_center.x)
+	var dz: float = absf(world.z - cell_center.z)
+	if dz > R:
+		return false
+	if dx > R * sqrt(3.0) * 0.5:
+		return false
+	return dz <= R - dx / sqrt(3.0)
+
+
+static func point_in_hangar_square_xz(world: Vector3, cell_center: Vector3) -> bool:
+	var half: float = absf(hangar_step_x()) * 0.5
+	if half <= 1e-6:
+		half = 0.6
+	return absf(world.x - cell_center.x) <= half and absf(world.z - cell_center.z) <= half
+
+
+## Camera ray → solid cell under cursor (BOARD_AND_INPUT §4). Empty = miss.
+func pick_slot_by_ray(origin: Vector3, dir: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
+	var nd: Vector3 = dir.normalized()
+	if nd.length_squared() < 1e-12:
+		return {}
 	var best: Dictionary = {}
-	var best_d: float = 2.5
+	var best_t: float = INF
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var side: int = field_side if field_side >= 0 else team
+	var hex_r: float = field_hex_circumradius()
+	for z: int in range(fh):
+		var cols: int = field_cols_at(z)
+		for x: int in range(cols):
+			var c: Vector3 = cell_to_world("field", side, x, z)
+			if absf(nd.y) < 1e-8:
+				continue
+			var t: float = (c.y - origin.y) / nd.y
+			if t < 0.0 or t >= best_t:
+				continue
+			var hit: Vector3 = origin + nd * t
+			if not point_in_field_hex_xz(hit, c, hex_r):
+				continue
+			best_t = t
+			best = {"slot_type": "field", "x": x, "z": z, "team": side}
+	var hw: int = TypedVariant.as_int(b.get("hangar_width", 15), 15)
+	for x: int in range(hw):
+		var c2: Vector3 = cell_to_world("hangar", team, x, 0)
+		if absf(nd.y) < 1e-8:
+			continue
+		var t2: float = (c2.y - origin.y) / nd.y
+		if t2 < 0.0 or t2 >= best_t:
+			continue
+		var hit2: Vector3 = origin + nd * t2
+		if not point_in_hangar_square_xz(hit2, c2):
+			continue
+		best_t = t2
+		best = {"slot_type": "hangar", "x": x, "z": 0, "team": team}
+	return best
+
+
+func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
+	## Solid footprint containment (same shapes as pick_slot_by_ray). No soft sphere.
+	var best: Dictionary = {}
+	var best_d: float = INF
+	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
+	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
+	var side: int = field_side if field_side >= 0 else team
+	var hex_r: float = field_hex_circumradius()
 	for z: int in range(fh):
 		var cols: int = field_cols_at(z)
 		for x: int in range(cols):
 			var p: Vector3 = cell_to_world("field", side, x, z)
+			if not point_in_field_hex_xz(world, p, hex_r):
+				continue
 			var d: float = Vector2(world.x - p.x, world.z - p.z).length()
 			if d < best_d:
 				best_d = d
@@ -1231,6 +1305,8 @@ func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: 
 	var hw: int = TypedVariant.as_int(b.get("hangar_width", 15), 15)
 	for x: int in range(hw):
 		var p2: Vector3 = cell_to_world("hangar", team, x, 0)
+		if not point_in_hangar_square_xz(world, p2):
+			continue
 		var d2: float = Vector2(world.x - p2.x, world.z - p2.z).length()
 		if d2 < best_d:
 			best_d = d2

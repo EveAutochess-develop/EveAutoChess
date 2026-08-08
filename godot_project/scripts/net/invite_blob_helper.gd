@@ -101,6 +101,7 @@ static func join_address(decoded: Dictionary) -> Dictionary:
 
 
 ## Ordered try list per SEMI_ASYNC §7.2 (caller prepends LAN if any).
+## Home Wi‑Fi: IPv4 before global IPv6 (v6 often blackholes on same SSID).
 static func join_endpoints(decoded: Dictionary) -> Array:
 	var out: Array = []
 	var port := int(decoded.get("port", 0))
@@ -108,12 +109,12 @@ static func join_endpoints(decoded: Dictionary) -> Array:
 	var ipv4 := str(decoded.get("ip", "")).strip_edges()
 	var ref_ip := str(decoded.get("reflexive_ip", "")).strip_edges()
 	var ref_port := int(decoded.get("reflexive_port", 0))
+	if ipv4 != "" and not ipv4.begins_with("127.") and port > 0:
+		out.append({"ip": ipv4, "port": port, "via": "blob_v4"})
 	if ipv6 != "" and port > 0:
-		out.append({"ip": ipv6, "port": port})
-	if ipv4 != "" and port > 0:
-		out.append({"ip": ipv4, "port": port})
+		out.append({"ip": ipv6, "port": port, "via": "blob_v6"})
 	if ref_ip != "" and ref_port > 0:
-		out.append({"ip": ref_ip, "port": ref_port})
+		out.append({"ip": ref_ip, "port": ref_port, "via": "blob_ref"})
 	return out
 
 

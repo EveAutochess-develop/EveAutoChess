@@ -29,8 +29,11 @@ static func size_allowed_for_ship(ship_data: Dictionary, module_def: Dictionary)
 	if size not in allowed:
 		return false
 	var allowed_on: Variant = module_def.get("allowed_on", [])
-	if typeof(allowed_on) == TYPE_ARRAY:
-		return size in allowed_on
+	if typeof(allowed_on) == TYPE_ARRAY and not TypedVariant.as_array(allowed_on).is_empty():
+		if size not in TypedVariant.as_array(allowed_on):
+			return false
+	if not MixedLance.capital_role_allowed(ship_data, module_def):
+		return false
 	return true
 
 static func weapon_gate_matches(ship: ShipUnit, module_def: Dictionary) -> bool:
@@ -392,7 +395,12 @@ static func tick_active_modules(
 	sim_time: float,
 	auth_rng: Callable,
 ) -> void:
-	if ship.is_destroyed or ship.slot_type != "field" or not ship.functions_enabled():
+	if ship == null or not is_instance_valid(ship):
+		return
+	if ship.is_destroyed:
+		MixedLance.abort_combat_end(ship)
+		return
+	if ship.slot_type != "field" or not ship.functions_enabled():
 		return
 	_tick_implant_passives(ship, sim_dt, sim_time)
 	for entry: Variant in ship.get_function_fit():
@@ -404,8 +412,12 @@ static func tick_active_modules(
 			continue
 		if TypedVariant.as_bool(def.get("passive", false)):
 			continue
-		if str(def.get("activate", "periodic")) != "periodic":
-			if str(def.get("activate", "")) == "on_need":
+		var activate: String = str(def.get("activate", "periodic"))
+		if activate == "mixed_lance":
+			MixedLance.tick(ship, board, fid, def, sim_dt, sim_time)
+			continue
+		if activate != "periodic":
+			if activate == "on_need":
 				if ship.max_shield <= 0.0 or ship.shield_hp >= ship.max_shield * 0.9:
 					continue
 			else:
@@ -414,6 +426,10 @@ static func tick_active_modules(
 			if _best_heal_ally(ship, board) != null:
 				continue
 		_try_fire_module(ship, board, fid, def, sim_dt, sim_time, auth_rng)
+
+
+static func abort_mixed_lances(ship: ShipUnit) -> void:
+	MixedLance.abort_combat_end(ship)
 
 static func _runtime(ship: ShipUnit, fid: String) -> Dictionary:
 	if not ship._function_runtime.has(fid):
@@ -574,6 +590,8 @@ static func _fire_module_effects(
 static func _apply_repair(ship: ShipUnit, fx: Dictionary) -> void:
 	var layer: String = str(fx.get("layer", "armor"))
 	var amount: float = TypedVariant.as_float(fx.get("amount", 0.0))
+	if ship.has_method("current_heal_received_mul"):
+		amount *= TypedVariant.as_float(ship.call("current_heal_received_mul"), 1.0)
 	var before: float = 0.0
 	var after: float = 0.0
 	match layer:
@@ -594,7 +612,8 @@ static func _apply_repair(ship: ShipUnit, fx: Dictionary) -> void:
 		ship.call("_notify_health_bar_gain", layer, gained)
 	if ship._health_bar:
 		ship._health_bar.call("refresh")
-	_spawn_equip_float(ship, gained, true, Color(0.35, 0.95, 0.55))
+	_spawn_heal_float(ship, gained)
+
 
 static func _apply_nos(ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
@@ -608,8 +627,9 @@ static func _apply_nos(ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 	var gained: float = ship.cap_current - before_self
 	if gained > 0.5 and ship.has_method("_notify_health_bar_gain"):
 		ship.call("_notify_health_bar_gain", "cap", gained)
-	_spawn_equip_float(tgt, -drain, false, Color(1.0, 0.4, 0.55))
-	_spawn_equip_float(ship, gained, true, Color(0.95, 0.85, 0.35))
+	_spawn_cap_float(tgt, -drain)
+	_spawn_cap_float(ship, gained)
+
 
 static func _apply_neut(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
@@ -618,7 +638,8 @@ static func _apply_neut(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 		return
 	var before: float = tgt.cap_current
 	tgt.cap_current = maxf(0.0, tgt.cap_current - amount)
-	_spawn_equip_float(tgt, tgt.cap_current - before, false, Color(1.0, 0.4, 0.55))
+	_spawn_cap_float(tgt, tgt.cap_current - before)
+
 
 static func _apply_remote_cap(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed or tgt.is_unmanned:
@@ -630,21 +651,24 @@ static func _apply_remote_cap(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> 
 	var gained: float = tgt.cap_current - before
 	if gained > 0.5 and tgt.has_method("_notify_health_bar_gain"):
 		tgt.call("_notify_health_bar_gain", "cap", gained)
-	_spawn_equip_float(tgt, gained, true, Color(0.95, 0.85, 0.35))
+	_spawn_cap_float(tgt, gained)
 
 
-## Shared FloatTextPool on CombatResolver — presentation only; still runs in no-model.
-static func _spawn_equip_float(ship: ShipUnit, delta_val: float, positive: bool, color: Color) -> void:
-	if ship == null or not is_instance_valid(ship):
-		return
-	var applied: float = absf(delta_val)
-	if applied < 1.0:
+## Shared FloatTextPool — heal green / cap blue, each accumulates (COMBAT.md).
+static func _spawn_heal_float(ship: ShipUnit, amount: float) -> void:
+	if ship == null or not is_instance_valid(ship) or amount < 1.0:
 		return
 	var pool: Node = _float_text_pool(ship)
-	if pool == null or not pool.has_method("spawn"):
+	if pool != null and pool.has_method("add_heal"):
+		pool.call("add_heal", ship.global_position, amount, ship.get_instance_id())
+
+
+static func _spawn_cap_float(ship: ShipUnit, signed_delta: float) -> void:
+	if ship == null or not is_instance_valid(ship) or absf(signed_delta) < 1.0:
 		return
-	var text: String = ("+%d" if positive else "-%d") % roundi(applied)
-	pool.call("spawn", ship.global_position, text, color)
+	var pool: Node = _float_text_pool(ship)
+	if pool != null and pool.has_method("add_cap"):
+		pool.call("add_cap", ship.global_position, signed_delta, ship.get_instance_id())
 
 
 static func _float_text_pool(ship: ShipUnit) -> Node:

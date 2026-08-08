@@ -108,13 +108,28 @@ static func list_join_candidates(rooms: Array, rules_hash: String, ignore_in_mat
 		var code := int(d.get("code", 0))
 		if code < 1 or code > 9999:
 			continue
-		var ip := str(d.get("ip", ""))
 		var port := int(d.get("port", NullsecNetSession.port_for_code(code)))
-		var ep := "%s:%d" % [ip, port]
-		if ep == ":0" or seen_ep.has(ep):
-			continue
-		seen_ep[ep] = true
-		candidates.append(d)
+		var ips: Array = []
+		var primary := str(d.get("ip", "")).strip_edges()
+		if primary != "":
+			ips.append(primary)
+		var alts: Variant = d.get("alt_ips", [])
+		if alts is Array:
+			for a_v: Variant in alts:
+				var a := str(a_v).strip_edges()
+				if a != "" and not ips.has(a):
+					ips.append(a)
+		for ip_s: Variant in ips:
+			var ip := str(ip_s).strip_edges()
+			if ip == "" or ip.begins_with("127.") or ip == "0.0.0.0":
+				continue
+			var ep := "%s:%d" % [ip, port]
+			if ep == ":0" or seen_ep.has(ep):
+				continue
+			seen_ep[ep] = true
+			var row: Dictionary = d.duplicate(true)
+			row["ip"] = ip
+			candidates.append(row)
 	if candidates.is_empty():
 		return []
 	## code asc, then emptier first when same code (prefer joinable public seats).

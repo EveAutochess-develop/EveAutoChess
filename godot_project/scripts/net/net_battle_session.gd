@@ -17,6 +17,8 @@ const PENDING_EVENTS_CAP: int = 96
 const LIGHT_EVENTS_CAP: int = 48
 ## §3.1a — guest side-equipment FX repeats on this beat while a function target holds.
 const GUEST_FN_FX_PERIOD_S: float = 1.0
+## Active session so MixedLance can force a full snap on lock without MatchRoot coupling.
+static var _live: NetBattleSession = null
 
 var match_rng: MatchRng
 var host_sim: HostSimOrchestrator
@@ -76,9 +78,16 @@ var _g_hp_smooth_s: float = 0.3
 var _g_seed: int = 0
 ## Unmanned net_uid sequence — host-minted only (§3.2a).
 var _unmanned_uid_seq: int = 0
+## Guest: ship instance ids that currently have a net-driven lance FX.
+var _g_lance_iids: Dictionary = {}
+
+
+static func live_session() -> NetBattleSession:
+	return _live
 
 
 func setup(rng: MatchRng, net: NullsecNetSession, payload: Dictionary) -> void:
+	_live = self
 	match_rng = rng
 	_net = net
 	is_host = net != null and net.is_host
@@ -123,6 +132,11 @@ func setup(rng: MatchRng, net: NullsecNetSession, payload: Dictionary) -> void:
 	_reset_wire_state()
 
 
+func _exit_tree() -> void:
+	if _live == self:
+		_live = null
+
+
 func _reset_wire_state() -> void:
 	_roster = PackedStringArray()
 	_roster_gen = 0
@@ -135,6 +149,7 @@ func _reset_wire_state() -> void:
 	_g_roster_gen = -1
 	_g_ships.clear()
 	_g_state.clear()
+	_g_lance_iids.clear()
 	_unmanned_uid_seq = 0
 
 
@@ -411,6 +426,11 @@ func enrich_and_broadcast_light(board: BoardController) -> void:
 		## Manned field roster drift → force next tick full; unmanned alone never does.
 		_force_full = true
 		return
+	## Lance Prep/Fire/End: upgrade light cadence to full so angle trailers keep syncing.
+	if board != null and _any_active_lance(board):
+		_force_full = true
+		_last_light_ms = Time.get_ticks_msec()
+		return
 	_last_light_ms = Time.get_ticks_msec()
 	if board == null or _roster.is_empty():
 		return
@@ -510,6 +530,7 @@ func _encode_full(ships: Array, events: Array, state_hash: String) -> PackedByte
 			var sq: int = int(s.fighter_squadron_id)
 			NetWireCodec.append_u8(buf, 0 if sq < 0 else clampi(sq + 1, 1, 255))
 	_append_event_pairs(buf, events)
+	_append_lance_aims(buf, ships)
 	return NetWireCodec.wrap(buf, _wire_compress_min)
 
 
@@ -531,6 +552,22 @@ func _append_event_pairs(buf: PackedByteArray, events: Array) -> void:
 		n += 1
 	NetWireCodec.append_u16(buf, n)
 	buf.append_array(pairs)
+
+
+func _append_lance_aims(buf: PackedByteArray, ships: Array) -> void:
+	## SEMI_ASYNC §3.3.1 A — every full while Prep/Fire/End must list ALL active aims.
+	var rows: Array = MixedLance.collect_active_aim_rows(ships, Callable(self, "_idx_of_iid"))
+	NetWireCodec.append_u16(buf, rows.size())
+	for r_v: Variant in rows:
+		var r: Dictionary = TypedVariant.as_dict(r_v)
+		NetWireCodec.append_u16(buf, TypedVariant.as_int(r.get("idx", 0), 0))
+		NetWireCodec.append_i16(buf, MixedLance.quant_angle(TypedVariant.as_float(r.get("az_xz", 0.0))))
+		NetWireCodec.append_i16(buf, MixedLance.quant_angle(TypedVariant.as_float(r.get("el_xy", 0.0))))
+
+
+## True while any field ship is in Prep/Fire/End — keep fulls carrying angles.
+func _any_active_lance(board: BoardController) -> bool:
+	return MixedLance.has_any_active(board)
 
 
 func _rebuild_roster(ships: Array) -> void:
@@ -820,7 +857,8 @@ func apply_full_bin(
 		)
 	if watch_only_apply:
 		_guest_cull_orphan_unmanned(board, roster)
-	_replay_event_pairs(p, i, firing_fx, float_text)
+	var after_events: int = _replay_event_pairs(p, i, firing_fx, float_text)
+	_apply_lance_aims_bin(p, after_events)
 	if gaps > 0:
 		_gap_streak += 1
 		## SEMI_ASYNC §6.2 — HP streak is log-only; UI notify is W/L prediction only.
@@ -963,14 +1001,14 @@ func apply_light_bin(
 	_replay_event_pairs(p, i, firing_fx, float_text)
 
 
-func _replay_event_pairs(p: PackedByteArray, i: int, firing_fx: Object, float_text: Object) -> void:
+func _replay_event_pairs(p: PackedByteArray, i: int, firing_fx: Object, float_text: Object) -> int:
 	if i + 2 > p.size():
-		return
+		return i
 	var n: int = NetWireCodec.read_u16(p, i)
 	i += 2
 	for _e: int in range(n):
 		if i + 4 > p.size():
-			return
+			return i
 		var src: ShipUnit = _ship_at(NetWireCodec.read_u16(p, i))
 		var tgt: ShipUnit = _ship_at(NetWireCodec.read_u16(p, i + 2))
 		i += 4
@@ -982,6 +1020,48 @@ func _replay_event_pairs(p: PackedByteArray, i: int, firing_fx: Object, float_te
 			var st: Dictionary = _guest_state(src)
 			st["fire_acc"] = 0.0
 			st["last_evt_ms"] = Time.get_ticks_msec()
+	return i
+
+
+func _apply_lance_aims_bin(p: PackedByteArray, i: int) -> void:
+	## Trailer optional for older hosts: missing bytes → clear nothing new.
+	if i + 2 > p.size():
+		return
+	var n: int = NetWireCodec.read_u16(p, i)
+	i += 2
+	var seen: Dictionary = {}
+	for _l: int in range(n):
+		if i + 6 > p.size():
+			break
+		var idx: int = NetWireCodec.read_u16(p, i)
+		var az: float = MixedLance.dequant_angle(NetWireCodec.read_i16(p, i + 2))
+		var el: float = MixedLance.dequant_angle(NetWireCodec.read_i16(p, i + 4))
+		i += 6
+		var s: ShipUnit = _ship_at(idx)
+		if s == null or s.is_destroyed:
+			continue
+		if _g_owner_seat != local_seat:
+			var dir: Vector3 = MixedLance.angles_to_dir(az, el)
+			dir = Vector3(-dir.x, dir.y, -dir.z)
+			az = MixedLance.dir_to_az_xz(dir)
+			el = MixedLance.dir_to_el_xy(dir)
+		MixedLance.apply_guest_aim(s, az, el)
+		seen[s.get_instance_id()] = true
+		_g_lance_iids[s.get_instance_id()] = true
+	## Drop guest FX for lances no longer in the trailer.
+	var drop: Array = []
+	for iid_v: Variant in _g_lance_iids.keys():
+		var iid: int = TypedVariant.as_int(iid_v, 0)
+		if seen.has(iid):
+			continue
+		drop.append(iid)
+	for iid2_v: Variant in drop:
+		var iid2: int = TypedVariant.as_int(iid2_v, 0)
+		_g_lance_iids.erase(iid2)
+		@warning_ignore("unsafe_cast")
+		var ship: ShipUnit = instance_from_id(iid2) as ShipUnit
+		if ship != null and is_instance_valid(ship):
+			MixedLance.clear_guest_aim(ship)
 
 
 func _ship_at(idx: int) -> ShipUnit:
@@ -1128,6 +1208,15 @@ func guest_present_tick(
 		_guest_tick_motion(s, st, delta, pos_k, now)
 		_guest_tick_hp(s, st, delta, hp_k)
 		_guest_tick_fire(s, st, delta, speed_mul, firing_fx, float_text)
+	## Lance FX may outlive motion state entries; drive from the aim set.
+	for lance_iid_v: Variant in _g_lance_iids.keys():
+		var lid: int = TypedVariant.as_int(lance_iid_v, 0)
+		@warning_ignore("unsafe_cast")
+		var ls: ShipUnit = instance_from_id(lid) as ShipUnit
+		if ls == null or not is_instance_valid(ls) or ls.is_destroyed:
+			_g_lance_iids.erase(lance_iid_v)
+			continue
+		MixedLance.guest_tick_visual(ls, delta)
 
 
 func _guest_tick_motion(s: ShipUnit, st: Dictionary, delta: float, pos_k: float, now: int) -> void:
@@ -1239,7 +1328,9 @@ func _guest_fire_once(src: ShipUnit, tgt: ShipUnit, firing_fx: Object, float_tex
 	if src.is_logistic:
 		var heal: Dictionary = src.heal_dict_scaled()
 		var amount: float = _apply_visual_repair(tgt, heal)
-		if amount > 0.0 and float_text != null and float_text.has_method("spawn"):
+		if amount > 0.0 and float_text != null and float_text.has_method("add_heal"):
+			float_text.call("add_heal", tgt.global_position, amount, tgt.get_instance_id())
+		elif amount > 0.0 and float_text != null and float_text.has_method("spawn"):
 			float_text.call("spawn", tgt.global_position, "+%d" % roundi(amount), Color(0.35, 0.95, 0.55))
 		if firing_fx != null and firing_fx.has_method("play"):
 			firing_fx.call("play", src, tgt, "remote_armor", 0.45)
@@ -1252,7 +1343,9 @@ func _guest_fire_once(src: ShipUnit, tgt: ShipUnit, firing_fx: Object, float_tex
 	var dmg: Dictionary = _guest_damage_dict(src, tgt)
 	var res: Dictionary = tgt.apply_hit_dict(dmg, false)
 	var dealt: float = TypedVariant.as_float(res.get("dealt", 0.0), 0.0)
-	if dealt > 0.0 and float_text != null and float_text.has_method("spawn"):
+	if dealt > 0.0 and float_text != null and float_text.has_method("add_damage"):
+		float_text.call("add_damage", tgt.global_position, dealt, tgt.get_instance_id())
+	elif dealt > 0.0 and float_text != null and float_text.has_method("spawn"):
 		float_text.call("spawn", tgt.global_position, "-%d" % roundi(dealt), Color(1.0, 0.45, 0.35))
 	if firing_fx != null and firing_fx.has_method("play"):
 		firing_fx.call("play", src, tgt, str(src.resolve_weapon_fx_kind()), 0.35)

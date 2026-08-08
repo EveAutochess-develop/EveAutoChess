@@ -171,10 +171,21 @@ func _apply_platform_render_profile() -> void:
 	root.msaa_3d = Viewport.MSAA_4X
 	root.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	root.anisotropic_filtering_level = Viewport.ANISOTROPY_16X
-	if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_WINDOWED:
-		var sz: Vector2i = DisplayServer.window_get_size()
-		if sz.x < 1600 or sz.y < 900:
-			DisplayServer.window_set_size(Vector2i(1920, 1080))
+	_ensure_desktop_maximized()
 	print("[GameSession] desktop render profile: scaling_3d=%.1f msaa=4x editor=%s" % [
 		scale, OS.has_feature("editor")
 	])
+
+
+## UI_AND_SHELL §3.0 — PC boot: maximize to work area (not exclusive fullscreen).
+func _ensure_desktop_maximized() -> void:
+	if OS.has_feature("editor"):
+		return
+	if OS.has_feature("mobile") or OS.get_name() == "Android" or OS.get_name() == "iOS":
+		return
+	var mode: DisplayServer.WindowMode = DisplayServer.window_get_mode()
+	if mode == DisplayServer.WINDOW_MODE_MAXIMIZED or mode == DisplayServer.WINDOW_MODE_FULLSCREEN \
+			or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN:
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MAXIMIZED)
+	print("[GameSession] desktop window maximized")

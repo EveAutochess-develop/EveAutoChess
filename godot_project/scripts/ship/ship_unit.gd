@@ -24,6 +24,20 @@ var drone_bay_slots: int = 0  # 发射管 / active drone quota
 var _plugin_modules: Array = []
 ## Function bucket fit — max 3 incl. cyno: `{id, def}` (EQUIPMENT §2).
 var _function_fit: Array = []
+## Mixed lance channel — suppresses normal weapons while Prep/Fire/End.
+var lance_suppress_weapons: bool = false
+var _heal_received_mul: float = 1.0
+var _heal_received_mul_until: float = -1.0
+
+
+func set_lance_suppress(v: bool) -> void:
+	lance_suppress_weapons = v
+
+
+func is_lance_suppressing() -> bool:
+	return lance_suppress_weapons
+
+
 @warning_ignore("unused_private_class_variable")
 var _function_target: Variant = null
 @warning_ignore("unused_private_class_variable")
@@ -52,6 +66,8 @@ var unlimited_weapon_range: bool = false
 var field_side_team: int = -1  ## which half's world coords; -1 = team_id
 var cyno_channel_ends_at: float = -1.0
 var cyno_completed: bool = false
+## True while CapitalJumpFx is descending the hull onto the field.
+var capital_jumping: bool = false
 var capital_role: String = ""
 ## Visual-only TQ siege / industrial morph (`siege` | `industrial`); empty = none.
 var hull_morph: String = ""
@@ -880,6 +896,65 @@ func visual_radius_world() -> float:
 		return maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.5
 	return 1.0
 
+## Camera ray vs visible hull meshes (EQUIPMENT.md · 拖到舰落点).
+## Returns distance along dir to the nearest AABB entry, or -1 if miss.
+## Uses live mesh globals (soft-follow offset included). No soft sphere / cell inflate.
+func ray_hit_model_distance(origin: Vector3, dir: Vector3) -> float:
+	if _model_root == null or not is_instance_valid(_model_root):
+		return -1.0
+	var nd: Vector3 = dir.normalized()
+	if nd.length_squared() < 1e-12:
+		return -1.0
+	var best_t: float = -1.0
+	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if mi == null or not is_instance_valid(mi) or not mi.is_visible_in_tree():
+			continue
+		var local_aabb: AABB = mi.get_aabb()
+		if local_aabb.size.length_squared() < 1e-12:
+			continue
+		var world_box: AABB = _aabb_from_transformed(mi.global_transform, local_aabb)
+		var t: float = _ray_aabb_enter_t(origin, nd, world_box)
+		if t < 0.0:
+			continue
+		if best_t < 0.0 or t < best_t:
+			best_t = t
+	return best_t
+
+## Slab AABB ray enter distance; -1 on miss. Avoids Variant cast from AABB.intersects_ray.
+func _ray_aabb_enter_t(origin: Vector3, dir: Vector3, box: AABB) -> float:
+	var inv_x: float = 1.0 / dir.x if absf(dir.x) > 1e-12 else 1e12
+	var inv_y: float = 1.0 / dir.y if absf(dir.y) > 1e-12 else 1e12
+	var inv_z: float = 1.0 / dir.z if absf(dir.z) > 1e-12 else 1e12
+	var min_b: Vector3 = box.position
+	var max_b: Vector3 = box.position + box.size
+	var tx0: float = (min_b.x - origin.x) * inv_x
+	var tx1: float = (max_b.x - origin.x) * inv_x
+	var ty0: float = (min_b.y - origin.y) * inv_y
+	var ty1: float = (max_b.y - origin.y) * inv_y
+	var tz0: float = (min_b.z - origin.z) * inv_z
+	var tz1: float = (max_b.z - origin.z) * inv_z
+	var tmin: float = maxf(maxf(minf(tx0, tx1), minf(ty0, ty1)), minf(tz0, tz1))
+	var tmax: float = minf(minf(maxf(tx0, tx1), maxf(ty0, ty1)), maxf(tz0, tz1))
+	if tmax < 0.0 or tmin > tmax:
+		return -1.0
+	if tmin >= 0.0:
+		return tmin
+	if tmax >= 0.0:
+		return tmax
+	return -1.0
+
+func _aabb_from_transformed(xf: Transform3D, local: AABB) -> AABB:
+	var result: AABB = AABB()
+	var first: bool = true
+	for i: int in range(8):
+		var p: Vector3 = xf * local.get_endpoint(i)
+		if first:
+			result = AABB(p, Vector3.ZERO)
+			first = false
+		else:
+			result = result.expand(p)
+	return result
+
 func _xform_to_ancestor(ancestor: Node3D, leaf: Node) -> Transform3D:
 	## Local transform from ancestor to leaf (does not include ancestor.transform).
 	var chain: Array[Node3D] = []
@@ -1242,9 +1317,14 @@ func try_fit_function_module(module_id: String, slot_index: int = -1) -> Diction
 	if not FunctionFit.ship_allows_function_fit(ship_data):
 		return {"ok": false, "reason": "cyno_hull"}
 	if not FunctionFit.size_allowed_for_ship(ship_data, def):
+		var roles_v: Variant = def.get("require_capital_roles", [])
+		if typeof(roles_v) == TYPE_ARRAY and not TypedVariant.as_array(roles_v).is_empty():
+			return {"ok": false, "reason": "capital_role"}
 		return {"ok": false, "reason": "size"}
 	if TypedVariant.as_bool(def.get("implant", false), false) and _function_fit_has_implant():
 		return {"ok": false, "reason": "implant_taken"}
+	if TypedVariant.as_bool(def.get("unique_per_ship", false), false) and _function_fit_has_unique_line(str(def.get("line", mid))):
+		return {"ok": false, "reason": "lance_taken"}
 	if _function_fit.size() >= FunctionFit.MAX_SLOTS:
 		return {"ok": false, "reason": "full"}
 	var target: int = slot_index
@@ -1275,6 +1355,19 @@ func _function_fit_has_implant() -> bool:
 	return false
 
 
+func _function_fit_has_unique_line(line: String) -> bool:
+	var want: String = line.strip_edges()
+	if want == "":
+		return false
+	for entry: Variant in _function_fit:
+		var e: Dictionary = TypedVariant.as_dict(entry)
+		var d: Dictionary = TypedVariant.as_dict(e.get("def", {}))
+		var lid: String = str(d.get("line", e.get("id", ""))).strip_edges()
+		if lid == want and TypedVariant.as_bool(d.get("unique_per_ship", false), false):
+			return true
+	return false
+
+
 ## Prepare unequip. Returns removed module id (empty if miss).
 func unequip_function_at(slot_index: int) -> String:
 	if slot_index < 0 or slot_index >= _function_fit.size():
@@ -1295,6 +1388,7 @@ func set_function_fit(entries: Array) -> void:
 	_function_fit.clear()
 	_plugin_modules.clear()
 	var saw_implant: bool = false
+	var saw_lance: bool = false
 	for entry: Variant in entries:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
@@ -1305,18 +1399,30 @@ func set_function_fit(entries: Array) -> void:
 		var def: Dictionary = TypedVariant.as_dict(e.get("def", DataStore.get_function_module(fid)))
 		if def.is_empty():
 			continue
+		if not FunctionFit.size_allowed_for_ship(DataStore.get_ship(ship_id), def):
+			continue
 		var is_implant: bool = TypedVariant.as_bool(def.get("implant", false), false)
 		if is_implant and saw_implant:
 			SessionDiagnostics.log("equip.implant_clamp", "drop extra implant=%s ship=%d" % [fid, ship_id])
 			continue
 		if is_implant:
 			saw_implant = true
+		if TypedVariant.as_bool(def.get("unique_per_ship", false), false) and saw_lance:
+			SessionDiagnostics.log("equip.lance_clamp", "drop extra lance=%s ship=%d" % [fid, ship_id])
+			continue
+		if TypedVariant.as_bool(def.get("unique_per_ship", false), false):
+			saw_lance = true
 		_function_fit.append({"id": fid, "def": def.duplicate(true)})
 		if FunctionFit.is_cyno_def(def):
 			_plugin_modules.append(def.duplicate(true))
 	reload_stats()
 
 func reset_combat_runtime() -> void:
+	hull_morph_playing = false
+	hull_morphed = false
+	hull_morph_unstacking = false
+	capital_jumping = false
+
 	cap_current = cap_capacity
 	lock_target_id = 0
 	lock_timer = 0.0
@@ -1327,6 +1433,10 @@ func reset_combat_runtime() -> void:
 	combat_target = null
 	_function_target = null
 	last_attack_time = -999.0
+	lance_suppress_weapons = false
+	_heal_received_mul = 1.0
+	_heal_received_mul_until = -1.0
+	FunctionFit.abort_mixed_lances(self)
 	_stat_modifiers.clear()
 	FunctionFit.reset_combat_state(self)
 	## Carrier pool re-inits on next ensure; do not wipe living fighters' squadron id.
@@ -1378,6 +1488,17 @@ func layer_resist(layer: String, dtype: String, base: float) -> float:
 	return clampf((base + add) * mul, 0.0, 0.95)
 
 func add_stat_modifier(source: String, stat_name: String, op: String, value: float, duration: float = -1.0, stack_id: String = "") -> void:
+	## Non-empty stack_id replaces prior entry (refresh debuffs without stacking).
+	if stack_id != "":
+		var kept: Array = []
+		for m: Variant in _stat_modifiers:
+			if typeof(m) != TYPE_DICTIONARY:
+				continue
+			var md: Dictionary = TypedVariant.as_dict(m)
+			if str(md.get("stack_id", "")) == stack_id:
+				continue
+			kept.append(md)
+		_stat_modifiers = kept
 	_stat_modifiers.append({
 		"source": source,
 		"stat": stat_name,
@@ -2324,36 +2445,56 @@ func apply_heal(amount: float) -> bool:
 ## Returns {applied: float, full: bool}. `applied` is HP that actually entered the
 ## bars — a layer already at max discards its share (COMBAT §9: 溢出丢弃、不跨层),
 ## so callers must never report the requested amount as healing.
+func apply_heal_received_mul(mul: float, duration_s: float) -> void:
+	_heal_received_mul = clampf(mul, 0.0, 1.0)
+	_heal_received_mul_until = _combat_sim_time + maxf(0.0, duration_s)
+
+
+func current_heal_received_mul() -> float:
+	if _heal_received_mul_until < 0.0:
+		return 1.0
+	if _combat_sim_time > _heal_received_mul_until:
+		_heal_received_mul = 1.0
+		_heal_received_mul_until = -1.0
+		return 1.0
+	return _heal_received_mul
+
+
 func apply_heal_racial(source_race: String, amounts: Dictionary) -> Dictionary:
 	if is_destroyed:
 		return {"applied": 0.0, "full": true}
+	var recv: float = current_heal_received_mul()
+	var scaled_amounts: Dictionary = amounts.duplicate()
+	if recv < 0.999:
+		for k: Variant in scaled_amounts.keys():
+			scaled_amounts[k] = TypedVariant.as_float(scaled_amounts[k], 0.0) * recv
 	var race_key: String = source_race.to_lower()
 	var shield_amt: float = 0.0
 	var armor_amt: float = 0.0
 	var structure_amt: float = 0.0
 	match race_key:
 		"amarr":
-			armor_amt = TypedVariant.as_float(amounts.get("armor", 0.0))
+			armor_amt = TypedVariant.as_float(scaled_amounts.get("armor", 0.0))
 			if armor_amt <= 0.0:
-				armor_amt = TypedVariant.as_float(amounts.get("shield", 0.0)) + TypedVariant.as_float(amounts.get("structure", 0.0))
+				armor_amt = TypedVariant.as_float(scaled_amounts.get("shield", 0.0)) + TypedVariant.as_float(scaled_amounts.get("structure", 0.0))
 		"caldari":
-			shield_amt = TypedVariant.as_float(amounts.get("shield", 0.0))
+			shield_amt = TypedVariant.as_float(scaled_amounts.get("shield", 0.0))
 			if shield_amt <= 0.0:
-				shield_amt = TypedVariant.as_float(amounts.get("armor", 0.0)) + TypedVariant.as_float(amounts.get("structure", 0.0))
+				shield_amt = TypedVariant.as_float(scaled_amounts.get("armor", 0.0)) + TypedVariant.as_float(scaled_amounts.get("structure", 0.0))
 		"gallente":
-			structure_amt = TypedVariant.as_float(amounts.get("structure", 0.0))
+			structure_amt = TypedVariant.as_float(scaled_amounts.get("structure", 0.0))
 			if structure_amt <= 0.0:
-				structure_amt = TypedVariant.as_float(amounts.get("shield", 0.0)) + TypedVariant.as_float(amounts.get("armor", 0.0))
+				structure_amt = TypedVariant.as_float(scaled_amounts.get("shield", 0.0)) + TypedVariant.as_float(scaled_amounts.get("armor", 0.0))
 		"minmatar":
-			var total: float = TypedVariant.as_float(amounts.get("shield", 0.0)) + TypedVariant.as_float(amounts.get("armor", 0.0)) + TypedVariant.as_float(amounts.get("structure", 0.0))
+			var total: float = TypedVariant.as_float(scaled_amounts.get("shield", 0.0)) + TypedVariant.as_float(scaled_amounts.get("armor", 0.0)) + TypedVariant.as_float(scaled_amounts.get("structure", 0.0))
 			var hi: int = int(floorf(total))
 			var lo: int = int(hi / 2)
 			shield_amt = float(lo + hi % 2)
 			armor_amt = float(lo)
 		_:
-			shield_amt = TypedVariant.as_float(amounts.get("shield", 0.0))
-			armor_amt = TypedVariant.as_float(amounts.get("armor", 0.0))
-			structure_amt = TypedVariant.as_float(amounts.get("structure", 0.0))
+			shield_amt = TypedVariant.as_float(scaled_amounts.get("shield", 0.0))
+			armor_amt = TypedVariant.as_float(scaled_amounts.get("armor", 0.0))
+			structure_amt = TypedVariant.as_float(scaled_amounts.get("structure", 0.0))
 	var applied: float = 0.0
 	if shield_amt > 0.0 and shield_hp < max_shield:
 		var add: float = minf(max_shield - shield_hp, shield_amt)

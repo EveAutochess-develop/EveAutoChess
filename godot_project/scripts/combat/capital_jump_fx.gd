@@ -27,6 +27,7 @@ func play(ship: ShipUnit, land_pos: Vector3, duration: float = 0.85, on_done: Ca
 	_start_y = land_pos.y + 11.0
 	_build()
 	if _ship != null and is_instance_valid(_ship):
+		_ship.capital_jumping = true
 		_ship.visible = true
 		_ship.global_position = Vector3(land_pos.x, _start_y, land_pos.z)
 		## Red descent is the portal/light VFX only — never tint HealthBar / hull materials
@@ -67,6 +68,7 @@ func _finish() -> void:
 	set_process(false)
 	if _ship != null and is_instance_valid(_ship):
 		_ship.global_position = _land
+		_ship.capital_jumping = false
 		_ship.set_combat_tint(true)
 		## Heal overlays if an older jump tint already mutated bar/plate materials.
 		if _ship.has_method("rebuild_health_bar"):
