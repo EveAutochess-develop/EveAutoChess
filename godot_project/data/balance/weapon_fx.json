@@ -1,5 +1,5 @@
 {
-  "_comment": "EVEmu invgroups: 53 Energy→laser, 74 Hybrid→rail, 55 Projectile→cannon, 56 Missile→missile. New ships MUST set ships/<id>.json weapon_fx explicitly (Amarr Energy→laser).",
+  "_comment": "Turret kinds: TQ shared_textures near/far (stage_turret_fx_pack). heal+function: stage_module_fx_pack. COMBAT §8.",
   "rand_pos_range": 0.25,
   "default_kind": "laser",
   "evemu_group_to_kind": {
@@ -9,31 +9,99 @@
     "56": "missile"
   },
   "kinds": {
-	"laser": {
+    "laser": {
       "evemu_effect": "effects.Laser",
       "style": "beam",
+      "look": "solid",
       "color": [1.0, 0.92, 0.25, 0.95],
-      "width": 0.10,
-      "duration_scale": 1.0
+      "width": 0.05,
+      "duration_scale": 1.0,
+      "alternate_near_far": true,
+      "role_near": "pulse",
+      "role_far": "beam",
+      "tex_near": "res://assets/vfx/turret_fx/laser/laserpulsefx_01a.png",
+      "tex_far": "res://assets/vfx/turret_fx/laser/laserbeamfx_01a.png",
+      "tex_shared": "res://assets/vfx/turret_fx/laser/laser.png",
+      "tex_noise": "res://assets/vfx/turret_fx/laser/noise.png",
+      "strobe_layers_near": [
+        "res://assets/vfx/turret_fx/laser/laserpulsefx_01a.png",
+        "res://assets/vfx/turret_fx/laser/laser.png",
+        "res://assets/vfx/turret_fx/laser/noise.png"
+      ],
+      "strobe_layers_far": [
+        "res://assets/vfx/turret_fx/laser/laserbeamfx_01a.png",
+        "res://assets/vfx/turret_fx/laser/laser.png",
+        "res://assets/vfx/turret_fx/laser/noise.png"
+      ],
+      "strobe_hz": 18.0,
+      "duration_scale_near": 0.55,
+      "duration_scale_far": 1.15,
+      "grid_mix": 0.45,
+      "scroll_speed": 6.5
     },
     "rail": {
       "evemu_effect": "hybridWeapon",
       "style": "beam",
+      "look": "solid",
       "color": [0.35, 0.85, 1.0, 0.95],
-      "width": 0.08,
-      "duration_scale": 0.75
+      "width": 0.04,
+      "duration_scale": 0.75,
+      "alternate_near_far": true,
+      "role_near": "blast",
+      "role_far": "rail",
+      "tex_near": "res://assets/vfx/turret_fx/rail/hybridblastfx_01a.png",
+      "tex_far": "res://assets/vfx/turret_fx/rail/hybridrailfx_01a.png",
+      "tex_shared": "res://assets/vfx/turret_fx/rail/blast.png",
+      "tex_noise": "res://assets/vfx/turret_fx/rail/noise.png",
+      "strobe_layers_near": [
+        "res://assets/vfx/turret_fx/rail/hybridblastfx_01a.png",
+        "res://assets/vfx/turret_fx/rail/hybridblastfx_01b.png",
+        "res://assets/vfx/turret_fx/rail/hybridblastfx_01c.png",
+        "res://assets/vfx/turret_fx/rail/blast.png",
+        "res://assets/vfx/turret_fx/rail/noise.png"
+      ],
+      "strobe_layers_far": [
+        "res://assets/vfx/turret_fx/rail/hybridrailfx_01a.png",
+        "res://assets/vfx/turret_fx/rail/blast.png",
+        "res://assets/vfx/turret_fx/rail/noise.png"
+      ],
+      "strobe_hz": 14.0,
+      "duration_scale_near": 0.45,
+      "duration_scale_far": 0.95,
+      "grid_mix": 0.5,
+      "scroll_speed": 7.0
     },
     "cannon": {
       "evemu_effect": "projectileFired",
-      "style": "projectile",
-      "color": [1.0, 0.55, 0.2, 1.0],
-      "width": 0.12,
-      "speed": 42.0,
-      "duration_scale": 1.0
+      "style": "tracer",
+      "look": "cannon_cone",
+      "color": [0.85, 1.0, 0.9, 1.0],
+      "width": 0.06,
+      "duration_scale": 1.0,
+      "alternate_near_far": true,
+      "role_near": "auto",
+      "role_far": "artil",
+      "tex_near": "res://assets/vfx/turret_fx/cannon/projectileautofx_01a.png",
+      "tex_far": "res://assets/vfx/turret_fx/cannon/projectileartilleryfx_01a.png",
+      "tex_shared": "res://assets/vfx/turret_fx/cannon/laser.png",
+      "tex_noise": "res://assets/vfx/turret_fx/cannon/noise.png",
+      "tracer_count_near": 3,
+      "tracer_count_far": 1,
+      "tracer_spread_near": 0.0,
+      "tracer_spread_far": 0.0,
+      "tracer_spread_grow": 1.0,
+      "cone_length_near": 0.52,
+      "cone_length_far": 1.05,
+      "width_near": 0.028,
+      "width_far": 0.095,
+      "speed_near": 78.0,
+      "speed_far": 96.0,
+      "_comment": "Fixed line tracers; auto=3 head-to-tail cones; brightness from DataStore/cannon_fx_tune (do not hardcode emission_boost here)"
     },
     "missile": {
       "evemu_effect": "missileLaunching",
       "style": "projectile",
+      "look": "missile",
       "color": [0.95, 0.95, 0.95, 1.0],
       "width": 0.16,
       "speed": 2.0,
@@ -41,74 +109,134 @@
       "trail": true,
       "trail_lag": 0.12,
       "trail_length": 1.1,
-      "_comment": "Missile chase uses combat.missile_speed_cells_per_s / fighter_missile_speed_cells_per_s; speed here is non-missile projectile fallback only"
+      "path_offset_noise_scale_m": 200.0,
+      "path_offset_noise_speed": 0.8,
+      "eject_duration_s": 0.4,
+      "eject_speed_m_s": 400.0,
+      "_comment": "TQ EveMissileWarhead: eject phase then pathOffsetNoise cruise (FX-only)"
     },
     "heal": {
-      "evemu_effect": "effects.Laser",
+      "evemu_effect": "remoteArmorRepair",
       "style": "beam",
-      "color": [0.3, 1.0, 0.45, 0.9],
-      "width": 0.05,
-      "duration_scale": 1.0
+      "look": "trumpet",
+      "color": [0.35, 1.0, 0.4, 0.95],
+      "width": 0.14,
+      "duration_scale": 1.0,
+      "tex_beam": "res://assets/vfx/module_fx/heal/energyneutralize.png",
+      "tex_grid": "res://assets/vfx/module_fx/heal/waves.png",
+      "tex_flare": "res://assets/vfx/module_fx/heal/whitesharphifi.png",
+      "grid_mix": 0.62,
+      "scroll_speed": 2.2,
+      "tq_black": "res:/fisfx/module/remotearmorrepair_st_t1a.black"
     },
     "mining": {
       "evemu_effect": "miningLaser",
       "style": "beam",
+      "look": "solid",
       "color": [1.0, 0.72, 0.2, 0.92],
       "width": 0.055,
-      "duration_scale": 1.0,
-      "_comment": "Visual-only strip-miner beam; each shot retargets a random MiningAnchor; CD rand (0,10]s; no combat damage"
+      "duration_scale": 1.0
     },
     "nos": {
       "evemu_effect": "energyNosferatuFalloff",
       "style": "beam",
+      "look": "helix",
       "color": [1.0, 0.18, 0.12, 0.95],
-      "width": 0.09,
+      "width": 0.12,
       "duration_scale": 1.0,
-      "_comment": "Red beam + spiral feel (UniWiki Energy Vampire)"
+      "tex_beam": "res://assets/vfx/module_fx/nos/energyneutralize_2.png",
+      "tex_grid": "res://assets/vfx/module_fx/nos/fx_electro_03b.png",
+      "tex_flare": "res://assets/vfx/module_fx/nos/empulse4.png",
+      "grid_mix": 0.7,
+      "scroll_speed": 2.8,
+      "tq_black": "res:/fisfx/module/energyvampire_st_t1a.black"
     },
     "neut": {
       "evemu_effect": "energyNeutralizerFalloff",
       "style": "beam",
+      "look": "trumpet",
       "color": [0.55, 0.35, 1.0, 0.92],
-      "width": 0.09,
+      "width": 0.13,
       "duration_scale": 1.0,
-      "_comment": "Blue-pink vs gold remote_cap (UniWiki Energy Destabilizer)"
+      "tex_beam": "res://assets/vfx/module_fx/neut/energyneutralize.png",
+      "tex_grid": "res://assets/vfx/module_fx/neut/waves.png",
+      "tex_flare": "res://assets/vfx/module_fx/neut/lightningmodulator.png",
+      "grid_mix": 0.65,
+      "scroll_speed": 2.4,
+      "tq_black": "res:/fisfx/module/energydestabilization_st_t1a.black"
     },
     "remote_cap": {
       "evemu_effect": "energyTransfer",
       "style": "beam",
+      "look": "trumpet",
       "color": [1.0, 0.82, 0.25, 0.95],
-      "width": 0.08,
-      "duration_scale": 1.0
+      "width": 0.13,
+      "duration_scale": 1.0,
+      "tex_beam": "res://assets/vfx/module_fx/remote_cap/energytransfer.png",
+      "tex_grid": "res://assets/vfx/module_fx/remote_cap/waves.png",
+      "tex_flare": "res://assets/vfx/module_fx/remote_cap/energytransfer.png",
+      "grid_mix": 0.6,
+      "scroll_speed": 2.5,
+      "tq_black": "res:/fisfx/module/energytransfer_st_t1a.black"
     },
     "sensor_damp": {
       "evemu_effect": "remoteSensorDampFalloff",
       "style": "beam",
-      "color": [0.25, 0.95, 0.85, 0.9],
-      "width": 0.1,
-      "duration_scale": 1.0
+      "look": "cone_grid",
+      "color": [0.25, 0.95, 0.85, 0.92],
+      "width": 0.16,
+      "duration_scale": 1.0,
+      "tex_beam": "res://assets/vfx/module_fx/sensor_damp/whitesharpproper_cyan_01a.png",
+      "tex_grid": "res://assets/vfx/module_fx/sensor_damp/wavegrid_01a.png",
+      "tex_flare": "res://assets/vfx/module_fx/sensor_damp/aurora_01.png",
+      "grid_mix": 0.85,
+      "scroll_speed": 1.6,
+      "tq_black": "res:/fisfx/module/sensordampener_st_t1a.black"
     },
     "tracking_disrupt": {
       "evemu_effect": "shipModuleTrackingDisruptor",
       "style": "beam",
+      "look": "cone_grid",
       "color": [0.85, 0.25, 0.95, 0.92],
-      "width": 0.1,
-      "duration_scale": 1.0
+      "width": 0.16,
+      "duration_scale": 1.0,
+      "tex_beam": "res://assets/vfx/module_fx/tracking_disrupt/whitesharpproper_cyan_01a.png",
+      "tex_grid": "res://assets/vfx/module_fx/tracking_disrupt/wavegrid_01a.png",
+      "tex_flare": "res://assets/vfx/module_fx/tracking_disrupt/aurora_01.png",
+      "grid_mix": 0.85,
+      "scroll_speed": 1.7,
+      "tq_black": "res:/fisfx/module/trackingdisruptor_st_t1a.black"
     },
     "guidance_disrupt": {
       "evemu_effect": "shipModuleGuidanceDisruptor",
       "style": "beam",
+      "look": "cone_grid",
       "color": [1.0, 0.55, 0.15, 0.92],
-      "width": 0.1,
-      "duration_scale": 1.0
+      "width": 0.16,
+      "duration_scale": 1.0,
+      "tex_beam": "res://assets/vfx/module_fx/guidance_disrupt/whitesharpproper_01a.png",
+      "tex_grid": "res://assets/vfx/module_fx/guidance_disrupt/fireshape_01a.png",
+      "tex_flare": "res://assets/vfx/module_fx/guidance_disrupt/aurora_01_bw.png",
+      "grid_mix": 0.75,
+      "scroll_speed": 1.7,
+      "tq_black": "res:/fisfx/module/modular_guidancedisruption_tr_t1a.black",
+      "_comment": "Dedicated TQ modular guidance black (not a reuse of trackingdisruptor)"
     },
     "target_painter": {
       "evemu_effect": "targetPainter",
       "style": "beam",
+      "look": "paint",
       "color": [1.0, 1.0, 0.95, 0.98],
       "width": 0.07,
       "duration_scale": 1.0,
-      "_comment": "Bright paint laser (UniWiki Target Painter)"
+      "tex_beam": "res://assets/vfx/module_fx/target_painter/beam8_bigb.png",
+      "tex_grid": "res://assets/vfx/module_fx/target_painter/caustic_10.png",
+      "tex_target": "res://assets/vfx/module_fx/target_painter/sensor.png",
+      "tex_flare": "res://assets/vfx/module_fx/target_painter/gradient_02.png",
+      "grid_mix": 0.35,
+      "scroll_speed": 3.0,
+      "tq_black": "res:/fisfx/module/targetpaint_st_t1a.black",
+      "_comment": "sensor.dds is TQ ramp used on unit_plane_laser target mark; disc silhouette from mesh+billboard, not a painted circle PNG"
     }
   }
 }

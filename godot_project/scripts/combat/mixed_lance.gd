@@ -245,7 +245,9 @@ static func dir_to_az_xz(dir: Vector3) -> float:
 
 static func dir_to_el_xy(dir: Vector3) -> float:
 	var horiz: float = sqrt(dir.x * dir.x + dir.z * dir.z)
-	return atan2(dir.y, maxf(horiz, 0.0001))
+	var el: float = atan2(dir.y, maxf(horiz, 0.0001))
+	const EL_LIMIT: float = PI / 6.0 ## ±30°
+	return clampf(el, -EL_LIMIT, EL_LIMIT)
 
 
 static func angles_to_dir(az_xz: float, el_xy: float) -> Vector3:
@@ -339,6 +341,8 @@ static func _active_aim_on_ship(ship: ShipUnit) -> Dictionary:
 static func apply_guest_aim(ship: ShipUnit, az_xz: float, el_xy: float) -> void:
 	if ship == null or not is_instance_valid(ship):
 		return
+	const EL_LIMIT: float = PI / 6.0
+	el_xy = clampf(el_xy, -EL_LIMIT, EL_LIMIT)
 	var fid: String = ""
 	var def: Dictionary = {}
 	for entry: Variant in ship.get_function_fit():

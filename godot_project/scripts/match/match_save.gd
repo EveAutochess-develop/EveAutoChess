@@ -403,7 +403,6 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 			"up_level_demand": MatchController.exp_demand_for_level(mc.player_level),
 			"win_streak": mc.win_streak,
 			"loss_streak": mc.loss_streak,
-			"shop_locked": mc.shop_locked,
 			"shop_slots": shop_slots,
 			"equipment_shop_slots": equip_shop,
 			"equipment_inventory": equip_inv,

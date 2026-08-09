@@ -78,7 +78,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func _pointer_down(screen: Vector2) -> void:
 	_press_screen = screen
 	_ship_drag_armed = false
-	if _root.match_ctrl.stage != MatchController.Stage.PREPARE:
+	var stage: int = _root.match_ctrl.stage if _root and _root.match_ctrl else MatchController.Stage.PREPARE
+	var battle_hangar_drag: bool = stage == MatchController.Stage.BATTLE
+	if stage != MatchController.Stage.PREPARE and not battle_hangar_drag:
 		# tap for info only (player or AI)
 		var ship: ShipUnit = _ray_ship(screen)
 		if ship:
@@ -101,10 +103,15 @@ func _pointer_down(screen: Vector2) -> void:
 		tap_ship.emit(ship2)
 		get_viewport().set_input_as_handled()
 		return
+	## Battle: only hangar hulls may drag (BOARD_AND_INPUT §4).
+	if battle_hangar_drag and ship2.slot_type != "hangar":
+		tap_ship.emit(ship2)
+		get_viewport().set_input_as_handled()
+		return
 	var allow_drag: bool = ship2.team_id == ShipUnit.TEAM_PLAYER
 	if not allow_drag and get_tree().paused and GameSession.enemy_layout_adjust_active():
 		## Dev-only: Prepare+paused enemy layout tweak.
-		allow_drag = true
+		allow_drag = stage == MatchController.Stage.PREPARE
 	if allow_drag:
 		_press_ship = ship2
 		_ship_drag_armed = true
@@ -154,40 +161,36 @@ func _pointer_up(screen: Vector2) -> void:
 	var sell: bool = _in_sell_zone(screen)
 	var slot: Dictionary = {}
 	if not sell:
-		## Dropping onto another of your own ships = swap intent (BOARD_AND_INPUT §4).
-		## Prefer the hull under the cursor over nearest-empty-cell, or the swap misses.
-		## Exclude the dragged hull — it sits under the cursor while following the pointer.
-		var under: ShipUnit = _ray_ship(screen, _press_ship)
-		if (
-			_press_ship != null
-			and under != null
-			and under != _press_ship
-			and under.team_id == _press_ship.team_id
-			and not under.is_protect_target
-			and _board.is_board_piece(under)
-		):
-			var side: int = under.team_id
-			if under.slot_type == "field":
-				side = _board.ship_world_side(under)
-			slot = {
-				"slot_type": under.slot_type,
-				"x": under.grid_x,
-				"z": under.grid_z,
-				"team": side,
-				"swap_instance_id": under.get_instance_id(),
-			}
-		else:
-			var team: int = ShipUnit.TEAM_PLAYER
-			var field_side: int = -1
-			if _press_ship:
-				team = _press_ship.team_id
-				if _press_ship.deploy_enemy_half_only:
-					field_side = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
-				elif _press_ship.slot_type == "field":
-					field_side = _board.ship_world_side(_press_ship)
-			var origin: Vector3 = _camera.project_ray_origin(screen)
-			var dir: Vector3 = _camera.project_ray_normal(screen)
-			slot = _board.pick_slot_by_ray(origin, dir, team, field_side)
+		## Drop / swap: camera ray ∩ solid board cell only (BOARD_AND_INPUT §4).
+		## Do not prefer hull AABB for placement — cell occupant drives swap.
+		var team: int = ShipUnit.TEAM_PLAYER
+		var field_side: int = -1
+		if _press_ship:
+			team = _press_ship.team_id
+			if _press_ship.deploy_enemy_half_only:
+				field_side = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+			elif _press_ship.allow_enemy_cell_overlap:
+				field_side = -1
+			elif _press_ship.slot_type == "field":
+				field_side = _board.ship_world_side(_press_ship)
+		var origin: Vector3 = _camera.project_ray_origin(screen)
+		var dir: Vector3 = _camera.project_ray_normal(screen)
+		slot = _board.pick_slot_by_ray(origin, dir, team, field_side)
+		if not slot.is_empty() and _press_ship != null:
+			var occ: ShipUnit = _board._occupant_at(
+				str(slot.get("slot_type", "")),
+				team,
+				TypedVariant.as_int(slot.get("x", -1), -1),
+				TypedVariant.as_int(slot.get("z", -1), -1)
+			)
+			if (
+				occ != null
+				and occ != _press_ship
+				and occ.team_id == _press_ship.team_id
+				and not occ.is_protect_target
+				and _board.is_board_piece(occ)
+			):
+				slot["swap_instance_id"] = occ.get_instance_id()
 	drag_end.emit(sell, slot)
 	_press_ship = null
 

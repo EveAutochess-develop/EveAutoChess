@@ -4,7 +4,7 @@ class_name WeaponFireSfx
 
 const ROOT: String = "res://assets/audio/weapon_sfx/"
 const MAX_VOICES: int = 10
-const BASE_VOLUME_DB: float = -8.0
+const BASE_VOLUME_DB: float = -2.0
 
 var _players: Array[AudioStreamPlayer] = []
 ## "family/size" -> PackedStringArray of res paths
@@ -12,9 +12,12 @@ var _pools: Dictionary = {}
 var _rr: Dictionary = {}
 var _stream_cache: Dictionary = {}
 var _logged_empty: bool = false
+var _load_fail_logs: int = 0
+var _last_load_fail_ms: int = 0
 
 func setup() -> void:
 	_build_pools()
+	_probe_and_heal_pools()
 	SfxBus.ensure()
 	for i: int in range(MAX_VOICES):
 		var p: AudioStreamPlayer = AudioStreamPlayer.new()
@@ -25,8 +28,7 @@ func setup() -> void:
 		_players.append(p)
 
 func play_for(firer: Node, kind: String) -> void:
-	if GameSession != null and GameSession.no_model_perf_mode:
-		return
+	## Keep SFX even when no_model_perf suppresses beam VFX (COMBAT §8.1).
 	var k: String = str(kind).to_lower()
 	## mining + function-bucket beams: silent (COMBAT §8.1 / §8.2)
 	if k == "mining" or k == "" or k in [
@@ -36,16 +38,23 @@ func play_for(firer: Node, kind: String) -> void:
 	var family: String = _family_for_kind(k)
 	if family == "":
 		return
+	if _pools.is_empty():
+		_build_pools()
+		_probe_and_heal_pools()
 	if _pools.is_empty() and not _logged_empty:
 		_logged_empty = true
 		push_warning("WeaponFireSfx: empty pools — catalog/DirAccess failed")
-		SessionDiagnostics.log("sfx.weapon", "empty_pools kind=%s" % k)
+		if SessionDiagnostics != null:
+			SessionDiagnostics.log("sfx.weapon", "empty_pools kind=%s" % k)
 	var size: String = _size_bucket(firer, family)
 	var path: String = _pick_path(family, size)
 	if path == "":
+		if SessionDiagnostics != null:
+			SessionDiagnostics.log("sfx.weapon", "no_path family=%s size=%s kind=%s" % [family, size, k])
 		return
 	var stream: AudioStream = _load_stream(path)
 	if stream == null:
+		_log_load_fail(path)
 		return
 	var player: AudioStreamPlayer = _acquire_player()
 	if player == null:
@@ -151,15 +160,23 @@ func _load_stream(path: String) -> AudioStream:
 			return cached as AudioStream
 		return null
 	var stream: AudioStream = null
-	if ResourceLoader.exists(path):
-		var res: Variant = load(path)
-		if res is AudioStream:
+	## Prefer ResourceLoader even when exists() is false (exported remap edge cases).
+	var res: Variant = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_REUSE)
+	if res is AudioStream:
+		@warning_ignore("unsafe_cast")
+		stream = res as AudioStream
+	if stream == null and ResourceLoader.exists(path):
+		var res2: Variant = load(path)
+		if res2 is AudioStream:
 			@warning_ignore("unsafe_cast")
-			stream = res as AudioStream
+			stream = res2 as AudioStream
 	if stream == null:
 		stream = _load_pcm16_wav(path)
 	if stream != null:
 		_stream_cache[path] = stream
+	else:
+		## Cache miss as null sentinel so we don't spam load each shot.
+		_stream_cache[path] = null
 	return stream
 
 func _load_pcm16_wav(path: String) -> AudioStreamWAV:
@@ -199,6 +216,69 @@ func _load_pcm16_wav(path: String) -> AudioStreamWAV:
 	wav.data = pcm
 	return wav
 
+func _log_load_fail(path: String) -> void:
+	var now: int = Time.get_ticks_msec()
+	if _load_fail_logs >= 8 and now - _last_load_fail_ms < 5000:
+		return
+	_load_fail_logs += 1
+	_last_load_fail_ms = now
+	if SessionDiagnostics != null:
+		SessionDiagnostics.log(
+			"sfx.weapon",
+			"load_fail path=%s exists=%d fa=%d" % [
+				path.get_file(),
+				1 if ResourceLoader.exists(path) else 0,
+				1 if FileAccess.file_exists(path) else 0,
+			]
+		)
+
+func _probe_and_heal_pools() -> void:
+	var n: int = 0
+	for k: Variant in _pools.keys():
+		n += TypedVariant.as_array(_pools[k]).size()
+	var sample: String = ""
+	var sample_ok: int = 0
+	if n > 0:
+		for k2: Variant in _pools.keys():
+			var arr: Array = TypedVariant.as_array(_pools[k2])
+			if arr.is_empty():
+				continue
+			sample = str(arr[0])
+			break
+		if sample != "":
+			var probe: AudioStream = _load_stream(sample)
+			sample_ok = 1 if probe != null else 0
+			if probe == null:
+				## Catalog paths present but unloadable (audio.pck missing) — try DirAccess.
+				_pools.clear()
+				_stream_cache.clear()
+				_scan_dir_pools()
+				n = 0
+				for k3: Variant in _pools.keys():
+					n += TypedVariant.as_array(_pools[k3]).size()
+				if n > 0:
+					sample = ""
+					for k4: Variant in _pools.keys():
+						var arr2: Array = TypedVariant.as_array(_pools[k4])
+						if arr2.is_empty():
+							continue
+						sample = str(arr2[0])
+						break
+					if sample != "":
+						sample_ok = 1 if _load_stream(sample) != null else 0
+	var root_open: int = 1 if DirAccess.open(ROOT) != null else 0
+	if SessionDiagnostics != null:
+		SessionDiagnostics.log(
+			"sfx.weapon",
+			"pools_n=%d sample_ok=%d root_dir=%d sample=%s" % [
+				n, sample_ok, root_open, sample.get_file() if sample != "" else "-"
+			]
+		)
+	if n == 0 or sample_ok == 0:
+		push_warning(
+			"WeaponFireSfx: audio mount/load weak pools_n=%d sample_ok=%d (need packs/audio.pck)" % [n, sample_ok]
+		)
+
 func _build_pools() -> void:
 	_pools.clear()
 	if _load_catalog():
@@ -206,23 +286,42 @@ func _build_pools() -> void:
 	_scan_dir_pools()
 
 func _load_catalog() -> bool:
-	## COMBAT §8.1 — baked GDScript paths survive exported PCK (DirAccess often lists only *.wav.remap).
+	## COMBAT §8.1 — baked paths survive exported PCK. Prefer Array values (PSA broke pools_n=0 on install).
 	var d: Dictionary = WeaponSfxCatalog.pools()
 	if d.is_empty():
 		return false
 	var n: int = 0
 	for k: Variant in d.keys():
-		var arr: Array = TypedVariant.as_array(d[k])
-		var files: Array = []
-		for p: Variant in arr:
-			var path: String = str(p).strip_edges()
-			if path.ends_with(".wav"):
-				files.append(path)
-		if not files.is_empty():
-			files.sort()
-			_pools[str(k)] = files
-			n += files.size()
+		var files: Array = _string_paths_from_pool(d[k])
+		if files.is_empty():
+			continue
+		files.sort()
+		_pools[str(k)] = files
+		n += files.size()
 	return n > 0
+
+
+func _string_paths_from_pool(v: Variant) -> Array:
+	var out: Array = []
+	if v is PackedStringArray:
+		var psa: PackedStringArray = v
+		for i: int in range(psa.size()):
+			_append_sfx_path(out, str(psa[i]))
+		return out
+	var arr: Array = TypedVariant.as_array(v)
+	for p: Variant in arr:
+		_append_sfx_path(out, str(p))
+	return out
+
+
+func _append_sfx_path(out: Array, path: String) -> void:
+	var p: String = path.strip_edges()
+	if p.is_empty():
+		return
+	var low: String = p.to_lower()
+	if low.ends_with(".ogg") or low.ends_with(".wav"):
+		out.append(p)
+
 
 func _scan_dir_pools() -> void:
 	var root_dir: DirAccess = DirAccess.open(ROOT)
@@ -255,17 +354,20 @@ func _scan_family(family: String) -> void:
 				while fn != "":
 					if not sd.current_is_dir():
 						var asset: String = _strip_godot_sidecar(fn)
-						if asset.to_lower().ends_with(".wav"):
+						var low: String = asset.to_lower()
+						if low.ends_with(".ogg") or low.ends_with(".wav"):
 							files.append(fam_path.path_join(size_name).path_join(asset))
 					fn = sd.get_next()
 				sd.list_dir_end()
-			files.sort()
-			_pools[key] = files
+			## Do not insert empty keys — they make _pools non-empty while play still no_path.
+			if not files.is_empty():
+				files.sort()
+				_pools[key] = files
 		size_name = d.get_next()
 	d.list_dir_end()
 
 func _strip_godot_sidecar(fn: String) -> String:
-	## Exported PCK DirAccess often yields `foo.wav.remap` instead of `foo.wav`.
+	## Exported PCK DirAccess often yields `foo.ogg.remap` instead of `foo.ogg`.
 	var n: String = fn
 	if n.ends_with(".remap"):
 		n = n.substr(0, n.length() - 6)

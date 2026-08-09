@@ -122,5 +122,6 @@
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
   "is_attack_battlecruiser": true,
   "attack_weapon_slots": 8,
-  "sof_hull": "cbc3_t1"
+  "sof_hull": "cbc3_t1",
+  "shop_min_level": 9
 }

@@ -48,7 +48,7 @@
         "kinetic": 0.35,
         "thermal": 0.35
       },
-      "attack_range": 7.0,
+      "attack_range": 3.5,
       "is_logistic": false,
       "shield_hp": 0.0,
       "shield_resist": {

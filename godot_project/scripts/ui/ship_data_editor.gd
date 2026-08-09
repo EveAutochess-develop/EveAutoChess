@@ -651,7 +651,7 @@ func _ensure_working_fn(item_id: String) -> Dictionary:
 func _build_match_control_fields() -> void:
 	for c: Node in _grid.get_children():
 		c.queue_free()
-	_title.text = "对局控制参数（泰坦三管 / 末日伤）"
+	_title.text = "对局控制参数（泰坦三管 / 末日伤 / 败方补偿上限）"
 	_set_title_icon(null)
 	if _working_titan_pvp.is_empty():
 		_working_titan_pvp = {
@@ -660,10 +660,20 @@ func _build_match_control_fields() -> void:
 			"pipe_structure_max": 100,
 			"pvp_loss_damage": 20,
 			"lowsec_pvp_loss_mul": 0.25,
+			"loss_comp_vs_winner_cap": 0.75,
+			"loss_comp_vs_winner_less": 60,
 		}
-	var keys: Array[String] = [
+	## Ensure new keys exist when loading older titan_pvp.json.
+	if not _working_titan_pvp.has("loss_comp_vs_winner_cap"):
+		_working_titan_pvp["loss_comp_vs_winner_cap"] = 0.75
+	if not _working_titan_pvp.has("loss_comp_vs_winner_less"):
+		_working_titan_pvp["loss_comp_vs_winner_less"] = 60
+	var titan_keys: Array[String] = [
 		"pipe_shield_max", "pipe_armor_max", "pipe_structure_max",
 		"pvp_loss_damage", "lowsec_pvp_loss_mul",
+	]
+	var loss_keys: Array[String] = [
+		"loss_comp_vs_winner_cap", "loss_comp_vs_winner_less",
 	]
 	var labels: Dictionary = {
 		"pipe_shield_max": "盾管上限",
@@ -671,39 +681,48 @@ func _build_match_control_fields() -> void:
 		"pipe_structure_max": "构管上限",
 		"pvp_loss_damage": "失败/平局扣血",
 		"lowsec_pvp_loss_mul": "低安伤倍率",
+		"loss_comp_vs_winner_cap": "相对胜方比例上限",
+		"loss_comp_vs_winner_less": "相对胜方少多少",
 	}
-	for k: String in keys:
-		var row: HBoxContainer = HBoxContainer.new()
-		_grid.add_child(row)
-		var lab: Label = Label.new()
-		lab.text = str(labels.get(k, k))
-		lab.custom_minimum_size = Vector2(220, 0)
-		row.add_child(lab)
-		var edit: LineEdit = LineEdit.new()
-		edit.text = str(_working_titan_pvp.get(k, 0))
-		edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var key_cap: String = k
-		edit.text_submitted.connect(func(t: String) -> void:
-			var parsed: Variant = 0
-			if key_cap.ends_with("mul"):
-				parsed = float(t)
-			else:
-				parsed = int(t)
-			_working_titan_pvp[key_cap] = parsed
-			_dirty_titan_pvp = true
-		)
-		edit.focus_exited.connect(func() -> void:
-			var parsed2: Variant = 0
-			if key_cap.ends_with("mul"):
-				parsed2 = float(edit.text)
-			else:
-				parsed2 = int(edit.text)
-			_working_titan_pvp[key_cap] = parsed2
-			_dirty_titan_pvp = true
-		)
-		row.add_child(edit)
+	for k: String in titan_keys:
+		_add_match_control_row(k, str(labels.get(k, k)))
+	var sep: Label = Label.new()
+	sep.text = "—— 败方补偿上限 ——"
+	UiAssets.apply_label_font(sep, true, UiLayout.font_size(14, self))
+	sep.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
+	_grid.add_child(sep)
+	for k2: String in loss_keys:
+		_add_match_control_row(k2, str(labels.get(k2, k2)))
 	if _status:
-		_status.text = "改完点保存并退出 · 写入 balance/titan_pvp.json"
+		_status.text = "改完点保存并退出 · 写入 balance/titan_pvp.json · 新开对局生效"
+
+
+func _match_control_parse_value(key: String, text: String) -> Variant:
+	if key.ends_with("mul") or key.ends_with("_cap"):
+		return float(text)
+	return int(text)
+
+
+func _add_match_control_row(key: String, label_text: String) -> void:
+	var row: HBoxContainer = HBoxContainer.new()
+	_grid.add_child(row)
+	var lab: Label = Label.new()
+	lab.text = label_text
+	lab.custom_minimum_size = Vector2(220, 0)
+	row.add_child(lab)
+	var edit: LineEdit = LineEdit.new()
+	edit.text = str(_working_titan_pvp.get(key, 0))
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var key_cap: String = key
+	edit.text_submitted.connect(func(t: String) -> void:
+		_working_titan_pvp[key_cap] = _match_control_parse_value(key_cap, t)
+		_dirty_titan_pvp = true
+	)
+	edit.focus_exited.connect(func() -> void:
+		_working_titan_pvp[key_cap] = _match_control_parse_value(key_cap, edit.text)
+		_dirty_titan_pvp = true
+	)
+	row.add_child(edit)
 
 
 func _build_combat_eval_fields() -> void:
@@ -1320,6 +1339,10 @@ func _drone_spawn_policy(ship: Dictionary) -> Dictionary:
 			slots = floori(bw / _DRONE_BW_COST)
 	if slots <= 0:
 		return {"count": 0, "drone_id": 0}
+	if group == "mining_barge":
+		return {"count": slots, "drone_id": 1007}
+	if group == "industrial_command":
+		return {"count": slots, "drone_id": 1013}
 	return {"count": slots, "drone_id": TypedVariant.as_int(_RACE_DRONE_LIGHT.get(race, 1001), 1001)}
 
 
@@ -1820,16 +1843,28 @@ func _save_all() -> Array:
 		if DataStore.save_function_modules_table(_working_function_modules):
 			equip_dirty = true
 		_dirty_function_modules = false
-	if _dirty_titan_pvp and DataStore.has_method("save_balance_file"):
+	if _dirty_titan_pvp:
+		if not DataStore.has_method("save_balance_file"):
+			_status.text = "对局控制无法保存：壳 DataStore 缺少 save_balance_file · 请重装最新壳"
+			push_error("[ShipDataEditor] save_balance_file missing — shell Autoload outdated")
+			return changed
+		## Flush focused LineEdit before write (dirty only on blur/submit).
+		var focus_c: Control = get_viewport().gui_get_focus_owner() as Control
+		if focus_c != null and focus_c.has_signal("text_submitted"):
+			focus_c.release_focus()
 		if DataStore.save_balance_file("titan_pvp.json", _working_titan_pvp):
 			equip_dirty = true
-		_dirty_titan_pvp = false
+			_dirty_titan_pvp = false
+		else:
+			_status.text = "对局控制写入失败 · balance/titan_pvp.json"
+			return changed
 	_last_equipment_saved = equip_dirty
 	if not changed.is_empty() or equip_dirty:
 		DataStore.reload_all()
 		_working_ships.clear()
 		_working_modules = DataStore.modules.duplicate(true)
 		_working_function_modules = DataStore.function_modules.duplicate(true)
+		_working_titan_pvp = DataStore.titan_pvp.duplicate(true) if "titan_pvp" in DataStore else _working_titan_pvp
 		_reload_ids()
 	return changed
 

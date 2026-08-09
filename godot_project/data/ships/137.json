@@ -2,8 +2,8 @@
   "attack_cycle_s": 5.0,
   "cost": 7.0,
   "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0.0,
-  "drone_count_cap": 0.0,
+  "drone_bay_slots": 2.0,
+  "drone_count_cap": 2.0,
   "fetter_ids": [
     "ore",
     "industrial_command"
@@ -117,5 +117,7 @@
   ],
   "type_id": 28606.0,
   "unmanned_kind": "",
-  "weapon_fx": "mining"
+  "weapon_fx": "mining",
+  "capacitor_capacity": 8000.0,
+  "capacitor_recharge_s": 1200.0
 }

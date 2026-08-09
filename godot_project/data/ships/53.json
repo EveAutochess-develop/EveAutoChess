@@ -121,5 +121,7 @@
   "visual": {},
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
   "echoes_item_id": 10101000013,
-  "sof_hull": "gf3_t1"
+  "sof_hull": "gf3_t1",
+  "drone_bay_slots": 2,
+  "drone_count_cap": 2
 }

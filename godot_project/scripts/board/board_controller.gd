@@ -1035,11 +1035,23 @@ func _on_move(payload: Dictionary) -> Dictionary:
 		if other.requires_cyno_entry and from_type == "field":
 			SessionDiagnostics.log("deploy.fail", "reason=requires_cyno swap")
 			return {"accepted": false, "reason_key": "requires_cyno"}
-		if other.deploy_enemy_half_only and from_type == "field":
-			var enemy: int = ShipUnit.TEAM_AI if other.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
-			if from_side != enemy:
-				SessionDiagnostics.log("deploy.fail", "reason=enemy_half_only swap")
-				return {"accepted": false, "reason_key": "enemy_half_only"}
+		## Non-cyno hull must not land on enemy half via swap (BOARD_AND_INPUT §4).
+		## Covert cyno may sit on either half (`allow_enemy_cell_overlap`).
+		if from_type == "field" and not other.allow_enemy_cell_overlap and not other.deploy_enemy_half_only:
+			if from_side != other.team_id:
+				SessionDiagnostics.log("deploy.fail", "reason=enemy_half_forbidden swap")
+				return {"accepted": false, "reason_key": "enemy_half_forbidden"}
+	## Non-cyno ship may not move/swap onto the enemy half (cyno may via allow_enemy_cell_overlap).
+	if to_type == "field" and side_team != to_team:
+		if not ship.deploy_enemy_half_only and not ship.allow_enemy_cell_overlap:
+			SessionDiagnostics.log("deploy.fail", "reason=enemy_half_forbidden move")
+			return {"accepted": false, "reason_key": "enemy_half_forbidden"}
+	## Legacy deploy_enemy_half_only: if still true on a hull, refuse own half.
+	if to_type == "field" and ship.deploy_enemy_half_only:
+		var enemy_side: int = ShipUnit.TEAM_AI if to_team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		if side_team != enemy_side:
+			SessionDiagnostics.log("deploy.fail", "reason=enemy_half_only move")
+			return {"accepted": false, "reason_key": "enemy_half_only"}
 	occ_from.erase(_key(from_type, ship.team_id, from_x, from_z))
 	if other and other != ship:
 		occ_to.erase(to_key)
@@ -1095,9 +1107,10 @@ func _on_sell(payload: Dictionary) -> Dictionary:
 	return {"accepted": true, "gold": gold}
 
 func begin_drag(ship: ShipUnit) -> void:
-	if not _prepare_mode:
-		return
 	if ship == null:
+		return
+	## Battle: hangar↔hangar only; Field drag stays Prepare-only (BOARD_AND_INPUT §4).
+	if not _prepare_mode and ship.slot_type != "hangar":
 		return
 	## Salvage freighter rides on the player team but is scenario furniture: never draggable.
 	if ship.is_protect_target:
@@ -1140,6 +1153,11 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 		return
 	var to_type: String = str(hover_slot.get("slot_type", "field"))
 	var hover_team: int = TypedVariant.as_int(hover_slot.get("team", ship.team_id), ship.team_id)
+	## Battle: hangar only — bounce any Field drop.
+	if not _prepare_mode and to_type != "hangar":
+		get_tree().call_group("match_root", "show_notice", "战斗中仅可调整候席")
+		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
+		return
 	## Capitals: any drop onto a field cell bounces back to hangar + notice.
 	if ship.requires_cyno_entry and to_type == "field":
 		get_tree().call_group("match_root", "show_notice", "旗舰必须通过诱导跳跃进场")
@@ -1149,6 +1167,12 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 		var enemy: int = ShipUnit.TEAM_AI if ship.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
 		if hover_team != enemy:
 			get_tree().call_group("match_root", "show_notice", "只能部署在敌方半场")
+			ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
+			return
+	elif to_type == "field" and hover_team != ship.team_id:
+		## Own half only unless covert cyno (allow_enemy_cell_overlap) or legacy enemy-half-only.
+		if not ship.allow_enemy_cell_overlap and not ship.deploy_enemy_half_only:
+			get_tree().call_group("match_root", "show_notice", "不可部署到敌方半场")
 			ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 			return
 	if to_type == "field":
@@ -1181,6 +1205,8 @@ func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 			get_tree().call_group("match_root", "show_notice", "旗舰必须通过诱导跳跃进场")
 		elif str(move_r.get("reason_key", "")) == "enemy_half_only":
 			get_tree().call_group("match_root", "show_notice", "只能部署在敌方半场")
+		elif str(move_r.get("reason_key", "")) == "enemy_half_forbidden":
+			get_tree().call_group("match_root", "show_notice", "不可部署到敌方半场")
 		ship.global_position = cell_to_world(ship.slot_type, snap_side if ship.slot_type == "field" else ship.team_id, ship.grid_x, ship.grid_z)
 
 func _cancel_drag() -> void:

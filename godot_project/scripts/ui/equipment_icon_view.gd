@@ -43,7 +43,9 @@ static func make_icon_cell(icon_size: Vector2, mod: Dictionary, from: Node, fill
 		badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var bs: float = maxf(UiLayout.px(10.0, from), icon_size.x * 0.38)
+		## Corner mark on the icon only — ~28% of the shorter side (EQUIPMENT §1 shop card).
+		var side: float = minf(icon_size.x, icon_size.y)
+		var bs: float = clampf(side * 0.28, UiLayout.px(8.0, from), UiLayout.px(16.0, from))
 		badge.custom_minimum_size = Vector2(bs, bs)
 		badge.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		badge.offset_left = -bs - 1.0
@@ -53,11 +55,13 @@ static func make_icon_cell(icon_size: Vector2, mod: Dictionary, from: Node, fill
 		root.add_child(badge)
 	elif str(mod.get("size", "")) != "":
 		var badge_l: PanelContainer = _size_text_badge(str(mod.get("size", "")), from)
+		var bw: float = UiLayout.px(14.0, from)
+		var bh: float = UiLayout.px(12.0, from)
 		badge_l.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		badge_l.offset_left = -UiLayout.px(16.0, from)
+		badge_l.offset_left = -bw - 1.0
 		badge_l.offset_top = 1.0
 		badge_l.offset_right = -1.0
-		badge_l.offset_bottom = UiLayout.px(14.0, from)
+		badge_l.offset_bottom = bh + 1.0
 		root.add_child(badge_l)
 	return root
 
