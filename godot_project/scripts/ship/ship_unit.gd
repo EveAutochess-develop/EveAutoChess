@@ -1863,29 +1863,84 @@ func _turret_slot_count() -> int:
 		slots = 2
 	return clampi(slots, 1, 8)
 
+## turret_anchors.json per model_key (SOF locatorTurrets full copy).
+static var _turret_docs: Dictionary = {}
+
+static func _turret_doc_for(key: String) -> Dictionary:
+	if key == "":
+		return {}
+	if _turret_docs.has(key):
+		return _turret_docs[key]
+	var doc: Dictionary = {}
+	## Open directly: mounted PCK JSON is readable even where file_exists() can miss it.
+	var file: FileAccess = FileAccess.open("res://assets/models/ships/%s/turret_anchors.json" % key, FileAccess.READ)
+	if file != null:
+		var parsed: Variant = JSON.parse_string(file.get_as_text())
+		file.close()
+		if typeof(parsed) == TYPE_DICTIONARY:
+			doc = parsed
+	_turret_docs[key] = doc
+	return doc
+
 func _resolve_turret_locals(root: Node3D, aabb: AABB) -> void:
 	_muzzle_locals.clear()
 	_muzzle_fire_i = 0
 	var key: String = str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
-	var path: String = "res://assets/models/ships/%s/turret_anchors.json" % key
-	if key != "" and FileAccess.file_exists(path):
-		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-		if typeof(parsed) == TYPE_DICTIONARY:
-			var arr: Variant = TypedVariant.as_dict(parsed).get("anchors_mesh_local", [])
-			if typeof(arr) == TYPE_ARRAY:
-				for item: Variant in TypedVariant.as_array(arr):
-					if typeof(item) != TYPE_ARRAY and typeof(item) != TYPE_PACKED_FLOAT32_ARRAY and typeof(item) != TYPE_PACKED_FLOAT64_ARRAY:
-						continue
-					var a: Array = TypedVariant.as_array(item)
-					if a.size() < 3:
-						continue
-					_muzzle_locals.append(root.transform * Vector3(TypedVariant.as_float(a[0]), TypedVariant.as_float(a[1]), TypedVariant.as_float(a[2])))
+	if key != "":
+		var doc: Dictionary = _turret_doc_for(key)
+		if not doc.is_empty():
+			## Formal: SOF-native items + hull_aabb (same Z-flip map as engine_boosters).
+			_muzzle_locals = _map_sof_turret_items(doc, aabb)
+			## Legacy baked mesh-local list (pre-SOF sidecar).
+			if _muzzle_locals.is_empty():
+				var arr: Variant = doc.get("anchors_mesh_local", [])
+				if typeof(arr) == TYPE_ARRAY:
+					for item: Variant in TypedVariant.as_array(arr):
+						if typeof(item) != TYPE_ARRAY and typeof(item) != TYPE_PACKED_FLOAT32_ARRAY and typeof(item) != TYPE_PACKED_FLOAT64_ARRAY:
+							continue
+						var a: Array = TypedVariant.as_array(item)
+						if a.size() < 3:
+							continue
+						_muzzle_locals.append(root.transform * Vector3(TypedVariant.as_float(a[0]), TypedVariant.as_float(a[1]), TypedVariant.as_float(a[2])))
 	if _muzzle_locals.is_empty():
 		_muzzle_locals = _sample_turret_locals_from_mesh(root, aabb, _turret_slot_count())
 	if _muzzle_locals.is_empty():
 		var mid_y: float = maxf(aabb.get_center().y, aabb.size.y * 0.35)
 		_muzzle_locals.append(Vector3(0.0, mid_y, aabb.position.z))
 	_muzzle_local = _muzzle_locals[0]
+
+## Map turret_anchors.json SOF pos → ShipUnit local (mesh AABB, length Z flipped).
+func _map_sof_turret_items(doc: Dictionary, mesh_aabb: AABB) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var items: Variant = doc.get("items", [])
+	if typeof(items) != TYPE_ARRAY or TypedVariant.as_array(items).is_empty():
+		return out
+	if mesh_aabb.size.x < 1e-4 or mesh_aabb.size.y < 1e-4 or mesh_aabb.size.z < 1e-4:
+		return out
+	var sof_aabb: AABB = _sof_hull_aabb(doc)
+	if sof_aabb.size.x < 1e-4 or sof_aabb.size.y < 1e-4 or sof_aabb.size.z < 1e-4:
+		return out
+	for item: Variant in TypedVariant.as_array(items):
+		if typeof(item) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = TypedVariant.as_dict(item)
+		var pos_v: Variant = d.get("pos", null)
+		if typeof(pos_v) != TYPE_ARRAY and typeof(pos_v) != TYPE_PACKED_FLOAT32_ARRAY and typeof(pos_v) != TYPE_PACKED_FLOAT64_ARRAY:
+			continue
+		var a: Array = TypedVariant.as_array(pos_v)
+		if a.size() < 3:
+			continue
+		var sof_p: Vector3 = Vector3(TypedVariant.as_float(a[0]), TypedVariant.as_float(a[1]), TypedVariant.as_float(a[2]))
+		var nx: float = clampf((sof_p.x - sof_aabb.position.x) / sof_aabb.size.x, -0.05, 1.05)
+		var ny: float = clampf((sof_p.y - sof_aabb.position.y) / sof_aabb.size.y, -0.05, 1.05)
+		var nz: float = clampf((sof_p.z - sof_aabb.position.z) / sof_aabb.size.z, -0.05, 1.05)
+		## Flip length: SOF min-Z aft → Godot max-Z aft (same as engine nozzles).
+		out.append(Vector3(
+			mesh_aabb.position.x + nx * mesh_aabb.size.x,
+			mesh_aabb.position.y + ny * mesh_aabb.size.y,
+			mesh_aabb.position.z + (1.0 - nz) * mesh_aabb.size.z
+		))
+	return out
 
 func _sample_turret_locals_from_mesh(root: Node3D, aabb: AABB, want: int) -> Array[Vector3]:
 	## Prefer authored hardpoints JSON; else sample upper-forward hull verts as turret decks.

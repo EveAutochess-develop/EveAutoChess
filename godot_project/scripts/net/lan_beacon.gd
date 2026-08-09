@@ -145,6 +145,7 @@ func _announce_bytes() -> PackedByteArray:
 		## SEMI_ASYNC §7.5 — join IP in payload (Android get_packet_ip often empty).
 		"ip": hip,
 		"ips": all_ips,
+		"host_platform": str(_session.opening_host_platform),
 	}
 	return JSON.stringify(payload).to_utf8_buffer()
 

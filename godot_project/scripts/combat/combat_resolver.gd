@@ -33,8 +33,14 @@ var _mining_fx_last_anchor_id: Dictionary = {}
 ## Excavator wander: instance_id -> MiningAnchor Node3D; retarget cooldown remaining.
 var _mining_wander_anchor: Dictionary = {}
 var _mining_wander_cd: Dictionary = {}
+## HP-stall retarget (COMBAT §14.1): firer id -> watch state.
+var _stall_target_id: Dictionary = {}
+var _stall_deadline: Dictionary = {}
+var _stall_hp0: Dictionary = {}
 ## Hull morph after unstack: {ship: ShipUnit, from: Vector3, to: Vector3, t: float, dur: float}
 var _morph_unstack: Array = []
+## Unmanned revive after kill (COMBAT §14C): {mother_id, drone_id, revive_at, star, squadron_id}
+var _drone_revive_queue: Array = []
 ## SEMI_ASYNC §2 — authority RNG (MatchRng) vs presentation (VisualRng).
 var match_rng: MatchRng = null
 var battle_serial: int = 1
@@ -42,6 +48,7 @@ var visual_rng: VisualRng = VisualRng.new()
 
 const DRONE_BW_COST: float = 5.0
 const DRONE_CAP: int = 5
+const DRONE_REVIVE_DELAY_S: float = 400.0
 const RACE_DRONE_LIGHT: Dictionary = {"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004}
 const RACE_DRONE_MEDIUM: Dictionary = {"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008}
 const RACE_DRONE_HEAVY: Dictionary = {"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014}
@@ -121,6 +128,7 @@ func start_combat() -> void:
 	_mining_fx_last_anchor_id.clear()
 	_mining_wander_anchor.clear()
 	_mining_wander_cd.clear()
+	_drone_revive_queue.clear()
 	_morph_unstack.clear()
 	_clear_debris()
 	_spawn_isolation_debris()
@@ -183,6 +191,7 @@ func stop_combat() -> void:
 			]
 		)
 	_missile_queue.clear()
+	_drone_revive_queue.clear()
 	_clear_drones()
 	_clear_debris()
 	for s: ShipUnit in _board.all_ships():
@@ -202,6 +211,7 @@ func tick(delta: float) -> void:
 	var now: float = _combat_sim_time
 	_tick_morph_unstack(delta)
 	_cull_orphan_drones()
+	_tick_drone_revives()
 	_spawn_capital_auxiliaries()
 	var retarget_interval: float = TypedVariant.as_float(DataStore.combat.get("retarget_interval_s", 10.0), 10.0)
 	_retarget_acc += delta
@@ -332,6 +342,10 @@ func _update_targeting(s: ShipUnit, delta: float, periodic_retarget: bool) -> vo
 	if tgt_any != null and is_instance_valid(tgt_any):
 		@warning_ignore("unsafe_cast")
 		tgt = tgt_any as ShipUnit
+	## HP stall: 30–40s with no layer drop → switch to ally's target at best range.
+	if not s.is_logistic and tgt != null and not tgt.is_destroyed:
+		if _tick_hp_stall_retarget(s, tgt):
+			return
 	var need_search: bool = tgt == null or tgt.is_destroyed
 	if not need_search and s.is_logistic and not tgt.needs_heal_for_race(s.race):
 		need_search = true
@@ -342,17 +356,112 @@ func _update_targeting(s: ShipUnit, delta: float, periodic_retarget: bool) -> vo
 		return
 	## Current target died / invalid → switch immediately (do not wait no_target_search_s).
 	if tgt != null and (not is_instance_valid(tgt) or tgt.is_destroyed):
-		s.combat_target = _find_target(s)
+		_assign_combat_target(s, _find_target(s))
 		s.no_target_acc = 0.0
 		return
 	var search_s: float = TypedVariant.as_float(DataStore.combat.get("no_target_search_s", 0.5), 0.5)
 	if tgt != null and not tgt.is_destroyed:
-		s.combat_target = _find_target(s)
+		_assign_combat_target(s, _find_target(s))
 		return
 	s.no_target_acc += delta
 	if s.no_target_acc >= search_s:
 		s.no_target_acc = 0.0
-		s.combat_target = _find_target(s)
+		_assign_combat_target(s, _find_target(s))
+
+
+func _assign_combat_target(s: ShipUnit, nxt: ShipUnit) -> void:
+	s.combat_target = nxt
+	_reset_hp_stall_watch(s, nxt)
+
+
+func _reset_hp_stall_watch(s: ShipUnit, tgt: ShipUnit) -> void:
+	if s == null:
+		return
+	var fid: int = s.get_instance_id()
+	if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed or s.is_logistic:
+		_stall_target_id.erase(fid)
+		_stall_deadline.erase(fid)
+		_stall_hp0.erase(fid)
+		return
+	var span: float = 30.0
+	if match_rng != null:
+		span = 30.0 + match_rng.roll(battle_serial, "misc_combat") * 10.0
+	else:
+		span = 30.0 + visual_rng.randf() * 10.0
+	_stall_target_id[fid] = tgt.get_instance_id()
+	_stall_deadline[fid] = _combat_sim_time + span
+	_stall_hp0[fid] = {
+		"shield": tgt.shield_hp,
+		"armor": tgt.armor_hp,
+		"structure": tgt.structure_hp,
+	}
+
+
+func _tick_hp_stall_retarget(s: ShipUnit, tgt: ShipUnit) -> bool:
+	var fid: int = s.get_instance_id()
+	var tid: int = tgt.get_instance_id()
+	if TypedVariant.as_int(_stall_target_id.get(fid, -1), -1) != tid:
+		_reset_hp_stall_watch(s, tgt)
+		return false
+	var snap: Dictionary = TypedVariant.as_dict(_stall_hp0.get(fid, {}))
+	if snap.is_empty():
+		_reset_hp_stall_watch(s, tgt)
+		return false
+	## Any layer drop clears the stall clock.
+	if (
+		tgt.shield_hp < TypedVariant.as_float(snap.get("shield", 0.0)) - 0.01
+		or tgt.armor_hp < TypedVariant.as_float(snap.get("armor", 0.0)) - 0.01
+		or tgt.structure_hp < TypedVariant.as_float(snap.get("structure", 0.0)) - 0.01
+	):
+		_reset_hp_stall_watch(s, tgt)
+		return false
+	if _combat_sim_time < TypedVariant.as_float(_stall_deadline.get(fid, 0.0), 0.0):
+		return false
+	var alt: ShipUnit = _find_ally_focus_target(s, tgt)
+	if alt == null:
+		alt = _find_target(s)
+	if alt == null or alt == tgt:
+		_reset_hp_stall_watch(s, tgt)
+		return false
+	_assign_combat_target(s, alt)
+	s.no_target_acc = 0.0
+	return true
+
+
+func _find_ally_focus_target(s: ShipUnit, exclude: ShipUnit) -> ShipUnit:
+	## Prefer enemies currently under fire by allies, scored by closeness to desired ring.
+	if s == null or _board == null:
+		return null
+	var desired: float = _desired_engagement_cells(s, exclude if exclude != null else s)
+	var best: ShipUnit = null
+	var best_score: float = 1.0e30
+	var focused: Dictionary = {}
+	for ally_v: Variant in _board.all_ships():
+		if not (ally_v is ShipUnit):
+			continue
+		var ally: ShipUnit = ally_v
+		if ally == null or not is_instance_valid(ally) or ally.is_destroyed:
+			continue
+		if ally.team_id != s.team_id or ally == s:
+			continue
+		var at: Variant = ally.combat_target
+		if at == null or not is_instance_valid(at) or not (at is ShipUnit):
+			continue
+		@warning_ignore("unsafe_cast")
+		var et: ShipUnit = at as ShipUnit
+		if et.is_destroyed or et.team_id == s.team_id:
+			continue
+		if exclude != null and et == exclude:
+			continue
+		focused[et.get_instance_id()] = et
+	for _k: Variant in focused.keys():
+		var et2: ShipUnit = focused[_k]
+		var d_cells: float = s.grid_dist_to(et2)
+		var score: float = absf(d_cells - desired)
+		if score < best_score:
+			best_score = score
+			best = et2
+	return best
 
 func _move_ship(s: ShipUnit, tgt: ShipUnit, delta: float, now_s: float) -> void:
 	if s.immobile_in_combat or s.has_cyno_module():
@@ -460,18 +569,61 @@ func _desired_engagement_cells(s: ShipUnit, tgt: ShipUnit) -> float:
 	var min_cells: float = TypedVariant.as_float(DataStore.combat.get("min_engagement_cells", 1.0), 1.0)
 	var approach: float = TypedVariant.as_float(DataStore.combat.get("approach_factor", 0.9), 0.9)
 	var max_cells: float = s.world_range_cells()
-	## Unlimited / missile 999: never kite toward a thousand-cell ring (pins on play-area edge).
-	if max_cells >= 100.0:
-		var d: float = s.grid_dist_to(tgt)
-		return maxf(min_cells, minf(d, min_cells + 0.5))
 	var hold_cap: float = max_cells * approach
-	var raw: float
+	## Missile non-sleeper infinite range: kite away to farthest feasible standoff.
+	if max_cells >= 100.0 and s.is_missile_weapon() and not _ship_is_sleeper(s):
+		var standoff: float = _missile_standoff_cells(s, tgt, min_cells)
+		return maxf(min_cells, standoff)
+	## Finite missile (sleepers): hold at approach ring.
 	if s.is_missile_weapon():
+		return maxf(min_cells, hold_cap)
+	## Turrets: ternary D*; flat hit curve → fall back to approach ring (COMBAT §3).
+	var raw: float = _ternary_optimal_cells(s, tgt)
+	if _turret_hit_curve_is_flat(s, tgt, max_cells):
 		raw = hold_cap
-	else:
-		raw = _ternary_optimal_cells(s, tgt)
 	raw = minf(raw, hold_cap)
 	return maxf(raw, min_cells)
+
+
+func _ship_is_sleeper(s: ShipUnit) -> bool:
+	if s == null:
+		return false
+	return ShipUnit._is_sleeper_hull(DataStore.get_ship(s.ship_id))
+
+
+func _missile_standoff_cells(s: ShipUnit, tgt: ShipUnit, min_cells: float) -> float:
+	## Prefer maximum separation while remaining in playable XZ bounds.
+	if s == null or tgt == null:
+		return min_cells
+	var away: Vector3 = s.global_position - tgt.global_position
+	away.y = 0.0
+	if away.length() < 0.001:
+		away = Vector3(0.0, 0.0, 1.0)
+	else:
+		away = away.normalized()
+	var cell_wu: float = TypedVariant.as_float(DataStore.combat.get("world_units_per_cell", 3.0), 3.0)
+	var best: float = min_cells
+	for i: int in range(8, 0, -1):
+		var cells: float = float(i) * 5.0
+		var cand: Vector3 = tgt.global_position + away * (cells * cell_wu)
+		cand.y = s.global_position.y
+		cand = BoardController.clamp_to_combat_play_area(cand)
+		var from_tgt: Vector3 = cand - tgt.global_position
+		from_tgt.y = 0.0
+		var got: float = from_tgt.length() / maxf(cell_wu, 0.001)
+		if got >= best:
+			best = got
+	return maxf(min_cells, best)
+
+
+func _turret_hit_curve_is_flat(s: ShipUnit, tgt: ShipUnit, max_cells: float) -> bool:
+	if max_cells <= 0.001:
+		return true
+	var p0: float = s.turret_hit_chance_vs(tgt, 0.0)
+	var p1: float = s.turret_hit_chance_vs(tgt, max_cells * 0.5)
+	var p2: float = s.turret_hit_chance_vs(tgt, max_cells)
+	return absf(p0 - p1) < 0.02 and absf(p1 - p2) < 0.02
+
 
 func _ternary_optimal_cells(s: ShipUnit, tgt: ShipUnit) -> float:
 	var lo: float = 0.0
@@ -1031,7 +1183,11 @@ func _on_hit(payload: Dictionary) -> Dictionary:
 			_fighter_hit_count += 1
 	if dealt > 0.0 and _float_text:
 		_float_text.add_damage(target.global_position, dealt, target.get_instance_id())
-	return {"accepted": true, "destroyed": res.get("destroyed", false), "dealt": dealt}
+	var destroyed: bool = TypedVariant.as_bool(res.get("destroyed", false), false)
+	## Combat kill only — mother-death orphan cull does not go through apply_hit.
+	if destroyed and target.is_unmanned and not authority_only:
+		_schedule_drone_revive(target)
+	return {"accepted": true, "destroyed": destroyed, "dealt": dealt}
 
 func _on_heal(payload: Dictionary) -> Dictionary:
 	var tid: int = TypedVariant.as_int(payload.get("target_id", 0), 0)
@@ -1117,11 +1273,18 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 		return {"count": 1, "drone_id": TypedVariant.as_int(RACE_DRONE_MEDIUM.get(race, 1005), 1005)}
 	if group == "battleship":
 		return {"count": 2, "drone_id": TypedVariant.as_int(RACE_DRONE_HEAVY.get(race, 1011), 1011)}
+	## Mining barges: G medium 1007; Orca (industrial_command): G heavy 1013 (MINING §2).
 	var slots: int = TypedVariant.as_int(s.get("drone_bay_slots"), 0)
+	if slots <= 0:
+		slots = TypedVariant.as_int(ship_data.get("drone_bay_slots", ship_data.get("drone_count_cap", 0)), 0)
 	if slots <= 0 and s.drone_bandwidth > 0.0:
 		slots = floori(s.drone_bandwidth / DRONE_BW_COST)
 	if slots <= 0:
 		return {"count": 0, "drone_id": 0}
+	if group == "mining_barge":
+		return {"count": slots, "drone_id": 1007}
+	if group == "industrial_command":
+		return {"count": slots, "drone_id": 1013}
 	return {"count": slots, "drone_id": TypedVariant.as_int(RACE_DRONE_LIGHT.get(race, 1001), 1001)}
 
 
@@ -1226,9 +1389,62 @@ func _clear_drones() -> void:
 	_mining_wander_cd.clear()
 	_mining_fx_cd.clear()
 	_mining_fx_last_anchor_id.clear()
+	_drone_revive_queue.clear()
+
+
+func _schedule_drone_revive(drone: ShipUnit) -> void:
+	if drone == null or not drone.is_unmanned:
+		return
+	var mid: int = int(drone.mother_ship_id)
+	if mid == 0:
+		return
+	var mother: ShipUnit = instance_from_id(mid) as ShipUnit
+	if mother == null or not is_instance_valid(mother) or mother.is_destroyed:
+		return
+	_drone_revive_queue.append({
+		"mother_id": mid,
+		"drone_id": int(drone.ship_id),
+		"revive_at": _combat_sim_time + DRONE_REVIVE_DELAY_S,
+		"star": maxi(int(drone.star), 1),
+		"squadron_id": int(drone.fighter_squadron_id),
+	})
+
+
+func _tick_drone_revives() -> void:
+	if authority_only or _drone_revive_queue.is_empty():
+		return
+	var left: Array = []
+	for entry_v: Variant in _drone_revive_queue:
+		var entry: Dictionary = TypedVariant.as_dict(entry_v)
+		var mid: int = TypedVariant.as_int(entry.get("mother_id", 0), 0)
+		var mother: ShipUnit = instance_from_id(mid) as ShipUnit
+		if mother == null or not is_instance_valid(mother) or mother.is_destroyed or mother.slot_type != "field":
+			continue
+		var due: float = TypedVariant.as_float(entry.get("revive_at", 0.0), 0.0)
+		if _combat_sim_time < due:
+			left.append(entry)
+			continue
+		var drone_id: int = TypedVariant.as_int(entry.get("drone_id", 0), 0)
+		if drone_id <= 0:
+			continue
+		var star: int = TypedVariant.as_int(entry.get("star", mother.star), mother.star)
+		var sq: int = TypedVariant.as_int(entry.get("squadron_id", -1), -1)
+		var have: int = _count_children_of(mother)
+		var ang: float = float(have) * TAU / float(maxi(have + 1, 1))
+		var offset: Vector3 = Vector3(cos(ang) * 1.15, 0.2, sin(ang) * 1.15)
+		var drone: ShipUnit = _board.spawn_unmanned(
+			drone_id, mother.team_id, mother.global_position + offset, mother, star, sq
+		)
+		_ensure_drone_trail(drone)
+		var did: int = drone.get_instance_id()
+		_drone_orbit_phase[did] = ang
+		_drone_orbit_dir[did] = 1.0 if (have % 2) == 0 else -1.0
+		_board.recalculate_fetters(mother.team_id)
+	_drone_revive_queue = left
+
 
 func _cull_orphan_drones() -> void:
-	## Mother destroyed / missing → recycle combat drones immediately.
+	## Mother destroyed / missing → recycle combat drones immediately (no 400s revive).
 	var doomed: Array[ShipUnit] = []
 	for s: ShipUnit in _board.all_ships():
 		if not s.is_unmanned or s.is_destroyed:
@@ -1238,6 +1454,17 @@ func _cull_orphan_drones() -> void:
 		var mother: ShipUnit = instance_from_id(s.mother_ship_id) as ShipUnit
 		if mother == null or not is_instance_valid(mother) or mother.is_destroyed:
 			doomed.append(s)
+	## Drop pending revives whose mother is already gone.
+	if not _drone_revive_queue.is_empty():
+		var kept: Array = []
+		for entry_v: Variant in _drone_revive_queue:
+			var entry: Dictionary = TypedVariant.as_dict(entry_v)
+			var mid2: int = TypedVariant.as_int(entry.get("mother_id", 0), 0)
+			var mom2: ShipUnit = instance_from_id(mid2) as ShipUnit
+			if mom2 == null or not is_instance_valid(mom2) or mom2.is_destroyed:
+				continue
+			kept.append(entry)
+		_drone_revive_queue = kept
 	for s: ShipUnit in doomed:
 		@warning_ignore("unsafe_cast")
 		var ship: ShipUnit = s as ShipUnit

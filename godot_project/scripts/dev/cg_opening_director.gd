@@ -8,10 +8,10 @@ extends Node3D
 ## 大航 = 超级航母（supercarrier），不是执政官级那种航母（carrier）。
 ## 俗称：万古=永恒/Aeon · 飞龙=Wyvern · 夜神=尼克斯/Nyx · 冥府=地狱/Hel。
 const RACES: Array[Dictionary] = [
-	{"id": 201, "race": "A", "race_id": "amarr", "model_key": "tq_titan_a", "sc_key": "tq_supercarrier_a", "sc_id": 971, "sc_name": "永恒级", "sc_alias": "万古", "sc_name_en": "Aeon", "name": "圣像级", "name_en": "Avatar", "color": Color(1.0, 0.82, 0.28), "sky_jpeg": "res://assets/skyboxes/races/ah1.jpg"},
-	{"id": 202, "race": "C", "race_id": "caldari", "model_key": "tq_titan_c", "sc_key": "tq_supercarrier_c", "sc_id": 972, "sc_name": "飞龙级", "sc_alias": "飞龙", "sc_name_en": "Wyvern", "name": "利维坦级", "name_en": "Leviathan", "color": Color(0.35, 0.72, 1.0), "sky_jpeg": "res://assets/skyboxes/races/ch1.jpg"},
-	{"id": 203, "race": "G", "race_id": "gallente", "model_key": "tq_titan_g", "sc_key": "tq_supercarrier_g", "sc_id": 973, "sc_name": "尼克斯级", "sc_alias": "夜神", "sc_name_en": "Nyx", "name": "厄勒布洛斯级", "name_en": "Erebus", "color": Color(0.35, 1.0, 0.55), "sky_jpeg": "res://assets/skyboxes/races/gh1.jpg"},
-	{"id": 204, "race": "M", "race_id": "minmatar", "model_key": "tq_titan_m", "sc_key": "tq_supercarrier_m", "sc_id": 974, "sc_name": "地狱级", "sc_alias": "冥府", "sc_name_en": "Hel", "name": "诸神黄昏级", "name_en": "Ragnarok", "color": Color(1.0, 0.42, 0.12), "sky_jpeg": "res://assets/skyboxes/races/mh1.jpg"},
+	{"id": 201, "race": "A", "race_id": "amarr", "model_key": "tq_titan_a", "sc_key": "tq_supercarrier_a", "sc_id": 971, "sc_name": "永恒级", "sc_alias": "万古", "sc_name_en": "Aeon", "name": "神使级", "name_en": "Avatar", "color": Color(1.0, 0.82, 0.28), "sky_jpeg": "res://assets/skyboxes/races/ah1.jpg"},
+	{"id": 202, "race": "C", "race_id": "caldari", "model_key": "tq_titan_c", "sc_key": "tq_supercarrier_c", "sc_id": 972, "sc_name": "飞龙级", "sc_alias": "飞龙", "sc_name_en": "Wyvern", "name": "勒维亚坦级", "name_en": "Leviathan", "color": Color(0.35, 0.72, 1.0), "sky_jpeg": "res://assets/skyboxes/races/ch1.jpg"},
+	{"id": 203, "race": "G", "race_id": "gallente", "model_key": "tq_titan_g", "sc_key": "tq_supercarrier_g", "sc_id": 973, "sc_name": "尼克斯级", "sc_alias": "夜神", "sc_name_en": "Nyx", "name": "俄洛巴斯级", "name_en": "Erebus", "color": Color(0.35, 1.0, 0.55), "sky_jpeg": "res://assets/skyboxes/races/gh1.jpg"},
+	{"id": 204, "race": "M", "race_id": "minmatar", "model_key": "tq_titan_m", "sc_key": "tq_supercarrier_m", "sc_id": 974, "sc_name": "地狱级", "sc_alias": "冥府", "sc_name_en": "Hel", "name": "拉格纳洛克级", "name_en": "Ragnarok", "color": Color(1.0, 0.42, 0.12), "sky_jpeg": "res://assets/skyboxes/races/mh1.jpg"},
 ]
 
 ## Beat grid measured from the mix, 86.54 bpm · first beat 0.680s · period 0.6933s.

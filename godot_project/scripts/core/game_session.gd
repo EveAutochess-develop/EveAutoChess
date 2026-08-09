@@ -9,6 +9,8 @@ var pending_nullsec: Dictionary = {}
 var shell_version: String = "1.0.0-shell"
 var target_fps: int = 60
 var no_model_perf_mode: bool = false
+## Options「装备与武器特效简化」: true = lite VFX; default false = full (preview-parity).
+var weapon_fx_simplified: bool = false
 ## Player override for camera breathe (options menu). true = on.
 var camera_breathe_enabled: bool = true
 ## Ship float HP: "ring" (fans around tonnage) | "bars" (4 horizontal incl. cap).
@@ -58,6 +60,7 @@ func _load_settings() -> void:
 		return
 	target_fps = TypedVariant.as_int(cf.get_value("graphics", "target_fps", target_fps), target_fps)
 	no_model_perf_mode = TypedVariant.as_bool(cf.get_value("graphics", "no_model_perf_mode", false), false)
+	weapon_fx_simplified = TypedVariant.as_bool(cf.get_value("graphics", "weapon_fx_simplified", false), false)
 	camera_breathe_enabled = TypedVariant.as_bool(cf.get_value("graphics", "camera_breathe_enabled", true), true)
 	health_bar_style = str(cf.get_value("graphics", "health_bar_style", health_bar_style))
 	if health_bar_style != "bars":
@@ -72,6 +75,7 @@ func save_settings() -> void:
 	cf.load(SETTINGS_PATH)
 	cf.set_value("graphics", "target_fps", target_fps)
 	cf.set_value("graphics", "no_model_perf_mode", no_model_perf_mode)
+	cf.set_value("graphics", "weapon_fx_simplified", weapon_fx_simplified)
 	cf.set_value("graphics", "camera_breathe_enabled", camera_breathe_enabled)
 	cf.set_value("graphics", "health_bar_style", health_bar_style)
 	cf.set_value("developer", "debug_enabled", developer_debug_enabled)
@@ -88,6 +92,11 @@ func set_no_model_perf_mode(on: bool) -> void:
 	if tree:
 		## UI_AND_SHELL: toggle must refresh existing units + asteroids (on and off).
 		tree.call_group("match_root", "apply_no_model_perf_mode_changed")
+
+func set_weapon_fx_simplified(on: bool) -> void:
+	weapon_fx_simplified = on
+	save_settings()
+	SessionDiagnostics.log("settings", "weapon_fx_simplified=%d" % (1 if on else 0))
 
 func set_target_fps(fps: int) -> void:
 	target_fps = maxi(0, fps)

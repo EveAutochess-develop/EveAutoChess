@@ -28,6 +28,8 @@ var _prepare_hold_reported: bool = false
 var remote_watch_only: bool = false
 ## Set by MatchRoot — more reliable than signal alone under RPC flood.
 var prepare_hold_callback: Callable = Callable()
+## MatchRoot: lock+spawn nullsec PVE creeps with current gold before Battle opens.
+var before_battle_callback: Callable = Callable()
 ## Diag: throttle prepare-freeze heartbeats (logcat).
 var _diag_prep_freeze_acc: float = 0.0
 
@@ -40,7 +42,6 @@ var ai_max_hp: int = 1000
 var player_level: int = 1
 var player_exp: int = 0
 var up_level_demand: int = 4
-var shop_locked: bool = false
 var speed_multiplier: float = 1.0
 ## Player equipment bag — up to 16 item ids (EQUIPMENT.md §1).
 var equipment_inventory: Array[String] = []
@@ -104,7 +105,6 @@ func start_match(p_mode: String) -> void:
 	battle_game_stage_count = 0
 	round_phase_value = 1
 	battle_phase_value = 0
-	shop_locked = false
 	_init_equipment_inventory()
 	win_streak = 0
 	loss_streak = 0
@@ -317,8 +317,8 @@ func _enter_prepare() -> void:
 	## Cyno-gated hulls return to hangar for next induction (MATCH_FLOW §5.0b).
 	if _board and _board.has_method("recall_cyno_entry_ships_to_hangar"):
 		_board.recall_cyno_entry_ships_to_hangar()
-	## Heal empty shop (bad save / mid-refresh persist).
-	if _shop and _shop.slots.is_empty() and not shop_locked:
+	## Heal empty shop (bad save / mid-refresh persist). Manual refresh only — no round auto-refresh.
+	if _shop and _shop.slots.is_empty():
 		_shop.refresh_shop(true, false)
 	stage_changed.emit(stage)
 	hud_refresh.emit()
@@ -328,6 +328,9 @@ func _enter_prepare() -> void:
 func _on_prepare_complete() -> void:
 	if mode != "nullsec" and _ai and _ai.has_method("finalize_prepare"):
 		_ai.finalize_prepare()
+	## Nullsec PVE: re-lock creeps with current gold before combat opens (MATCH_FLOW §5.1.2).
+	if before_battle_callback.is_valid():
+		before_battle_callback.call()
 	var payload: Dictionary = {"stage": "battle", "battle_phase": battle_phase_value, "round_phase": round_phase_value}
 	var res: Dictionary = AdminBus.request(&"match.stage_change", payload)
 	if not TypedVariant.as_bool(res.get("accepted", true), true):
@@ -428,8 +431,50 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 	## Fetter passives can rescale max — pin full pipes again (MATCH_FLOW Battle→Prepare 满血).
 	_board.force_full_hp_all_ships()
 	## Star merges wait for Prepare (`try_upgrades_all` is prepare-gated).
-	if not shop_locked:
-		_shop.refresh_shop(true)
+	## No automatic shop refresh at round end (ECONOMY_AND_SHOP §3).
+	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
+	_ai.after_round()
+	_empty_open_fleet_trusted = false
+	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
+		_end_match()
+		return
+	_enter_prepare()
+
+
+## This-round concede (MULTIPLAYER_PVP §7.0c): settle as local wipe-loss, not full match surrender.
+func concede_current_round() -> void:
+	if not _running or stage == Stage.GAME_END:
+		return
+	if stage == Stage.BATTLE:
+		force_authority_combat_complete("lose", "concede")
+		return
+	if stage != Stage.PREPARE:
+		return
+	## Prepare: skip the fight and settle the same lose path as a combat wipe.
+	_combat.stop_combat()
+	_abort_cyno_channels()
+	_battle_opened_empty = false
+	last_round_empty_open = false
+	print("[mp.diag] combat_complete_concede stage=prepare")
+	SessionDiagnostics.log("mp.combat_concede", "prepare")
+	battle_game_stage_count += 1
+	round_phase_value += 1
+	var max_rp: int = TypedVariant.as_int(DataStore.match_flow.get("max_round_phase_value", 5), 5)
+	if round_phase_value > max_rp:
+		round_phase_value = 1
+		battle_phase_value += 1
+	last_round_player_field = 0
+	last_round_ai_field = _board.count_alive_field(ShipUnit.TEAM_AI) if _board else 1
+	if last_round_ai_field <= 0:
+		last_round_ai_field = 1
+	last_round_result = "lose"
+	last_round_freighter_alive = false
+	_resolve_citadel_and_income()
+	_board.reset_ships_after_round()
+	_board.force_full_hp_all_ships()
+	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	_board.recalculate_fetters(ShipUnit.TEAM_AI)
+	_board.force_full_hp_all_ships()
 	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
 	_ai.after_round()
 	_empty_open_fleet_trusted = false
@@ -474,8 +519,6 @@ func force_authority_combat_complete(mapped_result: String, reason: String = "au
 	_board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
 	_board.force_full_hp_all_ships()
-	if not shop_locked:
-		_shop.refresh_shop(true)
 	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
 	_ai.after_round()
 	_empty_open_fleet_trusted = false
@@ -603,9 +646,12 @@ func _resolve_citadel_and_income() -> void:
 	_update_streaks(player_won)
 	if _ai and _ai.has_method("update_streaks"):
 		_ai.update_streaks(ai_won)
-	_apply_income(ShipUnit.TEAM_PLAYER, player_won, kills_this_round_player)
-	if _ai and _ai.has_method("apply_income"):
-		_ai.apply_income(ai_won, kills_this_round_ai)
+	## Snapshot both incomes before granting so loss_comp interest is pre-payout.
+	var p_parts: Dictionary = _compute_round_income_parts(ShipUnit.TEAM_PLAYER, player_won)
+	var a_parts: Dictionary = _compute_round_income_parts(ShipUnit.TEAM_AI, ai_won)
+	_grant_income_from_parts(ShipUnit.TEAM_PLAYER, player_won, ai_won, p_parts, a_parts)
+	if _ai != null:
+		_grant_income_from_parts(ShipUnit.TEAM_AI, ai_won, player_won, a_parts, p_parts)
 
 func _update_streaks(player_won: bool) -> void:
 	if player_won:
@@ -624,6 +670,63 @@ func _streak_bonus(streak: int) -> int:
 			best = maxi(best, TypedVariant.as_int(table[k_v], 0))
 	return best
 
+func _loss_comp_rate(streak: int) -> float:
+	var eco: Dictionary = DataStore.economy
+	var start_r: float = TypedVariant.as_float(eco.get("loss_comp_rate_start", 0.10), 0.10)
+	var step_r: float = TypedVariant.as_float(eco.get("loss_comp_rate_step", 0.20), 0.20)
+	var cap_r: float = TypedVariant.as_float(eco.get("loss_comp_rate_cap", 0.70), 0.70)
+	var s: int = maxi(1, streak)
+	return minf(cap_r, start_r + step_r * float(s - 1))
+
+func field_ships_cost_sum(team: int) -> int:
+	## Public: nullsec PVE creep budget V_field (MATCH_FLOW §5.1.2).
+	return _field_ships_cost_sum(team)
+
+
+func _field_ships_cost_sum(team: int) -> int:
+	if _board == null:
+		return 0
+	var total: int = 0
+	for s: ShipUnit in _board.field_ships(team):
+		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
+			continue
+		var sd: Dictionary = DataStore.get_ship(s.ship_id)
+		total += maxi(0, TypedVariant.as_int(sd.get("cost", 0), 0))
+	return total
+
+func _compute_round_income_parts(team: int, won: bool) -> Dictionary:
+	## Pre-loss-comp income breakdown (base+interest+win+streak+mining).
+	var eco: Dictionary = DataStore.economy
+	var gold_ref: int = player_gold if team == ShipUnit.TEAM_PLAYER else (int(_ai.ai_gold) if _ai else 0)
+	var interest: int = floori(float(gold_ref) / TypedVariant.as_float(eco.get("interest_divisor", 10), 10.0))
+	var cap: int = TypedVariant.as_int(eco.get("interest_cap", 5), 5)
+	if TypedVariant.as_bool(eco.get("interest_capped", true), true):
+		interest = mini(interest, cap)
+	var base: int = _base_income_for_round()
+	var win_g: int = TypedVariant.as_int(eco.get("win_gold", 1), 1) if won else 0
+	var streak_g: int = 0
+	if won:
+		var streak: int = win_streak if team == ShipUnit.TEAM_PLAYER else (_ai.win_streak if _ai else 0)
+		streak_g = _streak_bonus(streak)
+	var mining_g: int = _mining_gold_for_team(team)
+	var income: int = base + interest + win_g + streak_g + mining_g
+	if team == ShipUnit.TEAM_PLAYER and GameSession and GameSession.player_ai_double_economy_active():
+		var mul: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
+		var combat_part: int = income - mining_g
+		income = roundi(float(combat_part) * mul) + mining_g
+	elif team == ShipUnit.TEAM_AI and _ai != null:
+		var mul_ai: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
+		var combat_ai: int = income - mining_g
+		income = roundi(float(combat_ai) * mul_ai) + mining_g
+	return {
+		"base": base,
+		"interest": interest,
+		"win": win_g,
+		"streak": streak_g,
+		"mining": mining_g,
+		"income": income,
+	}
+
 func _base_income_for_round() -> int:
 	var eco: Dictionary = DataStore.economy
 	var by_r: Array = TypedVariant.as_array(eco.get("base_gold_income_by_round", [2, 3, 4]))
@@ -633,28 +736,46 @@ func _base_income_for_round() -> int:
 	return TypedVariant.as_int(eco.get("base_gold_income", 5), 5)
 
 func _apply_income(team: int, won: bool, _kills: int) -> void:
-	var eco: Dictionary = DataStore.economy
-	var gold_ref: int = player_gold if team == ShipUnit.TEAM_PLAYER else (int(_ai.ai_gold) if _ai else 0)
-	var interest: int = floori(float(gold_ref) / TypedVariant.as_float(eco.get("interest_divisor", 10), 10.0))
-	var cap: int = TypedVariant.as_int(eco.get("interest_cap", 5), 5)
-	if TypedVariant.as_bool(eco.get("interest_capped", true), true):
-		interest = mini(interest, cap)
-	var base: int = _base_income_for_round()
-	var win_g: int = TypedVariant.as_int(eco.get("win_gold", 1), 1) if won else 0
-	var streak: int = win_streak if team == ShipUnit.TEAM_PLAYER else (_ai.win_streak if _ai else 0)
-	if not won:
-		streak = loss_streak if team == ShipUnit.TEAM_PLAYER else (_ai.loss_streak if _ai else 0)
-	var streak_g: int = _streak_bonus(streak)
-	## Kill gold is now granted the instant a kill lands (see `_on_admin_after`) — never
-	## re-paid here, or a player kill would be counted twice at round-end income.
+	## Legacy entry: compute+grant for one team (tests / callers without opponent snap).
+	var parts: Dictionary = _compute_round_income_parts(team, won)
+	var opp: int = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+	var opp_won: bool = not won ## approximate; prefer _grant via stop_combat path
+	var opp_parts: Dictionary = _compute_round_income_parts(opp, opp_won)
+	_grant_income_from_parts(team, won, opp_won, parts, opp_parts)
+
+func _grant_income_from_parts(
+	team: int,
+	won: bool,
+	opponent_won: bool,
+	parts: Dictionary,
+	winner_or_opp_parts: Dictionary
+) -> void:
+	var base: int = TypedVariant.as_int(parts.get("base", 0), 0)
+	var interest: int = TypedVariant.as_int(parts.get("interest", 0), 0)
+	var win_g: int = TypedVariant.as_int(parts.get("win", 0), 0)
+	var streak_g: int = TypedVariant.as_int(parts.get("streak", 0), 0)
 	var kill_g: int = 0
-	var mining_g: int = _mining_gold_for_team(team)
-	var income: int = base + interest + win_g + streak_g + kill_g + mining_g
-	## Dev: same AI income ×mul on combat part only (mining stays raw).
-	if team == ShipUnit.TEAM_PLAYER and GameSession and GameSession.player_ai_double_economy_active():
-		var mul: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
-		var combat_part: int = income - mining_g
-		income = roundi(float(combat_part) * mul) + mining_g
+	var mining_g: int = TypedVariant.as_int(parts.get("mining", 0), 0)
+	var income: int = TypedVariant.as_int(parts.get("income", 0), 0)
+	var loss_comp: int = 0
+	if not won and opponent_won:
+		var opp_team: int = ShipUnit.TEAM_AI if team == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
+		var winner_income: int = TypedVariant.as_int(winner_or_opp_parts.get("income", 0), 0)
+		var winner_field: int = _field_ships_cost_sum(opp_team)
+		var ls: int = loss_streak if team == ShipUnit.TEAM_PLAYER else (_ai.loss_streak if _ai else 1)
+		var rate: float = _loss_comp_rate(ls)
+		loss_comp = int(ceili(float(winner_income + winner_field) * rate))
+		income += loss_comp
+		## Dual cap vs winner income: max(pct, flat) then min — ECONOMY §2.
+		var core: int = base + interest + mining_g
+		var tp: Dictionary = DataStore.titan_pvp if DataStore != null else {}
+		var cap_mul: float = TypedVariant.as_float(tp.get("loss_comp_vs_winner_cap", 0.75), 0.75)
+		var less_n: int = TypedVariant.as_int(tp.get("loss_comp_vs_winner_less", 60), 60)
+		var cap_pct: int = floori(float(winner_income) * cap_mul)
+		var cap_flat: int = maxi(0, winner_income - less_n)
+		var cap: int = maxi(cap_pct, cap_flat)
+		income = mini(income, cap)
+		loss_comp = maxi(0, income - core)
 	var payload: Dictionary = {
 		"team": team,
 		"base": base,
@@ -663,6 +784,7 @@ func _apply_income(team: int, won: bool, _kills: int) -> void:
 		"streak": streak_g,
 		"kills": kill_g,
 		"mining": mining_g,
+		"loss_comp": loss_comp,
 		"income": income,
 	}
 	var r: Dictionary = AdminBus.request(&"economy.income", payload)
@@ -671,7 +793,9 @@ func _apply_income(team: int, won: bool, _kills: int) -> void:
 	if team == ShipUnit.TEAM_PLAYER:
 		player_gold += final_income
 		player_gold_earned += maxi(0, final_income)
-		if mining_g > 0:
+		if loss_comp > 0:
+			notice.emit("你收入了%d黄币（含连输补偿%d）" % [final_income, loss_comp])
+		elif mining_g > 0:
 			notice.emit("你收入了%d黄币（含采矿%d）" % [final_income, mining_g])
 		else:
 			notice.emit("你收入了%d黄币" % final_income)

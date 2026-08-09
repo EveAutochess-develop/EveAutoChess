@@ -4,19 +4,19 @@
   "name_en": "Tempest",
   "type_id": 639,
   "model_key": "mmte_baofeng",
-  "cost": 13,
+  "cost": 8,
   "ship_groups": [
-    "battleship"
+    "battlecruiser"
   ],
-  "ship_group": "battleship",
+  "ship_group": "battlecruiser",
   "fetter_ids": [
     "minmatar",
-    "battleship",
+    "battlecruiser",
     "projectile"
   ],
   "tags": [
     "minmatar",
-    "battleship",
+    "battlecruiser",
     "projectile"
   ],
   "is_logistic": false,
@@ -121,5 +121,6 @@
   "visual": {},
   "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
   "echoes_item_id": 10400000007,
-  "sof_hull": "mb2_t1"
+  "sof_hull": "mb2_t1",
+  "shop_min_level": 9
 }

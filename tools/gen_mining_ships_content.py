@@ -56,6 +56,8 @@ def ship(
     is_unmanned: bool = False,
     unmanned_kind: str = "",
     source_module_type_id: int = 17482,
+    capacitor_capacity: float = 0.0,
+    capacitor_recharge_s: float = 0.0,
 ) -> dict:
     tags = list(fetter_ids)
     d = {
@@ -78,6 +80,8 @@ def ship(
         "sensor_strength": sensor,
         "scan_resolution": scan_res,
         "speed": speed,
+        "capacitor_capacity": capacitor_capacity,
+        "capacitor_recharge_s": capacitor_recharge_s,
         "mining_gold_per_round": mining_gold,
         "is_mining_ship": not is_unmanned,
         "is_unmanned": is_unmanned,
@@ -127,7 +131,11 @@ def main() -> None:
             9,
             550,
             202,
+            drone_bay_slots=1,
+            drone_count_cap=1,
             mining_gold=25,
+            capacitor_capacity=350.0,
+            capacitor_recharge_s=187.5,
         ),
         ship(
             136,
@@ -146,7 +154,11 @@ def main() -> None:
             20,
             90,
             450,
+            drone_bay_slots=1,
+            drone_count_cap=1,
             mining_gold=10,
+            capacitor_capacity=3500.0,
+            capacitor_recharge_s=875.0,
         ),
         ship(
             137,
@@ -165,7 +177,11 @@ def main() -> None:
             30,
             75,
             550,
+            drone_bay_slots=2,
+            drone_count_cap=2,
             mining_gold=40,
+            capacitor_capacity=8000.0,
+            capacitor_recharge_s=1200.0,
         ),
         ship(
             138,
@@ -189,6 +205,8 @@ def main() -> None:
             drone_count_cap=4,
             mining_gold=0,
             mining_drone_id=139,
+            capacitor_capacity=67500.0,
+            capacitor_recharge_s=4500.0,
         ),
         ship(
             139,

@@ -49,49 +49,10 @@
   "source_module_type_id": 11114010000,
   "source_repair_module_type_id": 0,
   "requires_cyno_entry": false,
-  "deploy_enemy_half_only": true,
+  "deploy_enemy_half_only": false,
   "allow_enemy_cell_overlap": true,
   "immobile_in_combat": true,
   "stars": [
-    {
-      "attack_range": 999,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.01,
-      "optimal": 50000.0,
-      "falloff": 10000.0,
-      "optimal_sig_radius": 165.0,
-      "shield_hp": 1750.0,
-      "armor_hp": 940.0,
-      "structure_hp": 945.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
     {
       "attack_range": 999,
       "damage": {
@@ -113,22 +74,22 @@
       "armor_hp": 1880.0,
       "structure_hp": 1890.0,
       "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       },
       "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       },
       "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       }
     },
     {
@@ -148,26 +109,65 @@
       "optimal": 50000.0,
       "falloff": 10000.0,
       "optimal_sig_radius": 165.0,
-      "shield_hp": 5250.0,
-      "armor_hp": 2820.0,
-      "structure_hp": 2835.0,
+      "shield_hp": 7000.0,
+      "armor_hp": 3760.0,
+      "structure_hp": 3780.0,
       "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       },
       "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       },
       "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
+      }
+    },
+    {
+      "attack_range": 999,
+      "damage": {
+        "emp": 0.0,
+        "thermal": 0.0,
+        "kinetic": 0.0,
+        "explosive": 0.0
+      },
+      "repair": {
+        "shield": 0,
+        "armor": 0,
+        "structure": 0
+      },
+      "tracking": 0.01,
+      "optimal": 50000.0,
+      "falloff": 10000.0,
+      "optimal_sig_radius": 165.0,
+      "shield_hp": 10500.0,
+      "armor_hp": 5640.0,
+      "structure_hp": 5670.0,
+      "shield_resist": {
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
+      },
+      "armor_resist": {
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
+      },
+      "structure_resist": {
+        "emp": 0.8,
+        "thermal": 0.8,
+        "kinetic": 0.8,
+        "explosive": 0.8
       }
     }
   ],

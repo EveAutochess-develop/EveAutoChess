@@ -329,6 +329,17 @@ func _build_options() -> Control:
 	nomodel_row.add_child(nomodel)
 	box.add_child(nomodel_row)
 
+	var fx_simple_row: HBoxContainer = HBoxContainer.new()
+	fx_simple_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var fx_simple: CheckBox = CheckBox.new()
+	fx_simple.text = "装备与武器特效简化"
+	fx_simple.tooltip_text = "关闭=正常特效（与预览同套）；开启=色块束/单球加农/直线导弹"
+	fx_simple.button_pressed = GameSession.weapon_fx_simplified
+	UiAssets.apply_button_font(fx_simple, UiLayout.font_size(16, self))
+	fx_simple.toggled.connect(_on_weapon_fx_simplified_toggled)
+	fx_simple_row.add_child(fx_simple)
+	box.add_child(fx_simple_row)
+
 	var breathe_row: HBoxContainer = HBoxContainer.new()
 	breathe_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
 	var breathe: CheckBox = CheckBox.new()
@@ -582,6 +593,9 @@ func _on_fps_changed(v: float) -> void:
 func _on_no_model_toggled(on: bool) -> void:
 	GameSession.set_no_model_perf_mode(on)
 
+func _on_weapon_fx_simplified_toggled(on: bool) -> void:
+	GameSession.set_weapon_fx_simplified(on)
+
 func _on_camera_breathe_toggled(on: bool) -> void:
 	GameSession.set_camera_breathe_enabled(on)
 
@@ -634,7 +648,10 @@ func _show_nullsec_room() -> void:
 
 func _on_nullsec_leave() -> void:
 	MatchLoadOverlay.hide_overlay()
+	GameSession.pending_nullsec = {}
+	GameSession.pending_mode = ""
 	if _nullsec_net:
+		_nullsec_net.clear_rejoin_ticket()
 		_nullsec_net.close()
 	if _nullsec_room:
 		_nullsec_room.queue_free()
@@ -801,11 +818,22 @@ func _nullsec_match_public_run() -> void:
 		if LanAffinity.is_same_lan(ip):
 			tried_same_lan = true
 		net.close()
+		var host_plat_ad: String = str(d.get("host_platform", "")).strip_edges()
+		if host_plat_ad != "":
+			net.opening_host_platform = host_plat_ad
 		_nullsec_lobby.set_status("正在试加入房间…")
 		LanJoinDebug.log_try(ip, port, code, "match")
+		if NullsecNetSession.detect_local_platform() == "mobile":
+			SessionDiagnostics.log(
+				"net.lan.join_pc_host",
+				"menu try ep=%s:%d host_plat=%s code=%04d aff=%s" % [
+					ip, port, host_plat_ad if host_plat_ad != "" else "unknown", code, LanAffinity.affinity(ip)
+				]
+			)
 		var err: Error = net.join(ip, port, nick, rules, "")
 		if err != OK:
 			LanJoinDebug.log_fail(ip, port, code, "enet:%d" % err, "match")
+			_nullsec_lobby.set_status("ENet 连接失败(%d) · %s:%d" % [err, ip, port])
 			continue
 		## SEMI_ASYNC §7.5 — wait ≥5s (align with rejoin); mobile Wi‑Fi handshake is slow.
 		var join_res: Dictionary = await _await_nullsec_join_ex(net, 5.0)
@@ -814,6 +842,11 @@ func _nullsec_match_public_run() -> void:
 			if reason == "":
 				reason = "timeout"
 			LanJoinDebug.log_fail(ip, port, code, reason, "match")
+			if NullsecNetSession.detect_local_platform() == "mobile":
+				SessionDiagnostics.log(
+					"net.lan.join_pc_host",
+					"fail reason=%s ep=%s:%d host_plat=%s" % [reason, ip, port, net.opening_host_platform]
+				)
 			net.close()
 			if reason == "need_password" or reason.find("需要房间密码") >= 0:
 				private_n += 1
@@ -823,7 +856,9 @@ func _nullsec_match_public_run() -> void:
 				continue
 			if reason == "timeout" or reason == "enet":
 				var tip: String = "同网段信标见但连不上 · 试下一终点…" if LanAffinity.is_same_lan(ip) else "信标见但连不上 · 试下一终点…"
-				_nullsec_lobby.set_status(tip)
+				_nullsec_lobby.set_status("%s · %s" % [tip, reason])
+			else:
+				_nullsec_lobby.set_status(reason)
 			continue
 		PublicRoomEnumerator.advance_past(code)
 		LanJoinDebug.log_ok(ip, port, code, "match")
@@ -888,6 +923,8 @@ func _nullsec_match_skip_suffix(started_n: int, full_n: int, private_n: int, mis
 func _on_nullsec_host_room(password: String = "") -> void:
 	var nick: String = _nullsec_lobby.current_nick()
 	var pw: String = password.strip_edges()
+	GameSession.pending_nullsec = {}
+	GameSession.pending_mode = ""
 	_nullsec_lobby.set_status("正在选定空闲房间…")
 	## Host path: strictly avoid LAN-announced codes; bind fail → retry next code.
 	## -1 → longer wait on Android emulator (shared-net peers).
@@ -912,6 +949,7 @@ func _on_nullsec_host_room(password: String = "") -> void:
 			last_err = str(claim.get("reason", "claim_failed"))
 			continue
 		code = TypedVariant.as_int(claim.get("code", code), code)
+		net.clear_rejoin_ticket()
 		net.close()
 		var err: Error = net.host_room(code, nick, pw)
 		if err == OK:

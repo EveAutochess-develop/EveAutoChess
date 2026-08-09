@@ -209,23 +209,43 @@ func on_local_battle_begin() -> void:
 	var round_r: int = TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", 1), 1)
 	var pvp: bool = NullsecPveDirector.is_pvp_round(round_r)
 	if pvp:
+		var mu: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {}))
 		var used: Dictionary = {}
-		for i: int in range(contenders.size()):
-			var a: int = TypedVariant.as_int(contenders[i], -1)
-			if used.has(a):
-				continue
-			var b: int = -1
-			for j: int in range(i + 1, contenders.size()):
-				var cand: int = TypedVariant.as_int(contenders[j], -1)
-				if not used.has(cand):
-					b = cand
-					break
-			if b < 0:
-				host_sim.enqueue_pve(a, "pve_eliminate")
-			else:
+		var pairs: Array = TypedVariant.as_array(mu.get("pairs", []))
+		if not pairs.is_empty():
+			for p_v: Variant in pairs:
+				var p: Array = TypedVariant.as_array(p_v)
+				if p.size() < 2:
+					continue
+				var a: int = TypedVariant.as_int(p[0], -1)
+				var b: int = TypedVariant.as_int(p[1], -1)
+				if a < 0 or b < 0:
+					continue
 				used[a] = true
 				used[b] = true
 				_enqueue_pvp_or_ai_instant(a, b)
+			var bye: int = TypedVariant.as_int(mu.get("bye_seat", -1), -1)
+			if bye >= 0:
+				var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
+				host_sim.enqueue_pve(bye, task)
+		else:
+			## Fallback: legacy sequential pair if matchups missing.
+			for i: int in range(contenders.size()):
+				var a2: int = TypedVariant.as_int(contenders[i], -1)
+				if used.has(a2):
+					continue
+				var b2: int = -1
+				for j: int in range(i + 1, contenders.size()):
+					var cand: int = TypedVariant.as_int(contenders[j], -1)
+					if not used.has(cand):
+						b2 = cand
+						break
+				if b2 < 0:
+					host_sim.enqueue_pve(a2, "pve_eliminate")
+				else:
+					used[a2] = true
+					used[b2] = true
+					_enqueue_pvp_or_ai_instant(a2, b2)
 	else:
 		## Nullsec PVE: humans / local seats sim creeps on-device (SEMI_ASYNC §3.2).
 		## Only enqueue lightweight HostSim reports for ai_player seats with no client.
@@ -235,7 +255,7 @@ func on_local_battle_begin() -> void:
 				continue
 			if not _pending_seat_is_ai(seat):
 				continue
-			var task: String = "pve_salvage" if (round_r % 2 == 0) else "pve_eliminate"
+			var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
 			host_sim.enqueue_pve(seat, task)
 		## No AI PVE jobs → titan/prepare must not wait on an empty HostSim queue forever.
 		if host_sim.pending_count() == 0:

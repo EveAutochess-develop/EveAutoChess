@@ -416,6 +416,8 @@ func _tick_nullsec_runtime_setup() -> bool:
 			_nullsec_pve.always_pvp = NullsecNetSession.is_lowsec(sec)
 			_nullsec_pve.setup(_nullsec_rng, 1)
 			_nullsec_pve.pick_task(1)
+			if not GameSession.pending_nullsec.has("last_rival_by_seat"):
+				GameSession.pending_nullsec["last_rival_by_seat"] = {}
 			## Seat economy for the AI players starts with the humans' opening, then banks
 			## gold/exp every round so a later PVP rival is not a level-1 fleet.
 			if ai and ai.has_method("init_economy"):
@@ -423,17 +425,7 @@ func _tick_nullsec_runtime_setup() -> bool:
 			## Titan buff rides the fetter rail (MULTIPLAYER_PVP §2.3): always on from setup.
 			board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
 			## Lowsec (always_pvp): no R1 creeps / salvage freighter — seat PVP from round 1.
-			if not _nullsec_pve.always_pvp:
-				var gold: int = TypedVariant.as_int(match_ctrl.player_gold, 0) if match_ctrl else 0
-				var level: int = TypedVariant.as_int(match_ctrl.player_level, 1) if match_ctrl else 1
-				var pop: int = 0
-				if match_ctrl and match_ctrl.has_method("population_limit"):
-					pop = TypedVariant.as_int(match_ctrl.population_limit(), 0)
-				else:
-					pop = level + 1
-				_nullsec_pve.lock_creeps(gold, level, maxi(1, pop))
-				if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
-					_nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
+			## PVE creeps lock+spawn at Prepare→Battle with current gold (§5.1.2).
 			_nullsec_rt_step = 1
 			return false
 		1:
@@ -442,8 +434,14 @@ func _tick_nullsec_runtime_setup() -> bool:
 				"phase=4_ns_rt1_titan %s" % SessionDiagnostics.mem_detail()
 			)
 			_doomsday_resolver = TitanDoomsdayResolver.new()
-			## Lowsec: fail/draw titan pipe damage ×0.25 (MULTIPLAYER_PVP §2.4).
-			_doomsday_resolver.pvp_loss_mul = 0.25 if _nullsec_pve.always_pvp else 1.0
+			## Lowsec / always_pvp: titan pipe damage × lowsec_pvp_loss_mul (titan_pvp.json).
+			var lowsec_mul: float = 0.25
+			if DataStore != null and typeof(DataStore.get("titan_pvp")) == TYPE_DICTIONARY:
+				lowsec_mul = TypedVariant.as_float(
+					TypedVariant.as_dict(DataStore.titan_pvp).get("lowsec_pvp_loss_mul", 0.25),
+					0.25
+				)
+			_doomsday_resolver.pvp_loss_mul = lowsec_mul if _nullsec_pve.always_pvp else 1.0
 			if not _doomsday_resolver.return_home_due.is_connected(_on_titan_return_home):
 				_doomsday_resolver.return_home_due.connect(_on_titan_return_home)
 			@warning_ignore("unsafe_cast")
@@ -579,8 +577,9 @@ func _tick_nullsec_runtime_setup() -> bool:
 			else:
 				var mode_lbl: String = "低安局" if _nullsec_pve.always_pvp else "负安局"
 				show_notice("%s · %s · 主场已分配" % [mode_lbl, _nullsec_pve.current_task])
+				_nullsec_rebuild_matchups()
 				## Lowsec R1: PVP prepare (rival army), never creep slide-in.
-				if _nullsec_pve.always_pvp:
+				if _nullsec_pve.always_pvp or not _nullsec_local_is_pve():
 					call_deferred("_nullsec_prepare_pvp_round")
 				else:
 					call_deferred("_nullsec_on_prepare_begin")
@@ -757,7 +756,8 @@ func _ensure_spectate_leave_btn() -> void:
 
 func _on_spectate_leave() -> void:
 	if _nullsec_spectate_reason == "eliminated":
-		## Nominal leave: mark ghost then return to menu.
+		## Nominal leave: provisional report then mark ghost / menu (MULTIPLAYER_PVP §7.0b).
+		_save_provisional_nullsec_report()
 		var net: NullsecNetSession = GameSession.get_node_or_null("NullsecNetSession") as NullsecNetSession
 		if net:
 			net.request_mark_local_ghost()
@@ -853,6 +853,7 @@ func _wire_nullsec_prepare_sync() -> void:
 		match_ctrl.prepare_spend_occurred.connect(_on_prepare_spend_occurred)
 	if match_ctrl != null:
 		match_ctrl.prepare_hold_callback = Callable(self, "_on_prepare_awaiting_peers")
+		match_ctrl.before_battle_callback = Callable(self, "_nullsec_relock_creeps_before_battle")
 		if not match_ctrl.prepare_awaiting_peers.is_connected(_on_prepare_awaiting_peers):
 			match_ctrl.prepare_awaiting_peers.connect(_on_prepare_awaiting_peers)
 	var net: NullsecNetSession = _nullsec_net_session()
@@ -884,6 +885,8 @@ func _wire_nullsec_prepare_sync() -> void:
 		net.seat_battle_finished.connect(_on_seat_battle_finished_speed)
 	if not net.battle_done_all_ready.is_connected(_on_battle_done_all_ready_clear_speed):
 		net.battle_done_all_ready.connect(_on_battle_done_all_ready_clear_speed)
+	if not net.round_matchups_received.is_connected(_on_net_round_matchups):
+		net.round_matchups_received.connect(_on_net_round_matchups)
 	_apply_nullsec_prepare_stage_gates()
 
 
@@ -970,7 +973,7 @@ func _on_enter_battle_released() -> void:
 func _nullsec_human_rival_fleet_ready() -> bool:
 	if GameSession.pending_mode != "nullsec" or board == null or match_ctrl == null:
 		return true
-	if _nullsec_pve != null and _nullsec_pve.is_pve_task():
+	if _nullsec_local_is_pve():
 		return true
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 	var rival: int = _nullsec_rival_seat(local_seat)
@@ -1421,7 +1424,97 @@ func _nullsec_on_prepare_begin() -> void:
 	if _nullsec_pve.always_pvp:
 		_nullsec_prepare_pvp_round()
 		return
-	_spawn_nullsec_creeps_with_slide()
+	## PVE Prepare: clear leftover AI/creeps; roster locks at Prepare→Battle with current gold.
+	_nullsec_clear_creep_field()
+	_nullsec_after_slide_done()
+
+
+func _nullsec_clear_creep_field() -> void:
+	if board == null:
+		return
+	for s: ShipUnit in board.all_ships().duplicate():
+		if s == null or not is_instance_valid(s) or s.is_unmanned:
+			continue
+		if TypedVariant.as_int(s.team_id, 0) == ShipUnit.TEAM_AI or s.is_protect_target:
+			board.remove_ship_node(s)
+	board.set_titan_fetter_race(ShipUnit.TEAM_AI, "")
+	board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
+
+
+## Prepare→Battle: lock creeps with floor(gold/2)+field cost, then spawn (§5.1.2).
+func _nullsec_relock_creeps_before_battle() -> void:
+	if GameSession.pending_mode != "nullsec" or _nullsec_pve == null or match_ctrl == null or board == null:
+		return
+	if _nullsec_pve.always_pvp or not _nullsec_local_is_pve():
+		return
+	var pop: int = match_ctrl.population_limit()
+	var field_v: int = match_ctrl.field_ships_cost_sum(ShipUnit.TEAM_PLAYER)
+	_nullsec_pve.lock_creeps(match_ctrl.player_gold, match_ctrl.player_level, pop, field_v)
+	SessionDiagnostics.log(
+		"mp.creep_budget",
+		"gold=%d field_v=%d budget=%d cap_pop=%d" % [
+			match_ctrl.player_gold,
+			field_v,
+			maxi(0, floori(float(match_ctrl.player_gold) * 0.5)) + maxi(0, field_v),
+			pop,
+		]
+	)
+	if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
+		_nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
+	_spawn_nullsec_creeps_for_battle()
+
+
+func _spawn_nullsec_creeps_for_battle() -> void:
+	## Place at final cells before combat opens (no await — avoids empty-side wipe).
+	_nullsec_clear_creep_field()
+	var roster: Array = _nullsec_pve.creep_ai.locked_roster
+	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 0)
+	for entry_v: Variant in roster:
+		var entry: Dictionary = TypedVariant.as_dict(entry_v)
+		var sid: int = TypedVariant.as_int(entry.get("ship_id", 0), 0)
+		var cell: int = TypedVariant.as_int(entry.get("cell", 0), 0)
+		var z: float = clampi(int(cell / 8.0), 0, fh - 1)
+		var cols: int = BoardController.field_cols_at(z)
+		var x: int = clampi(cell % 8, 0, maxi(0, cols - 1))
+		if not board.is_field_cell_free_for(ShipUnit.TEAM_AI, x, z):
+			var found: bool = false
+			for zz: int in range(fh):
+				var cc: int = BoardController.field_cols_at(zz)
+				for xx: int in range(cc):
+					if board.is_field_cell_free_for(ShipUnit.TEAM_AI, xx, zz):
+						x = xx
+						z = zz
+						found = true
+						break
+				if found:
+					break
+			if not found:
+				continue
+		board.spawn_ship(sid, 1, ShipUnit.TEAM_AI, "field", x, z)
+	if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
+		var center: Vector2i = _nullsec_pve.salvage_center_cell(
+			BoardController.field_cols_at(0),
+			TypedVariant.as_int(DataStore.board.get("field_height", 6), 0)
+		)
+		var cx: int = clampi(center.x, 0, BoardController.field_cols_at(center.y) - 1)
+		var cz: int = clampi(center.y, 0, fh - 1)
+		if not board.is_field_cell_free_for(ShipUnit.TEAM_AI, cx, cz):
+			for zz: int in range(fh):
+				var cc2: int = BoardController.field_cols_at(zz)
+				for xx: int in range(cc2):
+					if board.is_field_cell_free_for(ShipUnit.TEAM_AI, xx, zz):
+						cx = xx
+						cz = zz
+						break
+		var fid: int = _nullsec_pve.freighter_ship_id
+		if fid <= 0:
+			fid = _nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
+		var fr: ShipUnit = board.spawn_ship(fid, 1, ShipUnit.TEAM_AI, "field", cx, cz)
+		if fr:
+			fr.team_id = ShipUnit.TEAM_PLAYER
+			fr.field_side_team = ShipUnit.TEAM_AI
+	_nullsec_pve.slide_done = true
+	show_notice("人机编队就位")
 
 
 func _setup_net_battle_session() -> void:
@@ -1549,9 +1642,14 @@ func _record_seat_win_only(seat: int) -> void:
 	_eval_human_streak[seat] = TypedVariant.as_int(_eval_human_streak.get(seat, 0), 0) + 1
 
 
-## SEMI_ASYNC §3.1a — map host-seat W/L into local seat, then force Prepare.
+## SEMI_ASYNC §3.1a — PVP watch peers only. PVE is per-seat local (§3.2): ignore.
 func _on_net_battle_ended(host_result: String, host_seat: int, reason: String) -> void:
 	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+		return
+	## One seat finishing creeps must not force-end another seat's local PVE.
+	if _nullsec_local_is_pve():
+		print("[mp.diag] battle_ended_rpc IGNORED pve_local reason=%s" % reason)
+		SessionDiagnostics.log("mp.battle_ended_rpc", "ignored_pve_local reason=%s" % reason)
 		return
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 	var mapped: String = _map_host_result_to_local(str(host_result), host_seat, local_seat)
@@ -1718,20 +1816,20 @@ func _nullsec_after_slide_done() -> void:
 		_apply_camera_view_dict(_camera_secondary_view())
 	show_notice("人机编队就位 · 商店已开")
 
-func _nullsec_lock_next_creeps() -> void:
+func _nullsec_pick_next_task() -> void:
+	## Pick next round task only — creep roster locks at Prepare→Battle with current gold.
 	if _nullsec_pve == null or match_ctrl == null:
 		return
 	var round_r: int = maxi(1, match_ctrl.battle_game_stage_count + 1)
 	_nullsec_pve.setup(_nullsec_rng, round_r)
 	_nullsec_pve.pick_task(round_r)
-	if _nullsec_pve.always_pvp or not _nullsec_pve.is_pve_task():
-		## Lowsec / PVP: opponent is a seat army, never a creep roster.
-		_nullsec_pve.creep_ai.locked_roster.clear()
+	_nullsec_pve.creep_ai.locked_roster.clear()
+	_nullsec_pve.creep_ai.locked = false
+	_nullsec_rebuild_matchups()
+	if _nullsec_pve.always_pvp or not _nullsec_local_is_pve():
 		return
-	var pop: int = match_ctrl.population_limit()
-	_nullsec_pve.lock_creeps(match_ctrl.player_gold, match_ctrl.player_level, pop)
-	if _nullsec_pve.current_task == NullsecPveDirector.TASK_SALVAGE:
-		_nullsec_pve.pick_freighter_id(_local_titan_race_for_ui())
+	## Salvage freighter id chosen at battle lock (current gold path).
+
 
 ## PVP round-after titan fire (MULTIPLAYER_PVP §6): winner fires, draw = both fire.
 ## Every shot uses the doomsday presentation; losers take the fixed 20 pipe hit.
@@ -1889,6 +1987,9 @@ func _on_titan_kill_done() -> void:
 		_nullsec_prepare_pending = false
 		_presentation_hold = false
 		_flush_pending_settlement_if_ready()
+		## Match over: do not open spectate — settle (MULTIPLAYER_MATCH_FLOW §3.3).
+		if _try_nullsec_end_if_alive_gate():
+			return
 		## Early-out → same spectate runtime as「仅观战」.
 		if not _nullsec_spectating:
 			enter_nullsec_spectate("eliminated")
@@ -1973,10 +2074,21 @@ func _nullsec_belt_root() -> Node3D:
 	@warning_ignore("unsafe_cast")
 	return world.get_node_or_null("AsteroidBelt") as Node3D
 
-## Opposing seat for this PVP round, or -1 when the room holds no other contender.
-## Never falls back to `local_seat`: that made a won round fire our own doomsday at
-## ourselves, so winning cost 20 pipe HP (MULTIPLAYER_PVP §6).
+## Opposing seat for this PVP round, or -1 when bye / no matchup / no contender.
+## Prefers pending_nullsec.round_matchups (MATCH_FLOW §5.2). Never falls back to local_seat.
 func _nullsec_rival_seat(local_seat: int) -> int:
+	var mu: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {}))
+	if not mu.is_empty():
+		var from_mu: int = NullsecRoundPairing.rival_from_matchups(mu, local_seat)
+		if from_mu >= 0:
+			if _seat_titan_alive(from_mu):
+				return from_mu
+			return -1
+		if TypedVariant.as_int(mu.get("bye_seat", -1), -1) == local_seat:
+			return -1
+		if TypedVariant.as_dict(mu.get("rival_of", {})).has(local_seat) \
+			or not TypedVariant.as_array(mu.get("pairs", [])).is_empty():
+			return -1
 	@warning_ignore("unsafe_cast")
 	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
 	for s_v: Variant in seats:
@@ -1989,11 +2101,172 @@ func _nullsec_rival_seat(local_seat: int) -> int:
 		var sid: int = TypedVariant.as_int(d.get("seat_id", -1), 0)
 		if sid == local_seat or sid < 0:
 			continue
-		## Spectators and seats that never picked a titan are not contenders.
 		if not NullsecNetSession.is_player_race(str(d.get("titan_race", ""))):
+			continue
+		if not _seat_titan_alive(sid):
 			continue
 		return sid
 	return -1
+
+
+## This client plays sleeper PVE this round (global PVE schedule or odd-player bye).
+func _nullsec_local_is_pve() -> bool:
+	if _nullsec_pve == null:
+		return false
+	if _nullsec_pve.is_pve_task():
+		return true
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var bye: int = TypedVariant.as_int(
+		TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {})).get("bye_seat", -1),
+		-1
+	)
+	return bye >= 0 and bye == local_seat
+
+
+func _nullsec_collect_contenders() -> Array:
+	var out: Array = []
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	var asg: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("assignments", {}))
+	for s_v: Variant in seats:
+		if typeof(s_v) != TYPE_DICTIONARY:
+			continue
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		var race: String = str(s.get("titan_race", ""))
+		if not NullsecNetSession.is_player_race(race):
+			continue
+		var sid: int = TypedVariant.as_int(s.get("seat_id", -1), -1)
+		if sid < 0 or not _seat_titan_alive(sid):
+			continue
+		var region: String = str(s.get("region_id", ""))
+		if region == "" and asg.has(sid):
+			region = str(asg.get(sid, ""))
+		elif region == "" and asg.has(str(sid)):
+			region = str(asg.get(str(sid), ""))
+		out.append({
+			"seat_id": sid,
+			"is_ai": TypedVariant.as_bool(s.get("is_ai", false), false),
+			"region_id": region,
+		})
+	return out
+
+
+func _nullsec_rebuild_matchups() -> void:
+	if _nullsec_pve == null:
+		return
+	var round_r: int = maxi(1, match_ctrl.battle_game_stage_count + 1) if match_ctrl else 1
+	GameSession.pending_nullsec["round_r"] = round_r
+	var last_map: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("last_rival_by_seat", {}))
+	## Global sleeper round: no PVP pairs; clear matchups.
+	if _nullsec_pve.is_pve_task() and not _nullsec_pve.always_pvp:
+		var empty_mu: Dictionary = {"pairs": [], "bye_seat": -1, "rival_of": {}, "degraded": false}
+		GameSession.pending_nullsec["round_matchups"] = empty_mu
+		var net_e: NullsecNetSession = _nullsec_net_session()
+		if net_e != null and net_e.is_host:
+			net_e.publish_round_matchups(empty_mu, last_map, round_r)
+		return
+	## All peers rebuild with MatchRng + last_rival (MATCH_FLOW §5.2); host re-broadcasts.
+	var contenders: Array = _nullsec_collect_contenders()
+	var mu: Dictionary = NullsecRoundPairing.build_matchups(
+		contenders, last_map, _nullsec_rng, round_r
+	)
+	GameSession.pending_nullsec["round_matchups"] = mu
+	if TypedVariant.as_bool(mu.get("degraded", false), false):
+		SessionDiagnostics.log("mp.pair_degrade", "round=%d bye=%d pairs=%d" % [
+			round_r,
+			TypedVariant.as_int(mu.get("bye_seat", -1), -1),
+			TypedVariant.as_array(mu.get("pairs", [])).size(),
+		])
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net != null and net.is_host:
+		net.publish_round_matchups(mu, last_map, round_r)
+	_nullsec_apply_bye_pve_task(round_r)
+
+
+func _nullsec_apply_bye_pve_task(round_r: int) -> void:
+	## Odd bye on a PVP schedule round: force local sleeper task (eliminate/salvage).
+	if _nullsec_pve == null or _nullsec_pve.always_pvp:
+		return
+	if _nullsec_pve.is_pve_task():
+		return
+	if not _nullsec_local_is_pve():
+		return
+	_nullsec_pve.current_task = NullsecPveDirector.roll_pve_task(_nullsec_rng, round_r, round_r)
+	SessionDiagnostics.log("mp.bye_pve", "seat=%d task=%s" % [
+		TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0),
+		_nullsec_pve.current_task,
+	])
+
+
+func _on_net_round_matchups(matchups: Dictionary, last_rival_by_seat: Dictionary, round_r: int) -> void:
+	GameSession.pending_nullsec["round_matchups"] = TypedVariant.as_dict(matchups).duplicate(true)
+	GameSession.pending_nullsec["last_rival_by_seat"] = TypedVariant.as_dict(last_rival_by_seat).duplicate(true)
+	GameSession.pending_nullsec["round_r"] = round_r
+	_nullsec_apply_bye_pve_task(round_r)
+
+
+func _nullsec_advance_last_rivals_after_round() -> void:
+	if _nullsec_pve == null:
+		return
+	var contenders: Array = _nullsec_collect_contenders()
+	var seats_ids: Array = []
+	for c_v: Variant in contenders:
+		seats_ids.append(TypedVariant.as_int(TypedVariant.as_dict(c_v).get("seat_id", -1), -1))
+	## Also include bye/pair seats from the round that just finished (may now be dead).
+	var mu: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {}))
+	for p_v: Variant in TypedVariant.as_array(mu.get("pairs", [])):
+		var p: Array = TypedVariant.as_array(p_v)
+		for x_v: Variant in p:
+			var x: int = TypedVariant.as_int(x_v, -1)
+			if x >= 0 and not seats_ids.has(x):
+				seats_ids.append(x)
+	var bye: int = TypedVariant.as_int(mu.get("bye_seat", -1), -1)
+	if bye >= 0 and not seats_ids.has(bye):
+		seats_ids.append(bye)
+	var finished_r: int = maxi(1, match_ctrl.battle_game_stage_count) if match_ctrl else 1
+	var global_pve: bool = (
+		_nullsec_pve != null
+		and not _nullsec_pve.always_pvp
+		and not NullsecPveDirector.is_pvp_round(finished_r)
+	)
+	var prev: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("last_rival_by_seat", {}))
+	var nxt: Dictionary = NullsecRoundPairing.advance_last_rivals(prev, mu, seats_ids, global_pve)
+	GameSession.pending_nullsec["last_rival_by_seat"] = nxt
+
+
+## Contestant seats (player-race, incl. AI players; not creeps/spectators) with titan still alive.
+func _count_nullsec_alive_contestants() -> int:
+	var n: int = 0
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	for s_v: Variant in seats:
+		if typeof(s_v) != TYPE_DICTIONARY:
+			continue
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		if not NullsecNetSession.is_player_race(str(s.get("titan_race", ""))):
+			continue
+		var sid: int = TypedVariant.as_int(s.get("seat_id", -1), -1)
+		if sid < 0:
+			continue
+		if _seat_titan_alive(sid):
+			n += 1
+	return n
+
+
+## After doomsday/kill FX: if ≤1 contestant titan remains, settle instead of next Prepare.
+func _try_nullsec_end_if_alive_gate() -> bool:
+	if str(GameSession.pending_mode) != "nullsec":
+		return false
+	var n: int = _count_nullsec_alive_contestants()
+	if n > 1:
+		return false
+	SessionDiagnostics.log_critical("match.nullsec_end", "alive=%d" % n)
+	_show_nullsec_settlement("负安终局 · 存活%d" % n)
+	return true
 
 func _seat_titan_race(seat_id: int) -> String:
 	@warning_ignore("unsafe_cast")
@@ -3542,20 +3815,47 @@ func _ensure_scout_intel_btn() -> void:
 	if top_r == null:
 		return
 	if top_r.get_node_or_null("ScoutIntelBtn") != null:
+		_ensure_concede_round_btn(top_r)
 		_reorder_top_right_children(top_r as HBoxContainer)
 		return
 	var btn: ScoutIntelButton = ScoutIntelButton.new()
 	btn.name = "ScoutIntelBtn"
 	btn.visible = GameSession.pending_mode == "nullsec"
 	top_r.add_child(btn)
+	_ensure_concede_round_btn(top_r)
 	_reorder_top_right_children(top_r as HBoxContainer)
+
+func _ensure_concede_round_btn(top_r: Control) -> void:
+	if top_r == null:
+		return
+	var existing: Button = top_r.get_node_or_null("ConcedeRoundBtn") as Button
+	if existing != null:
+		existing.visible = true
+		return
+	var btn: Button = Button.new()
+	btn.name = "ConcedeRoundBtn"
+	btn.text = "本回合认负"
+	btn.tooltip_text = "本回合按被全灭结算（可续下一回合）"
+	btn.pressed.connect(_on_concede_round_pressed)
+	top_r.add_child(btn)
+
+func _on_concede_round_pressed() -> void:
+	if match_ctrl == null:
+		return
+	if match_ctrl.stage != MatchController.Stage.PREPARE and match_ctrl.stage != MatchController.Stage.BATTLE:
+		return
+	if _nullsec_spectating:
+		show_notice("观战中无法认负")
+		return
+	match_ctrl.concede_current_round()
+	show_notice("本回合认负")
 
 func _reorder_top_right_children(top_r: HBoxContainer) -> void:
 	## L→R tree order; HBox ALIGNMENT_END packs 菜单 at the right edge (右→左可读序).
 	if top_r == null:
 		return
 	top_r.alignment = BoxContainer.ALIGNMENT_END
-	var order: Array = ["Version", "ScoutIntelBtn", "CamModeBtn", "SpeedBtn", "PauseBtn", "ExitBtn"]
+	var order: Array = ["Version", "ScoutIntelBtn", "ConcedeRoundBtn", "CamModeBtn", "SpeedBtn", "PauseBtn", "ExitBtn"]
 	var i: int = 0
 	for n: String in order:
 		@warning_ignore("unsafe_cast")
@@ -3756,7 +4056,10 @@ func _apply_adaptive_hud_layout() -> void:
 		UiLayout.set_rect_frac(round_bar, rb_left, 0.008, rb_right, top_h)
 	var left_w: float = UiLayout.collapse_strip_frac() if _collapse_left else UiLayout.left_col_width_frac()
 	var right_w: float = UiLayout.collapse_strip_frac() if _collapse_right else UiLayout.right_col_width_frac()
-	var bottom_h: float = UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_height_frac(root)
+	## Expanded: panel = ShopContent (bottom-bar height) + CollapseBottomBtn on top.
+	var bottom_h: float = (
+		UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_panel_frac(root)
+	)
 	@warning_ignore("unsafe_cast")
 	var left_col: Control = root.get_node_or_null("LeftCol") as Control
 	if left_col:
@@ -3770,6 +4073,11 @@ func _apply_adaptive_hud_layout() -> void:
 	if shop_panel:
 		UiLayout.set_bottom_strip(shop_panel, bottom_h, 0.01, 0.01, 0.008)
 	@warning_ignore("unsafe_cast")
+	var shop_col: Control = root.get_node_or_null("Shop/ShopCol") as Control
+	if shop_col:
+		shop_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	@warning_ignore("unsafe_cast")
 	var left_content: Control = root.get_node_or_null("LeftCol/LeftInner/LeftContent") as Control
 	if left_content:
 		left_content.visible = not _collapse_left
@@ -3781,6 +4089,8 @@ func _apply_adaptive_hud_layout() -> void:
 	var shop_content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
 	if shop_content:
 		shop_content.visible = not _collapse_bottom
+		shop_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	@warning_ignore("unsafe_cast")
 	var cl: Button = root.get_node_or_null("LeftCol/LeftInner/CollapseLeftBtn") as Button
 	if cl:
@@ -3793,12 +4103,18 @@ func _apply_adaptive_hud_layout() -> void:
 	var cb: Button = root.get_node_or_null("Shop/ShopCol/CollapseBottomBtn") as Button
 	if cb:
 		cb.text = "▲" if _collapse_bottom else "▼"
+		cb.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var btn_h: float = UiLayout.bottom_collapse_btn_frac(root) * maxf(vp.y, 1.0)
+		cb.custom_minimum_size = Vector2(0, maxf(22.0, btn_h * 0.85))
 	@warning_ignore("unsafe_cast")
 	var notice: Control = root.get_node_or_null("Notice") as Control
 	if notice:
 		UiLayout.set_rect_frac(notice, 0.28, 0.4, 0.72, 0.5)
 		notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_info_panel_adaptive_layout(root)
+	## After strip sizes land, re-scale Meta (¼) vs ship row (¾).
+	_wire_shop_chrome()
 
 
 func _apply_info_panel_adaptive_layout(root: Control) -> void:
@@ -3948,7 +4264,7 @@ func _style_hud_chrome() -> void:
 		UiAssets.apply_button_font(skip, UiLayout.font_size(14, root))
 		skip.custom_minimum_size = Vector2(UiLayout.px(72, root), UiLayout.px(36, root))
 	for btn_name: String in ["TopRight/PauseBtn", "TopRight/ExitBtn", "TopRight/SpeedBtn",
-			"TopRight/CamModeBtn", "TopRight/ScoutIntelBtn",
+			"TopRight/CamModeBtn", "TopRight/ScoutIntelBtn", "TopRight/ConcedeRoundBtn",
 			"LeftCol/LeftInner/CollapseLeftBtn", "RightCol/RightInner/CollapseRightBtn",
 			"Shop/ShopCol/CollapseBottomBtn"]:
 		@warning_ignore("unsafe_cast")
@@ -3956,6 +4272,8 @@ func _style_hud_chrome() -> void:
 		if b:
 			UiAssets.apply_button_font(b, UiLayout.font_size(13, root))
 			var bw: float = 88.0 if ("CamMode" in btn_name or "ScoutIntel" in btn_name) else 56.0
+			if "ConcedeRound" in btn_name:
+				bw = 108.0
 			b.custom_minimum_size = Vector2(UiLayout.px(bw, root), UiLayout.px(28, root))
 	_ensure_speed_button(root)
 	## Re-fit top chrome after button mins / fonts change.
@@ -3985,8 +4303,19 @@ func _wire_shop_chrome() -> void:
 	if root == null:
 		return
 	_ensure_equipment_shop_slots()
-	# 按钮素材为横图（约 198×69）；宽度保持原设计，高度按比例，禁止再塞进正方形造成下方空白
-	var btn_w: int = UiLayout.px(144 if UiLayout.is_mobile() else 162, root)
+	## UI_AND_SHELL §2.1: MetaRow:ShipInner stretch 1:3 of ShopContent height.
+	## Button/icon size tracks Meta band (¼ of content), not a fixed tall strip.
+	var content_h: float = 0.0
+	@warning_ignore("unsafe_cast")
+	var shop_content_probe: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	if shop_content_probe and shop_content_probe.size.y >= 8.0:
+		content_h = shop_content_probe.size.y
+	else:
+		content_h = UiLayout.bottom_shop_height_frac(root) * maxf(UiLayout.viewport_size(root).y, 1.0)
+	var meta_band: float = content_h * 0.25
+	var meta_h: int = clampi(int(meta_band * 0.82), UiLayout.px(28, root), UiLayout.px(52, root))
+	var btn_w: int = clampi(int(float(meta_h) * 2.2), UiLayout.px(72, root), UiLayout.px(120, root))
+	var btn_h: float = float(meta_h)
 	_style_image_button(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button,
 			UiAssets.shop_exp_path(), "购买经验", TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 0), btn_w)
 	_wire_exp_hold(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button)
@@ -3995,43 +4324,35 @@ func _wire_shop_chrome() -> void:
 	@warning_ignore("unsafe_cast")
 	var lock: Button = root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
 	if lock:
-		var t: Texture2D = UiAssets.tex(UiAssets.ICON_LOCK)
-		if t:
-			lock.icon = t
-			lock.expand_icon = true
-		lock.text = ""
-		UiAssets.apply_button_font(lock, UiLayout.font_size(14, root))
-		lock.custom_minimum_size = Vector2(UiLayout.px(52, root), UiLayout.px(44, root))
-	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, 36)
-	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/PopBox" % _SHOP_MID) as HBoxContainer, "Pop", UiAssets.ICON_POP, 36)
-	var btn_h: float = btn_w * (69.0 / 198.0)  # 与素材比例一致
+		lock.visible = false
+		lock.disabled = true
+	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, mini(28, meta_h))
+	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/PopBox" % _SHOP_MID) as HBoxContainer, "Pop", UiAssets.ICON_POP, mini(28, meta_h))
 	@warning_ignore("unsafe_cast")
 	var le: PanelContainer = root.get_node_or_null("%s/LevelExp" % _SHOP_LEFT) as PanelContainer
 	if le:
-		# 等级框贴合内容，高度不超过按钮行
-		var le_h: float = minf(UiLayout.px(64 if UiLayout.is_mobile() else 68, root), ceilf(btn_h) + float(UiLayout.margin_px(8, root)))
-		le.custom_minimum_size = Vector2(UiLayout.px(208, root), le_h)
+		le.custom_minimum_size = Vector2(UiLayout.px(160, root), 0)
 		le.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		@warning_ignore("unsafe_cast")
 		var le_inner: VBoxContainer = le.get_node_or_null("LEInner") as VBoxContainer
 		if le_inner:
 			le_inner.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			le_inner.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+			le_inner.add_theme_constant_override("separation", UiLayout.margin_px(1, root))
 		var le_sb: StyleBoxFlat = StyleBoxFlat.new()
 		le_sb.bg_color = Color(0.05, 0.08, 0.1, 0.75)
 		le_sb.border_color = Color(0.25, 0.55, 0.7, 0.55)
 		le_sb.set_border_width_all(1)
 		le_sb.set_corner_radius_all(4)
-		le_sb.content_margin_left = UiLayout.margin_px(8, root)
-		le_sb.content_margin_right = UiLayout.margin_px(8, root)
-		le_sb.content_margin_top = UiLayout.margin_px(4, root)
-		le_sb.content_margin_bottom = UiLayout.margin_px(4, root)
+		le_sb.content_margin_left = UiLayout.margin_px(6, root)
+		le_sb.content_margin_right = UiLayout.margin_px(6, root)
+		le_sb.content_margin_top = UiLayout.margin_px(2, root)
+		le_sb.content_margin_bottom = UiLayout.margin_px(2, root)
 		le.add_theme_stylebox_override("panel", le_sb)
 	@warning_ignore("unsafe_cast")
 	var left_ctrl: Control = root.get_node_or_null(_SHOP_LEFT) as Control
 	if left_ctrl:
-		# 宽度保留；高度跟内容走，禁止再锁 162 把 MetaRow 撑出空白带
-		left_ctrl.custom_minimum_size = Vector2(UiLayout.px(560, root), 0)
+		## Width hint only — vertical min must stay low so VBox 1:3 stretch can win.
+		left_ctrl.custom_minimum_size = Vector2(UiLayout.px(480, root), 0)
 		left_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		if left_ctrl is BoxContainer:
 			(left_ctrl as BoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4039,24 +4360,61 @@ func _wire_shop_chrome() -> void:
 	var left_btns: Control = root.get_node_or_null("%s/LeftBtns" % _SHOP_LEFT) as Control
 	if left_btns:
 		left_btns.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		for c: Node in left_btns.get_children():
+			if c is Button:
+				(c as Button).custom_minimum_size = Vector2(btn_w, btn_h)
 	var seg_row: HBoxContainer = root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as HBoxContainer
 	if seg_row:
-		seg_row.custom_minimum_size = Vector2(0, UiLayout.px(18, root))
+		seg_row.custom_minimum_size = Vector2(0, maxi(6, meta_h / 4))
 		seg_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		seg_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var meta_row: HBoxContainer = root.get_node_or_null(_SHOP_META) as HBoxContainer
 	if meta_row:
 		meta_row.alignment = BoxContainer.ALIGNMENT_CENTER
-		meta_row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		meta_row.add_theme_constant_override("separation", UiLayout.margin_px(10, root))
+		meta_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		meta_row.size_flags_stretch_ratio = 1.0
+		meta_row.add_theme_constant_override("separation", UiLayout.margin_px(8, root))
+		## Soft ceiling so Meta cannot steal ship-row space via child mins.
+		meta_row.custom_minimum_size = Vector2(0, 0)
+	@warning_ignore("unsafe_cast")
+	var shop_inner: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if shop_inner:
+		shop_inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_inner.size_flags_stretch_ratio = 3.0
+		shop_inner.custom_minimum_size = Vector2(0, 0)
+	@warning_ignore("unsafe_cast")
+	var shop_slots: Control = root.get_node_or_null(_SHOP_SLOTS) as Control
+	if shop_slots:
+		shop_slots.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	@warning_ignore("unsafe_cast")
 	var shop_content: VBoxContainer = root.get_node_or_null("Shop/ShopCol/ShopContent") as VBoxContainer
 	if shop_content:
 		shop_content.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+		shop_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_content.alignment = BoxContainer.ALIGNMENT_BEGIN
+	## Equip shop cards: width is name-adaptive in _refresh_equipment_shop_ui (EQUIPMENT §1).
+	## Do not force square mins here — that clipped long names into the backpack column.
+	@warning_ignore("unsafe_cast")
+	var shop_col: Control = root.get_node_or_null("Shop/ShopCol") as Control
+	if shop_col and shop_col is VBoxContainer:
+		(shop_col as VBoxContainer).add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		shop_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		shop_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var stats: HBoxContainer = root.get_node_or_null("%s/StatsRow" % _SHOP_MID) as HBoxContainer
 	if stats:
 		stats.alignment = BoxContainer.ALIGNMENT_CENTER
 		stats.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	@warning_ignore("unsafe_cast")
+	var gold_lbl: Label = root.get_node_or_null("%s/StatsRow/GoldBox/Gold" % _SHOP_MID) as Label
+	if gold_lbl:
+		UiAssets.apply_label_font(gold_lbl, true, UiLayout.font_size(22, root))
+	@warning_ignore("unsafe_cast")
+	var pop_lbl: Label = root.get_node_or_null("%s/StatsRow/PopBox/Pop" % _SHOP_MID) as Label
+	if pop_lbl:
+		UiAssets.apply_label_font(pop_lbl, true, UiLayout.font_size(18, root))
 	@warning_ignore("unsafe_cast")
 	var sell: PanelContainer = root.get_node_or_null("%s/SellZone" % _SHOP_INNER) as PanelContainer
 	if sell:
@@ -4097,7 +4455,7 @@ func _refresh_exp_segments(root: Node) -> void:
 		c.free()
 	var demand: int = maxi(1, match_ctrl.up_level_demand)
 	var exp_now: int = clampi(match_ctrl.player_exp, 0, demand)
-	var seg_h: float = UiLayout.px(18, row)
+	var seg_h: float = UiLayout.px(10, row)
 	## Cap visual segments so high-level demands (e.g. 124 at Lv16) stay readable.
 	var slots: int = demand if demand <= 16 else 16
 	var filled: int = exp_now if demand <= 16 else roundi(float(exp_now) / float(demand) * float(slots))
@@ -4204,10 +4562,6 @@ func _refresh_hud() -> void:
 	_set_label(root, "%s/LevelExp/LEInner/LELabels/Level" % _SHOP_LEFT, "%d级" % match_ctrl.player_level)
 	_set_label(root, "%s/LevelExp/LEInner/LELabels/Exp" % _SHOP_LEFT, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
 	_refresh_exp_segments(root)
-	@warning_ignore("unsafe_cast")
-	var lock: Button = root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
-	if lock:
-		lock.set_pressed_no_signal(match_ctrl.shop_locked)
 	var stage_name: String = "准备" if match_ctrl.stage == MatchController.Stage.PREPARE else ("战斗" if match_ctrl.stage == MatchController.Stage.BATTLE else "结束")
 	var ttext: String = "倒计时"
 	if match_ctrl.stage == MatchController.Stage.PREPARE:
@@ -4277,8 +4631,7 @@ func _apply_shop_interactable() -> void:
 		return
 	for path: String in [
 			"%s/LeftBtns/ExpBtn" % _SHOP_LEFT,
-			"%s/LeftBtns/RefreshBtn" % _SHOP_LEFT,
-			"%s/StatsRow/LockBtn" % _SHOP_MID]:
+			"%s/LeftBtns/RefreshBtn" % _SHOP_LEFT]:
 		@warning_ignore("unsafe_cast")
 		var b: Button = root.get_node_or_null(path) as Button
 		if b:
@@ -4424,17 +4777,17 @@ func _layout_reserve_grid_cells(grid: GridContainer) -> void:
 		h_sep = 4.0
 	if v_sep <= 0.0:
 		v_sep = 4.0
-	## Square cells from full left-column width (UI_AND_SHELL 左下预留).
-	var cell: float = (avail_w - h_sep * 3.0) / 4.0
-	cell = clampf(cell, UiLayout.px(20.0, grid), UiLayout.px(160.0, grid))
-	var grid_h: float = cell * 4.0 + v_sep * 3.0
+	## Wider cells for equip name under icon (UI plan 2026-08-09).
+	var cell_w: float = (avail_w - h_sep * 3.0) / 4.0
+	cell_w = clampf(cell_w, UiLayout.px(28.0, grid), UiLayout.px(180.0, grid))
+	var cell_h: float = cell_w * 1.28
+	var grid_h: float = cell_h * 4.0 + v_sep * 3.0
 	grid.custom_minimum_size = Vector2(avail_w, grid_h)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## Do not EXPAND cells — stretch would break the square aspect.
 	for c: Node in grid.get_children():
 		if c is Control:
 			var cell_ctrl: Control = c as Control
-			cell_ctrl.custom_minimum_size = Vector2(cell, cell)
+			cell_ctrl.custom_minimum_size = Vector2(cell_w, cell_h)
 			cell_ctrl.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			cell_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
@@ -4467,29 +4820,36 @@ func _refresh_equipment_shop_ui() -> void:
 		c.queue_free()
 	if shop.equipment_slots.is_empty() and shop.has_method("ensure_equipment_slots"):
 		shop.ensure_equipment_slots()
-	var slot_sz: Vector2 = Vector2(
-		UiLayout.px(44 if UiLayout.is_mobile() else 48, box),
-		UiLayout.px(44 if UiLayout.is_mobile() else 48, box)
-	)
+	var content_h: float = 0.0
+	@warning_ignore("unsafe_cast")
+	var shop_content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	if shop_content and shop_content.size.y >= 8.0:
+		content_h = shop_content.size.y
+	else:
+		content_h = UiLayout.bottom_shop_height_frac(root) * maxf(UiLayout.viewport_size(root).y, 1.0)
+	## Icon side from Meta-band height; card width grows with name (EQUIPMENT §1).
+	var icon_side: float = float(clampi(int(content_h * 0.25 * 0.9), UiLayout.px(28, box), UiLayout.px(48, box)))
 	for i: int in range(shop.equipment_slots.size()):
 		var slot: Dictionary = shop.equipment_slots[i]
 		var item_id: String = str(slot.get("id", ""))
 		var purchased: bool = TypedVariant.as_bool(slot.get("purchased", false), false)
 		var mod: Dictionary = DataStore.get_function_module(item_id) if item_id != "" else {}
-		box.add_child(_make_equipment_shop_card(i, mod, purchased, slot_sz))
+		box.add_child(_make_equipment_shop_card(i, mod, purchased, icon_side))
 
 
-func _make_equipment_shop_card(idx: int, mod: Dictionary, purchased: bool, slot_sz: Vector2) -> Control:
+func _make_equipment_shop_card(idx: int, mod: Dictionary, purchased: bool, icon_side: float) -> Control:
 	var card: PanelContainer = PanelContainer.new()
-	card.custom_minimum_size = slot_sz
+	var pad: float = float(UiLayout.margin_px(4, card))
+	var gap: float = float(UiLayout.margin_px(4, card))
 	var outer: StyleBoxFlat = StyleBoxFlat.new()
 	outer.bg_color = Color(0.1, 0.12, 0.16, 0.95)
 	outer.border_color = Color(0.35, 0.62, 0.78, 0.9)
 	outer.set_border_width_all(1)
 	outer.set_corner_radius_all(4)
-	outer.set_content_margin_all(UiLayout.margin_px(2, card))
+	outer.set_content_margin_all(int(pad))
 	card.add_theme_stylebox_override("panel", outer)
 	if purchased or mod.is_empty():
+		card.custom_minimum_size = Vector2(icon_side + pad * 2.0, icon_side + pad * 2.0)
 		var ph: Label = Label.new()
 		ph.text = "已购" if purchased else ""
 		ph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -4498,24 +4858,53 @@ func _make_equipment_shop_card(idx: int, mod: Dictionary, purchased: bool, slot_
 		UiAssets.apply_label_font(ph, false, UiLayout.font_size(11, card))
 		card.add_child(ph)
 		return card
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(gap))
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.add_child(row)
 	@warning_ignore("unsafe_method_access")
-	var inner: Control = _EQUIP_ICON_VIEW.make_icon_cell(
-		Vector2(slot_sz.x - UiLayout.margin_px(4, card), slot_sz.y - UiLayout.margin_px(4, card)),
-		mod,
-		card
-	)
-	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	card.add_child(inner)
+	var icon: Control = _EQUIP_ICON_VIEW.make_icon_cell(Vector2(icon_side, icon_side), mod, card)
+	icon.custom_minimum_size = Vector2(icon_side, icon_side)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+	var name_s: String = str(mod.get("name", mod.get("id", "")))
+	var name_fs: int = UiLayout.font_size(11, card)
+	var name_l: Label = Label.new()
+	name_l.text = name_s
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.clip_text = false
+	name_l.autowrap_mode = TextServer.AUTOWRAP_OFF
+	UiAssets.apply_label_font(name_l, false, name_fs)
+	name_l.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
+	name_l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(name_l)
+	var font: Font = name_l.get_theme_font("font")
+	if font == null:
+		font = ThemeDB.fallback_font
+	var name_w: float = font.get_string_size(name_s, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).x
+	var cost_w: float = 0.0
 	var cost: int = TypedVariant.as_int(mod.get("cost", 10), 0)
 	if not TypedVariant.as_bool(mod.get("implant", false), false):
+		var cost_fs: int = UiLayout.font_size(11, card)
 		var cost_l: Label = Label.new()
 		cost_l.text = str(cost)
-		cost_l.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-		cost_l.offset_top = -UiLayout.px(14, card)
-		cost_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		UiAssets.apply_label_font(cost_l, false, UiLayout.font_size(11, card))
+		cost_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		UiAssets.apply_label_font(cost_l, false, cost_fs)
 		cost_l.add_theme_color_override("font_color", Color(1, 0.92, 0.55))
-		card.add_child(cost_l)
+		cost_l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		cost_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(cost_l)
+		var cfont: Font = cost_l.get_theme_font("font")
+		if cfont == null:
+			cfont = ThemeDB.fallback_font
+		cost_w = cfont.get_string_size(str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs).x + gap
+	card.custom_minimum_size = Vector2(
+		icon_side + gap + name_w + cost_w + pad * 2.0 + float(UiLayout.px(4, card)),
+		icon_side + pad * 2.0
+	)
 	var hit: Button = Button.new()
 	hit.flat = true
 	hit.focus_mode = Control.FOCUS_NONE
@@ -4573,7 +4962,10 @@ func _refresh_equipment_inventory_ui() -> void:
 		var mod: Dictionary = DataStore.get_function_module(item_id)
 		if mod.is_empty():
 			continue
-		var inner_sz: Vector2 = cell.custom_minimum_size - Vector2(4, 4)
+		var inner_sz: Vector2 = Vector2(
+			maxi(8.0, cell.custom_minimum_size.x - 4.0),
+			maxi(8.0, cell.custom_minimum_size.y - 4.0)
+		)
 		if inner_sz.x < 8.0 or inner_sz.y < 8.0:
 			inner_sz = Vector2(UiLayout.px(28, cell), UiLayout.px(28, cell))
 		@warning_ignore("unsafe_method_access")
@@ -4807,9 +5199,23 @@ func _begin_equipment_inventory_drag(inv_idx: int, item_id: String, screen: Vect
 	_show_equipment_detail(item_id)
 
 
-## Prepare: press on a filled health-bar fit slot → drag unequip (EQUIPMENT.md).
+func _can_equip_ship_now(ship: ShipUnit) -> bool:
+	if ship == null or not is_instance_valid(ship):
+		return false
+	if match_ctrl == null:
+		return false
+	if match_ctrl.stage == MatchController.Stage.PREPARE:
+		return true
+	## Battle: hangar ships only (EQUIPMENT.md / BOARD_AND_INPUT §4).
+	if match_ctrl.stage == MatchController.Stage.BATTLE and ship.slot_type == "hangar":
+		return true
+	return false
+
+
 func try_begin_fit_unequip_at_screen(screen: Vector2) -> bool:
-	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.PREPARE:
+	if match_ctrl == null:
+		return false
+	if match_ctrl.stage != MatchController.Stage.PREPARE and match_ctrl.stage != MatchController.Stage.BATTLE:
 		return false
 	if camera == null or board == null:
 		return false
@@ -4822,6 +5228,8 @@ func try_begin_fit_unequip_at_screen(screen: Vector2) -> bool:
 		if s.team_id != ShipUnit.TEAM_PLAYER or s.is_protect_target:
 			continue
 		if not board.is_board_piece(s):
+			continue
+		if not _can_equip_ship_now(s):
 			continue
 		var hb: Node = s.get_health_bar()
 		if hb == null or not hb.has_method("pick_fit_slot_at_screen"):
@@ -4959,7 +5367,7 @@ func _end_equipment_drag(screen: Vector2) -> void:
 				match_ctrl.move_equipment_inventory(inv_idx, to_cell)
 				_refresh_equipment_inventory_ui()
 		elif not _try_drop_equipment_on_ship(screen, str(match_ctrl.equipment_inventory[inv_idx]), false, inv_idx):
-			if match_ctrl.stage == MatchController.Stage.PREPARE:
+			if match_ctrl.stage == MatchController.Stage.PREPARE or match_ctrl.stage == MatchController.Stage.BATTLE:
 				show_notice("拖到舰船来装配")
 
 
@@ -5231,8 +5639,11 @@ func _try_drop_equipment_on_ship(screen: Vector2, item_id: String, from_shop: bo
 	var ship: ShipUnit = _pick_ship_at_screen(screen)
 	if ship == null:
 		return false
-	if match_ctrl.stage != MatchController.Stage.PREPARE:
-		show_notice("仅准备阶段可装配")
+	if not _can_equip_ship_now(ship):
+		if match_ctrl.stage == MatchController.Stage.BATTLE:
+			show_notice("战斗中仅可装配候席舰")
+		else:
+			show_notice("仅准备阶段可装配")
 		return false
 	if from_shop:
 		var bought_id: String = item_id
@@ -5449,26 +5860,38 @@ func _shop_tips_top_align(tips: TextureRect, host: Control) -> void:
 func _shop_card_size(slot_count: int, box: Control) -> Vector2:
 	var avail_w: float = box.size.x
 	var avail_h: float = box.size.y
+	## Prefer measured ShopSlots / ShopInner height (Meta:ships = 1:3 stretch).
+	if avail_h < 8.0:
+		@warning_ignore("unsafe_cast")
+		var inner: Control = hud.get_node_or_null("Root/%s" % _SHOP_INNER) as Control
+		if inner and inner.size.y >= 8.0:
+			avail_h = inner.size.y
+			if avail_w < 8.0:
+				avail_w = maxf(inner.size.x * 0.88, box.size.x)
 	if avail_w < 8.0 or avail_h < 8.0:
 		@warning_ignore("unsafe_cast")
 		var shop_panel: Control = hud.get_node_or_null("Root/Shop") as Control
 		if shop_panel:
-			avail_w = shop_panel.size.x * 0.88
-			avail_h = shop_panel.size.y * 0.62
+			if avail_w < 8.0:
+				avail_w = shop_panel.size.x * 0.88
+			## 3/4 of shop strip ≈ ship row after Meta stretch ratio 1.
+			if avail_h < 8.0:
+				avail_h = shop_panel.size.y * 0.75
 	if avail_w < 8.0:
 		avail_w = UiLayout.px(1100.0, box)
 	if avail_h < 8.0:
-		avail_h = UiLayout.px(160.0, box)
+		avail_h = UiLayout.px(156.0, box)
 	var sep: float = float(UiLayout.margin_px(6, box))
 	var total_sep: float = sep * float(maxi(0, slot_count - 1))
-	var w: float = (avail_w - total_sep) / float(slot_count)
-	## Prefer portrait-ish cards that fill the shop strip height (透明站位框吃满可用高).
-	var target_h: float = avail_h
+	var w: float = (avail_w - total_sep) / float(maxi(1, slot_count))
+	## Fill ship-row height; low min so card mins cannot steal Meta's 1/4 stretch.
+	var h: float = avail_h
 	var aspect: float = 1.22
 	var from_w: float = w * aspect
-	var h: float = minf(target_h, maxf(from_w, UiLayout.px(110.0, box)))
-	h = clampf(h, UiLayout.px(100.0, box), avail_h)
-	w = clampf(w, UiLayout.px(64.0, box), UiLayout.px(220.0, box))
+	if from_w < h * 0.85:
+		h = maxf(from_w, avail_h * 0.85)
+	h = clampf(h, UiLayout.px(48.0, box), avail_h)
+	w = clampf(w, UiLayout.px(48.0, box), UiLayout.px(200.0, box))
 	return Vector2(w, h)
 
 func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int, card_size: Vector2 = Vector2.ZERO) -> Control:
@@ -6290,15 +6713,21 @@ const _DRONE_COUNT_EXCEPTIONS: Dictionary = {42: 5, 44: 4, 55: 4, 56: 5}
 
 func _drone_tier_for_carrier(ship_data: Dictionary) -> String:
 	var group: String = str(ship_data.get("ship_group", "frigate"))
-	if group == "battlecruiser":
+	if group == "industrial_command":
+		return "heavy"
+	if group == "mining_barge" or group == "battlecruiser" or group == "cruiser":
 		return "medium"
 	if group == "battleship":
 		return "heavy"
-	if group == "cruiser":
-		return "medium"
 	return "light"
 
 func _race_drone_id(ship_data: Dictionary) -> int:
+	## Ore mining hulls default to Gallente combat drones (MINING §2).
+	var group: String = str(ship_data.get("ship_group", "")).to_lower()
+	if group == "mining_barge":
+		return 1007
+	if group == "industrial_command":
+		return 1013
 	var race: String = str(ship_data.get("race", "amarr")).to_lower()
 	match _drone_tier_for_carrier(ship_data):
 		"heavy":
@@ -6615,7 +7044,9 @@ func _fill_info_function_modules(fn_list: Variant, ship_data: Dictionary, is_tit
 
 
 func _info_fit_gui_input(ev: InputEvent, fit_slot: int, item_id: String, from: Control) -> void:
-	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.PREPARE:
+	if match_ctrl == null:
+		return
+	if not _can_equip_ship_now(_info_ship):
 		return
 	if _info_ship == null or not is_instance_valid(_info_ship):
 		return
@@ -6826,13 +7257,6 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 						maxi(star, 1)
 					]
 					_style_info_stat_label(drone_label)
-			elif TypedVariant.as_bool(ship_data.get("is_mining_ship", false), false):
-				if drone_panel:
-					drone_panel.visible = false
-				if drone_icon:
-					drone_icon.texture = null
-				if drone_label:
-					drone_label.text = ""
 			elif fighter_id > 0:
 				var squads: int = TypedVariant.as_int(ship_data.get("fighter_squadrons", 3), 0)
 				var tubes: int = TypedVariant.as_int(ship_data.get("fighter_tubes_per_squadron", 3), 0)
@@ -7053,7 +7477,15 @@ func _wld_tuple(seat: int) -> Dictionary:
 	}
 
 
-func _present_nullsec_settlement(summary: String) -> void:
+func _nullsec_match_id() -> String:
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net != null and str(net.match_id).strip_edges() != "":
+		return str(net.match_id).strip_edges()
+	return str(GameSession.pending_nullsec.get("match_id", "")).strip_edges()
+
+
+## Unranked contestant rows for §7 report / provisional leave save.
+func _collect_nullsec_settlement_player_rows() -> Array:
 	var ships: Array = []
 	if board:
 		for s: ShipUnit in board.all_ships():
@@ -7078,7 +7510,7 @@ func _present_nullsec_settlement(summary: String) -> void:
 	if _doomsday_resolver:
 		elim = TypedVariant.as_int(_doomsday_resolver.elimination_order.get(local_seat, 0), 0)
 	var result: String = "淘汰" if elim > 0 else "存活"
-	if not _seat_titan_alive(local_seat):
+	if local_seat >= 0 and not _seat_titan_alive(local_seat):
 		result = "淘汰"
 	var kills: int = TypedVariant.as_int(_kills_by_seat.get(local_seat, 0), 0)
 	var row: Dictionary = NullsecSettlement.make_row(
@@ -7098,18 +7530,6 @@ func _present_nullsec_settlement(summary: String) -> void:
 		false
 	)
 	row["elimination_order"] = elim
-	if _settlement_panel == null:
-		_settlement_panel = NullsecSettlementPanel.new()
-		hud.add_child(_settlement_panel)
-	_settlement_panel.confirmed.connect(func() -> void:
-		NullsecRejoinTicket.clear()
-		var net_close: NullsecNetSession = _nullsec_net_session()
-		if net_close and net_close.has_method("clear_ghosts_after_settlement"):
-			net_close.clear_ghosts_after_settlement()
-		if net_close:
-			net_close.close()
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
-	, CONNECT_ONE_SHOT)
 	var rows: Array = []
 	var seen_seats: Dictionary = {}
 	for s_v: Variant in seats:
@@ -7136,7 +7556,7 @@ func _present_nullsec_settlement(summary: String) -> void:
 			snick,
 			1,
 			0,
-			"淘汰" if oelim > 0 else "—",
+			"淘汰" if oelim > 0 or not _seat_titan_alive(seat_id) else "—",
 			[],
 			TypedVariant.as_array(_match_titles.get(seat_id, [])),
 			seat_id,
@@ -7146,25 +7566,68 @@ func _present_nullsec_settlement(summary: String) -> void:
 			0,
 			TypedVariant.as_int(_kills_by_seat.get(seat_id, 0), 0),
 			TypedVariant.as_bool(s.get("is_ai", false), false),
-			true
+			false
 		)
 		orow["elimination_order"] = oelim
 		orow["ghost"] = TypedVariant.as_bool(s.get("ghost", false), false)
 		rows.append(orow)
-	if not TypedVariant.as_bool(seen_seats.get(local_seat, false), false):
+	if local_seat >= 0 and not TypedVariant.as_bool(seen_seats.get(local_seat, false), false):
 		rows.insert(0, row)
-	rows = NullsecSettlement.assign_ranks(rows, _nullsec_rng)
+	return rows
+
+
+func _make_local_nullsec_match_report(provisional: bool = false) -> Dictionary:
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), -1)
+	var report: Dictionary = NullsecSettlement.make_match_report(
+		_nullsec_match_id(), local_seat, _collect_nullsec_settlement_player_rows(), _nullsec_rng
+	)
+	if provisional:
+		report["provisional"] = true
+	return report
+
+
+func _should_save_provisional_nullsec_report() -> bool:
+	if str(GameSession.pending_mode) != "nullsec":
+		return false
+	if _nullsec_spectate_reason == "eliminated":
+		return true
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), -1)
+	return local_seat >= 0 and not _seat_titan_alive(local_seat)
+
+
+func _save_provisional_nullsec_report() -> void:
+	if not _should_save_provisional_nullsec_report():
+		return
+	NullsecSettlement.save_match_report(_make_local_nullsec_match_report(true))
+
+
+func _present_nullsec_settlement(summary: String) -> void:
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", -1), -1)
+	var report: Dictionary = _make_local_nullsec_match_report(false)
+	if _settlement_panel == null:
+		_settlement_panel = NullsecSettlementPanel.new()
+		hud.add_child(_settlement_panel)
+	_settlement_panel.confirmed.connect(func() -> void:
+		NullsecRejoinTicket.clear()
+		var net_close: NullsecNetSession = _nullsec_net_session()
+		if net_close and net_close.has_method("clear_ghosts_after_settlement"):
+			net_close.clear_ghosts_after_settlement()
+		if net_close:
+			net_close.close()
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	, CONNECT_ONE_SHOT)
 	var net: NullsecNetSession = _nullsec_net_session()
 	if net:
 		if not net.match_report_received.is_connected(_on_nullsec_match_report_received):
 			net.match_report_received.connect(_on_nullsec_match_report_received, CONNECT_ONE_SHOT)
-		## Refresh local row after rank assign.
-		for r_v: Variant in rows:
+		## Submit local ranked row for host stitch / broadcast.
+		for r_v: Variant in TypedVariant.as_array(report.get("players", [])):
 			var r: Dictionary = TypedVariant.as_dict(r_v)
 			if TypedVariant.as_int(r.get("seat_id", -1), -1) == local_seat:
 				net.submit_local_match_summary(r)
 				break
-	_settlement_panel.show_rows(rows)
+	## Persist via upsert (match_id); authoritative broadcast later replaces provisional.
+	_settlement_panel.show_report(report)
 	show_notice(summary)
 
 func _on_nullsec_match_report_received(report: Dictionary) -> void:
@@ -7179,12 +7642,12 @@ func _on_refresh_pressed() -> void:
 	_refresh_hud()
 
 func _on_lock_pressed() -> void:
-	match_ctrl.shop_locked = not match_ctrl.shop_locked
-	show_notice("商店锁定" if match_ctrl.shop_locked else "商店解锁")
+	## Lock shop removed (ECONOMY_AND_SHOP §3).
+	pass
 
-func _on_lock_toggled(pressed: bool) -> void:
-	match_ctrl.shop_locked = pressed
-	show_notice("商店锁定" if pressed else "商店解锁")
+func _on_lock_toggled(_pressed: bool) -> void:
+	## Lock shop removed (ECONOMY_AND_SHOP §3).
+	pass
 
 func _on_exp_pressed() -> void:
 	## Scene may still fire pressed; prefer button_down/up hold path.
@@ -7283,7 +7746,6 @@ func _apply_match_save_dict(d: Dictionary) -> void:
 		match_ctrl.up_level_demand += inc
 	match_ctrl.win_streak = TypedVariant.as_int(p.get("win_streak", 0), 0)
 	match_ctrl.loss_streak = TypedVariant.as_int(p.get("loss_streak", 0), 0)
-	match_ctrl.shop_locked = TypedVariant.as_bool(p.get("shop_locked", false), false)
 	match_ctrl.battle_game_stage_count = TypedVariant.as_int(d.get("battle_game_stage_count", 0), 0)
 	match_ctrl.round_phase_value = TypedVariant.as_int(d.get("round_phase_value", 1), 0)
 	match_ctrl.battle_phase_value = TypedVariant.as_int(d.get("battle_phase_value", 0), 0)
@@ -7651,6 +8113,14 @@ func _build_match_settings_panel() -> Control:
 	UiAssets.apply_button_font(nomodel, UiLayout.font_size(16, self))
 	nomodel.toggled.connect(func(on: bool) -> void: GameSession.set_no_model_perf_mode(on))
 	box.add_child(nomodel)
+
+	var fx_simple: CheckBox = CheckBox.new()
+	fx_simple.text = "装备与武器特效简化"
+	fx_simple.tooltip_text = "关闭=正常特效（与预览同套）；开启=色块束/单球加农/直线导弹"
+	fx_simple.button_pressed = GameSession.weapon_fx_simplified
+	UiAssets.apply_button_font(fx_simple, UiLayout.font_size(16, self))
+	fx_simple.toggled.connect(func(on: bool) -> void: GameSession.set_weapon_fx_simplified(on))
+	box.add_child(fx_simple)
 
 	var breathe: CheckBox = CheckBox.new()
 	breathe.text = "镜头呼吸浮动"
@@ -8061,6 +8531,8 @@ func _return_to_main_menu() -> void:
 	if match_ctrl and match_ctrl.has_method("force_autosave"):
 		match_ctrl.force_autosave()
 	if GameSession.pending_mode == "nullsec":
+		## Eliminated early exit → provisional match_report (MULTIPLAYER_PVP §7.0b).
+		_save_provisional_nullsec_report()
 		var net: NullsecNetSession = _nullsec_net_session()
 		if net:
 			net.request_mark_local_ghost()
@@ -8226,14 +8698,14 @@ func _on_stage_changed_ui(stage: int) -> void:
 			_cam_pose_before_shop.clear()
 			_apply_adaptive_hud_layout()
 		## Force full Prepare fleet snapshot once before HostSim battle.
-		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_pve.is_pve_task():
+		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_local_is_pve():
 			_push_local_prepare_fleet()
 			var rival_pre: int = _nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
 			var net_pre: NullsecNetSession = _nullsec_net_session()
 			if net_pre != null and rival_pre >= 0 and not _seat_is_ai(rival_pre):
 				net_pre.request_prepare_fleet_snapshot(rival_pre)
 		## PVP: nullsec guest hop (§4.1). Lowsec stays host-home — no teleport/sky switch.
-		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_pve.is_pve_task():
+		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_local_is_pve():
 			if not _nullsec_pve.always_pvp:
 				_nullsec_pvp_battle_teleport()
 			_apply_remote_watch_only_for_battle()
@@ -8241,7 +8713,7 @@ func _on_stage_changed_ui(stage: int) -> void:
 				_net_jobs_ready_for_titan = false
 				_net_battle.on_local_battle_begin()
 			_begin_combat_eval_if_human_pvp()
-		elif GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_pve.is_pve_task():
+		elif GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_local_is_pve():
 			## SEMI_ASYNC §3.2 — defending seat sims PVE locally (creeps). Never host-watch.
 			_apply_remote_watch_only_for_battle()
 			if _net_battle:
@@ -8264,11 +8736,20 @@ func _on_stage_changed_ui(stage: int) -> void:
 	# 回合结束：战斗 -> 准备；展开左栏+右栏+底栏一次；default 切视角 2；free/observe 不动镜头。
 	# 负安局若要播末日/击毁，先把 HUD/镜头转场压住，等演出结束再走 prepare 展示。
 	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
-		## SEMI_ASYNC §3.1a — host tells watch peers the round is over.
+		## SEMI_ASYNC §3.1a — PVP watch peers only. PVE stays local (§3.2); sync via battle_done.
 		var net_end: NullsecNetSession = _nullsec_net_session()
-		if net_end != null and net_end.is_host and net_end.needs_stage_barrier() and match_ctrl:
+		var pve_local_end: bool = _nullsec_pve != null and _nullsec_pve.is_pve_task()
+		if (
+			not pve_local_end
+			and net_end != null
+			and net_end.is_host
+			and net_end.needs_stage_barrier()
+			and match_ctrl
+		):
 			var hs: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 			net_end.broadcast_battle_ended(str(match_ctrl.last_round_result), hs, "host_complete")
+		elif pve_local_end and net_end != null and net_end.is_host:
+			SessionDiagnostics.log("mp.battle_ended_skip", "pve_local_no_broadcast")
 		if GameSession.pending_mode == "nullsec":
 			_apply_nullsec_prepare_stage_gates()
 			_nullsec_prepare_ui_pending = true
@@ -8614,7 +9095,7 @@ func _seat_row_nick(seat_id: int) -> String:
 	return "席位 %d" % (seat_id + 1)
 
 func _nullsec_after_battle_into_prepare() -> void:
-	## Lock next creep roster immediately at previous round end.
+	## Enter next Prepare after settle; creep lock waits for Prepare→Battle.
 	if _titan_kill_busy or _doomsday_busy:
 		_nullsec_prepare_pending = true
 		return
@@ -8654,11 +9135,16 @@ func _nullsec_enter_next_round() -> void:
 	if _doomsday_busy or _presentation_hold or _titan_kill_busy or _titan_kill_active > 0:
 		_nullsec_prepare_pending = true
 		return
+	## Alive ≤ 1 after kill/doomsday FX → settlement, never open another Prepare (§3.3).
+	if _try_nullsec_end_if_alive_gate():
+		return
 	_apply_nullsec_prepare_presentation()
 	if _nullsec_pve and match_ctrl:
-		_nullsec_lock_next_creeps()
-	## Only slide-in creeps on PVE prepares.
-	if _nullsec_pve and _nullsec_pve.is_pve_task():
+		_nullsec_advance_last_rivals_after_round()
+		_nullsec_pick_next_task()
+	## PVE prepare: clear field + open shop (creeps spawn at battle lock).
+	## Includes odd-player bye on a global PVP round (MATCH_FLOW §5.2).
+	if _nullsec_local_is_pve():
 		_nullsec_pvp_guest = false
 		_set_rival_berth_visible(false)
 		_restore_local_home_skybox()

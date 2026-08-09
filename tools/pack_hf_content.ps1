@@ -400,7 +400,7 @@ foreach ($def in $packDefs) {
 
 Write-Fingerprints $nextFp
 
-$ver = "202608.8.66"
+$ver = "202608.9.5"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{
@@ -410,7 +410,7 @@ $versionObj = [ordered]@{
   baseUrl              = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
   entry                = "res://scenes/main_menu.tscn"
   shellCompatibilityId = "eveac-shell-v1"
-  notes                = "LAN same-/24 affinity; multi-IP beacon; room-code 5s join; net.lan.* debug"
+  notes                = "Loss-comp dual cap vs winner (75pct / less60); match-control knobs"
 }
 $manifestObj = [ordered]@{
   version = $ver

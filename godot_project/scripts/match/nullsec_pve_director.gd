@@ -21,18 +21,30 @@ func setup(rng: MatchRng, serial: int) -> void:
 	battle_serial = serial
 	creep_ai.setup(rng, serial)
 
+## Cache so repeated pick_task(round) does not re-roll MatchRng.
+var _task_by_round: Dictionary = {}
+
 func pick_task(round_r: int) -> String:
 	## MULTIPLAYER_MATCH_FLOW §5: stage one R1 PVE · R2 PVE · R3 PVP · R4 PVE;
 	## from R5 on odd rounds are PVE and even rounds are PVP.
 	## Lowsec exception: always PVP (MATCH_FLOW §3 lead-in).
+	## PVE task: MatchRng between eliminate / salvage (not round_r % 2).
 	if always_pvp or is_pvp_round(round_r):
 		current_task = TASK_PVP
+		_task_by_round[round_r] = current_task
 		return current_task
-	if round_r % 2 == 0:
-		current_task = TASK_SALVAGE
-	else:
-		current_task = TASK_ELIMINATE
+	if _task_by_round.has(round_r):
+		current_task = str(_task_by_round[round_r])
+		return current_task
+	current_task = roll_pve_task(match_rng, battle_serial, round_r)
+	_task_by_round[round_r] = current_task
 	return current_task
+
+static func roll_pve_task(rng: MatchRng, _battle_serial: int, round_r: int) -> String:
+	## Deterministic eliminate↔salvage from match_seed + round (no combat-slot consume).
+	var seed_v: int = rng.match_seed if rng != null else 0
+	var h: int = absi(hash("%d:pve_task:%d" % [seed_v, round_r]))
+	return TASK_SALVAGE if (h % 2) == 1 else TASK_ELIMINATE
 
 static func is_pvp_round(round_r: int) -> bool:
 	if round_r <= 4:
@@ -42,8 +54,8 @@ static func is_pvp_round(round_r: int) -> bool:
 func is_pve_task() -> bool:
 	return current_task == TASK_ELIMINATE or current_task == TASK_SALVAGE
 
-func lock_creeps(gold: int, level: int, pop_limit: int) -> Array:
-	return creep_ai.lock_from_player_state(gold, level, pop_limit)
+func lock_creeps(gold: int, level: int, pop_limit: int, field_value: int = 0) -> Array:
+	return creep_ai.lock_from_player_state(gold, level, pop_limit, field_value)
 
 ## `exclude_race`: local seat titan race — salvage freighter must not share it
 ## (FREIGHTER_AND_TITAN §1.2 异族硬门). Empty = no filter (tests / fallback).

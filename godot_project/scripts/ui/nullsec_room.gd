@@ -1,15 +1,15 @@
 extends Control
 class_name NullsecRoomUI
-## Seat | 功能 | seat | 功能 × 10 rows; short function gutters keep seat bars equal width.
+## Seats: 席号|昵称|泰坦/观战 + 旁「功能」；房主权限集中在独立 HostBar。
 
 signal leave_room
 signal start_match(assignments: Dictionary)
 
 const TITAN_CGMA: Array = [
-	{"race": "caldari", "label": "利维坦 · 加达里", "icon": "caldari"},
-	{"race": "gallente", "label": "厄勒布洛斯 · 盖伦特", "icon": "gallente"},
-	{"race": "minmatar", "label": "诸神黄昏 · 米玛塔尔", "icon": "minmatar"},
-	{"race": "amarr", "label": "圣像 · 艾玛", "icon": "amarr"},
+	{"race": "caldari", "label": "勒维亚坦 · 加达里", "icon": "caldari"},
+	{"race": "gallente", "label": "俄洛巴斯 · 盖伦特", "icon": "gallente"},
+	{"race": "minmatar", "label": "拉格纳洛克 · 米玛塔尔", "icon": "minmatar"},
+	{"race": "amarr", "label": "神使 · 艾玛", "icon": "amarr"},
 ]
 const KICK_COL_W: float = 56.0
 
@@ -26,6 +26,7 @@ var _code_lbl: Label
 var _copy_key_btn: Button
 var _copy_share_btn: Button
 var _ships_lbl: Label
+var _host_bar: Control
 var _mobile_cap: int = 20
 var _urge_count: int = 0
 var _urge_until_ms: int = 0
@@ -51,7 +52,7 @@ func setup(net: NullsecNetSession) -> void:
 		session.host_migrated.connect(_on_host_migrated_refresh)
 	if not session.host_role_changed.is_connected(_on_host_role_changed_refresh):
 		session.host_role_changed.connect(_on_host_role_changed_refresh)
-	_mobile_cap = 5 if (OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()) else 20
+	_mobile_cap = 5 if OS.has_feature("mobile") else 20
 	_build()
 	_on_seats(session.seats)
 	_on_security_mode(session.security_mode)
@@ -98,18 +99,6 @@ func _build() -> void:
 	_code_lbl.text = _code_text()
 	_code_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	code_row.add_child(_code_lbl)
-	_copy_share_btn = Button.new()
-	_copy_share_btn.text = "复制房间码"
-	_copy_share_btn.visible = false
-	_copy_share_btn.custom_minimum_size = Vector2(108, 30)
-	_copy_share_btn.pressed.connect(_copy_room_share)
-	code_row.add_child(_copy_share_btn)
-	_copy_key_btn = Button.new()
-	_copy_key_btn.text = "复制密码"
-	_copy_key_btn.visible = false
-	_copy_key_btn.custom_minimum_size = Vector2(96, 30)
-	_copy_key_btn.pressed.connect(_copy_room_password)
-	code_row.add_child(_copy_key_btn)
 	_ships_lbl = Label.new()
 	_ships_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_ships_lbl.modulate = Color(1.0, 0.82, 0.35)
@@ -118,26 +107,65 @@ func _build() -> void:
 	if session and not session.is_room_host() and session.host_ships_hash != "" \
 			and session.host_ships_hash != DataStore.ships_table_hash():
 		_on_ships_mismatch(session.host_ships_hash)
-	var sec_row: HBoxContainer = HBoxContainer.new()
-	sec_row.add_theme_constant_override("separation", 8)
-	root.add_child(sec_row)
+	## MATCH_FLOW §2b — host-only chrome (安等 / 加人机 / 复制); titan stays on seats.
+	_host_bar = PanelContainer.new()
+	_host_bar.name = "HostBar"
+	_host_bar.visible = false
+	var host_sb: StyleBoxFlat = StyleBoxFlat.new()
+	host_sb.bg_color = Color(0.08, 0.12, 0.16, 0.92)
+	host_sb.border_color = Color(0.35, 0.65, 0.85, 0.7)
+	host_sb.set_border_width_all(1)
+	host_sb.set_corner_radius_all(4)
+	host_sb.content_margin_left = 8
+	host_sb.content_margin_right = 8
+	host_sb.content_margin_top = 4
+	host_sb.content_margin_bottom = 4
+	(_host_bar as PanelContainer).add_theme_stylebox_override("panel", host_sb)
+	root.add_child(_host_bar)
+	var host_inner: VBoxContainer = VBoxContainer.new()
+	host_inner.add_theme_constant_override("separation", 4)
+	_host_bar.add_child(host_inner)
+	var host_title: Label = Label.new()
+	host_title.text = "房主权限"
+	host_title.modulate = Color(0.75, 0.9, 1.0, 1.0)
+	host_inner.add_child(host_title)
+	var host_row: HBoxContainer = HBoxContainer.new()
+	host_row.add_theme_constant_override("separation", 8)
+	host_inner.add_child(host_row)
 	var sec_lbl: Label = Label.new()
 	sec_lbl.text = "安等"
-	sec_row.add_child(sec_lbl)
+	host_row.add_child(sec_lbl)
 	_sec_opt = OptionButton.new()
 	_sec_opt.custom_minimum_size = Vector2(160, 30)
 	_sec_opt.add_item("负安局") ## 0
 	_sec_opt.add_item("低安局 · 1v1") ## 1
 	_sec_opt.item_selected.connect(_on_sec_selected)
-	sec_row.add_child(_sec_opt)
+	host_row.add_child(_sec_opt)
+	_ai_btn = Button.new()
+	_ai_btn.text = "加人机"
+	_ai_btn.pressed.connect(func() -> void:
+		if session:
+			session.add_ai_player()
+	)
+	host_row.add_child(_ai_btn)
+	_copy_share_btn = Button.new()
+	_copy_share_btn.text = "复制房间码"
+	_copy_share_btn.custom_minimum_size = Vector2(108, 30)
+	_copy_share_btn.pressed.connect(_copy_room_share)
+	host_row.add_child(_copy_share_btn)
+	_copy_key_btn = Button.new()
+	_copy_key_btn.text = "复制密码"
+	_copy_key_btn.custom_minimum_size = Vector2(96, 30)
+	_copy_key_btn.pressed.connect(_copy_room_password)
+	host_row.add_child(_copy_key_btn)
 	var sec_tip: Label = Label.new()
 	sec_tip.name = "SecTip"
 	sec_tip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sec_tip.modulate = Color(0.7, 0.78, 0.88, 1.0)
 	sec_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sec_row.add_child(sec_tip)
+	host_inner.add_child(sec_tip)
 	_grid = GridContainer.new()
-	## Left seat | 功能 | right seat | 功能 — gutters hold host actions so seat bars match.
+	## Left seat | 功能 | right seat | 功能 — gutters = host seat actions only.
 	_grid.columns = 4
 	_grid.add_theme_constant_override("h_separation", 4)
 	_grid.add_theme_constant_override("v_separation", 3)
@@ -177,13 +205,6 @@ func _build() -> void:
 			_func_menus[right_i] = right_menu
 	var bar: HBoxContainer = HBoxContainer.new()
 	root.add_child(bar)
-	_ai_btn = Button.new()
-	_ai_btn.text = "加人机"
-	_ai_btn.pressed.connect(func() -> void:
-		if session:
-			session.add_ai_player()
-	)
-	bar.add_child(_ai_btn)
 	_ready_btn = Button.new()
 	_ready_btn.text = "准备好了"
 	_ready_btn.pressed.connect(_toggle_ready)
@@ -223,14 +244,14 @@ func _on_security_mode(mode: String) -> void:
 	_sec_opt.set_block_signals(false)
 	_sec_opt.disabled = session == null or not session.is_room_host() or session.match_started
 	var tip: Label = null
-	var tip_node: Node = get_node_or_null("RoomContent/HBoxContainer/SecTip")
-	if tip_node is Label:
-		tip = tip_node
-	## SecTip lives under the sec_row which has no stable name — find by sibling.
+	if _host_bar:
+		var tip_node: Node = _host_bar.find_child("SecTip", true, false)
+		if tip_node is Label:
+			tip = tip_node
 	if tip == null and _sec_opt:
 		var row_node: Node = _sec_opt.get_parent()
 		if row_node != null:
-			var sibling: Node = row_node.get_node_or_null("SecTip")
+			var sibling: Node = row_node.get_parent().get_node_or_null("SecTip") if row_node.get_parent() else null
 			if sibling is Label:
 				tip = sibling
 	if tip:
@@ -406,6 +427,7 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 	opt.add_item("仅观战") ## last index
 	opt.select(0)
 	_apply_titan_opt_tips(opt, "")
+	## Titan/spectate pinned to seat: own seat always; host may only edit AI seats.
 	opt.item_selected.connect(func(i: int) -> void:
 		if session == null:
 			return
@@ -414,7 +436,10 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 		if session.local_seat == idx:
 			session.set_local_titan(pick_race)
 		elif session.is_room_host():
-			session.set_seat_titan(idx, pick_race)
+			var row_v: Variant = session.seats[idx] if idx < session.seats.size() else {}
+			var row_d: Dictionary = TypedVariant.as_dict(row_v)
+			if TypedVariant.as_bool(row_d.get("is_ai", false), false):
+				session.set_seat_titan(idx, pick_race)
 	)
 	row.add_child(opt)
 	var slash: ColorRect = ColorRect.new()
@@ -450,11 +475,18 @@ func _opt_index_from_race(race: String) -> int:
 
 func _on_seats(seats: Array) -> void:
 	_code_lbl.text = _code_text()
+	var is_host: bool = session != null and session.is_room_host()
+	if _host_bar:
+		_host_bar.visible = is_host
 	if _copy_share_btn:
-		_copy_share_btn.visible = session != null and session.is_room_host()
+		_copy_share_btn.visible = is_host
+		_copy_share_btn.disabled = not is_host
 	if _copy_key_btn:
-		_copy_key_btn.visible = session != null and session.is_room_host() and not session.room_password.is_empty()
-	_ai_btn.visible = session != null and session.is_room_host() and not session.match_started
+		_copy_key_btn.visible = is_host and not session.room_password.is_empty()
+		_copy_key_btn.disabled = not _copy_key_btn.visible
+	if _ai_btn:
+		_ai_btn.visible = is_host and not session.match_started
+		_ai_btn.disabled = not _ai_btn.visible
 	_on_security_mode(session.security_mode if session else NullsecNetSession.SECURITY_NULLSEC)
 	var local_race: String = ""
 	var local_ready: bool = false

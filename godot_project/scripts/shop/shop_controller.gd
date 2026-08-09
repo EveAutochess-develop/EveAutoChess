@@ -15,6 +15,10 @@ var _recent_hits: Dictionary = {}
 ## Tonnage pity: after N refreshes without a unlocked tonnage, force it on next.
 var _pity_refresh_count: int = 0
 var _pity_seen_tonnage: Dictionary = {}  # tonnage_key -> true
+## Full-pool ship_id / equip id pity (ECONOMY_AND_SHOP §3): window default 30.
+var _id_pity_refresh_count: int = 0
+var _id_pity_seen_ships: Dictionary = {}  # ship_id -> true
+var _id_pity_seen_equips: Dictionary = {}  # equip id -> true
 ## SEMI_ASYNC §2 — shop rolls on match_seed stream (not global randi).
 static var _auth_rng: MatchRng = null
 static var _auth_stream: String = "shop"
@@ -64,10 +68,17 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 	slots.clear()
 	var seen_counts: Dictionary = {}
 	var force_tonnages: Array = _pity_force_tonnages_for_this_refresh()
+	var force_ids: Array = _id_pity_force_ship_ids(n)
 	var force_i: int = 0
+	var force_id_i: int = 0
 	for i: int in range(n):
 		var sid: int = 0
-		if force_i < force_tonnages.size():
+		if force_id_i < force_ids.size():
+			sid = TypedVariant.as_int(force_ids[force_id_i], 0)
+			force_id_i += 1
+			if TypedVariant.as_int(seen_counts.get(sid, 0), 0) >= maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2)):
+				sid = 0
+		if sid <= 0 and force_i < force_tonnages.size():
 			sid = _roll_ship_id_for_tonnage(str(force_tonnages[force_i]), seen_counts)
 			force_i += 1
 		if sid <= 0:
@@ -79,6 +90,8 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 		slots.append({"ship_id": sid, "purchased": false})
 	_roll_equipment_slots()
 	_pity_record_refresh(slots)
+	_id_pity_record_ship_refresh(slots)
+	_id_pity_record_equip_refresh(equipment_slots)
 	shop_changed.emit()
 	if persist and _match and _match.has_method("request_autosave"):
 		_match.request_autosave()
@@ -86,9 +99,150 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 	return {"accepted": true}
 
 func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
-	return roll_ship_id_for_level(
+	return _roll_ship_id_with_id_pity(
 		_match.player_level, _match.battle_game_stage_count, seen_counts, _recent_hits, _shop_titan_race()
 	)
+
+func _roll_ship_id_with_id_pity(
+	level: int,
+	_battle_stage: int,
+	seen_counts: Dictionary,
+	recent_hits: Dictionary,
+	titan_race: String
+) -> int:
+	## Same as static roll, but apply ID pity weight ramp for unseen unlocked hulls.
+	var ids: Array = DataStore.ship_ids()
+	if ids.is_empty():
+		return 1
+	var max_same: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2))
+	var eligible_ids: Array = _eligible_ship_ids_for_level(level, ids)
+	if eligible_ids.is_empty():
+		return TypedVariant.as_int(ids[0], 1)
+	var cap_lv: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_min_level", 15), 15)
+	var cap_w: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_roll_weight_pct", 35), 35)
+	if level >= cap_lv and cap_w > 0 and _randi_range(0, 99) < cap_w:
+		var cap_costs: Array = TypedVariant.as_array(DataStore.economy.get("shop_capital_costs", [22, 24]))
+		var cap_pool: Array = []
+		for sid_v: Variant in eligible_ids:
+			var sid_i: int = TypedVariant.as_int(sid_v, 0)
+			if TypedVariant.as_int(seen_counts.get(sid_i, 0), 0) >= max_same:
+				continue
+			var sd: Dictionary = DataStore.get_ship(sid_i)
+			var c: int = TypedVariant.as_int(sd.get("cost", 0), 0)
+			var role: String = str(sd.get("capital_role", ""))
+			var group: String = str(sd.get("ship_group", ""))
+			if (
+				c in cap_costs
+				or role == "covert_cyno"
+				or TypedVariant.as_bool(sd.get("requires_cyno_entry", false), false)
+				or group == "capital_industrial"
+			):
+				cap_pool.append(sid_i)
+		if not cap_pool.is_empty():
+			return _pick_pseudo_random_id_pity(cap_pool, recent_hits, titan_race)
+	var odds_table: Array = TypedVariant.as_array(DataStore.economy.get("shop_odds_by_level", []))
+	var tier_costs: Array = TypedVariant.as_array(DataStore.economy.get("shop_tier_costs", [2, 3, 5, 7, 13]))
+	var idx: int = clampi(level, 1, 5) - 1
+	var weights: Array = [100, 0, 0, 0, 0]
+	if idx < odds_table.size() and typeof(odds_table[idx]) == TYPE_ARRAY:
+		@warning_ignore("unsafe_cast")
+		weights = odds_table[idx] as Array
+	for _attempt: int in range(48):
+		var tier_i: int = _roll_cost_tier(weights) - 1
+		var want_cost: int = 2
+		if tier_i >= 0 and tier_i < tier_costs.size():
+			want_cost = TypedVariant.as_int(tier_costs[tier_i], 2)
+		var pool: Array = []
+		for sid_v2: Variant in eligible_ids:
+			var sid_i2: int = TypedVariant.as_int(sid_v2, 0)
+			if TypedVariant.as_int(seen_counts.get(sid_i2, 0), 0) >= max_same:
+				continue
+			var ship_cost: int = TypedVariant.as_int(DataStore.get_ship(sid_i2).get("cost", 1), 1)
+			if ship_cost == want_cost or (want_cost == 7 and ship_cost == 8):
+				pool.append(sid_i2)
+		if not pool.is_empty():
+			return _pick_pseudo_random_id_pity(pool, recent_hits, titan_race)
+	for _attempt2: int in range(40):
+		var sid2: int = TypedVariant.as_int(eligible_ids[_randi_range(0, eligible_ids.size() - 1)], 0)
+		if TypedVariant.as_int(seen_counts.get(sid2, 0), 0) >= max_same:
+			continue
+		return sid2
+	return TypedVariant.as_int(eligible_ids[0], 0)
+
+func _id_pity_window() -> int:
+	return maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_id_pity_window", 30), 30))
+
+func _id_pity_ship_weight_mul(sid: int) -> float:
+	if TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false):
+		return 1.0
+	## Ramp weight for each refresh the id stays missing in this window.
+	return 1.0 + float(_id_pity_refresh_count)
+
+func _id_pity_equip_weight_mul(eid: String) -> float:
+	if TypedVariant.as_bool(_id_pity_seen_equips.get(eid, false), false):
+		return 1.0
+	return 1.0 + float(_id_pity_refresh_count)
+
+func _id_pity_force_ship_ids(slot_count: int) -> Array:
+	var window: int = _id_pity_window()
+	if _id_pity_refresh_count < window:
+		return []
+	var eligible: Array = _eligible_ship_ids_for_level(_match.player_level, DataStore.ship_ids())
+	var missing: Array = []
+	for sid_v: Variant in eligible:
+		var sid: int = TypedVariant.as_int(sid_v, 0)
+		if not TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false):
+			missing.append(sid)
+	if missing.is_empty():
+		return []
+	_shuffle_det(missing)
+	return missing.slice(0, mini(slot_count, missing.size()))
+
+func _id_pity_record_ship_refresh(shop_slots: Array) -> void:
+	var window: int = _id_pity_window()
+	if _id_pity_refresh_count >= window:
+		_id_pity_refresh_count = 0
+		_id_pity_seen_ships.clear()
+		_id_pity_seen_equips.clear()
+	for slot_v: Variant in shop_slots:
+		if typeof(slot_v) != TYPE_DICTIONARY:
+			continue
+		@warning_ignore("unsafe_cast")
+		var slot: Dictionary = slot_v as Dictionary
+		var sid: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
+		if sid > 0:
+			_id_pity_seen_ships[sid] = true
+	_id_pity_refresh_count += 1
+
+func _pick_pseudo_random_id_pity(pool: Array, recent_hits: Dictionary, titan_race: String = "") -> int:
+	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_pseudo_random_window", 3), 3))
+	var race_mul: float = TypedVariant.as_float(DataStore.economy.get("titan_shop_race_weight_mul", 1.1), 1.1)
+	var want_race: String = titan_race.strip_edges().to_lower()
+	var total: int = 0
+	var weighted: Array = []
+	for sid_v: Variant in pool:
+		var sid_i: int = TypedVariant.as_int(sid_v, 0)
+		var recent: int = TypedVariant.as_int(recent_hits.get(sid_i, 0), 0)
+		var weight: float = float(maxi(1, window + 1 - recent))
+		if want_race != "" and race_mul > 1.0 and _ship_race_key(sid_i) == want_race:
+			weight *= race_mul
+		weight *= _id_pity_ship_weight_mul(sid_i)
+		var w_i: int = maxi(1, roundi(weight * 100.0))
+		weighted.append({"ship_id": sid_i, "weight": w_i})
+		total += w_i
+	if total <= 0:
+		return TypedVariant.as_int(pool[_randi_range(0, pool.size() - 1)], 0)
+	var roll: int = _randi_range(0, total - 1)
+	var acc: int = 0
+	for entry_v: Variant in weighted:
+		if typeof(entry_v) != TYPE_DICTIONARY:
+			continue
+		@warning_ignore("unsafe_cast")
+		var entry: Dictionary = entry_v as Dictionary
+		acc += TypedVariant.as_int(entry.get("weight", 1), 1)
+		if roll < acc:
+			return TypedVariant.as_int(entry.get("ship_id", 0), 0)
+	return TypedVariant.as_int(pool[0], 0)
 
 func _roll_ship_id_for_tonnage(tonnage_key: String, seen_counts: Dictionary) -> int:
 	var ids: Array = DataStore.ship_ids()
@@ -103,7 +257,7 @@ func _roll_ship_id_for_tonnage(tonnage_key: String, seen_counts: Dictionary) -> 
 			pool.append(sid_i)
 	if pool.is_empty():
 		return 0
-	return _pick_pseudo_random(pool, _recent_hits, _shop_titan_race())
+	return _pick_pseudo_random_id_pity(pool, _recent_hits, _shop_titan_race())
 
 ## Local seat's titan race for shop race weight (MULTIPLAYER_PVP §2.1). Empty = no boost.
 func _shop_titan_race() -> String:
@@ -154,20 +308,12 @@ static func _unlocked_tonnage_keys(level: int) -> Array:
 	var cap_lv: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_min_level", 15), 15)
 	for key: Variant in candidates:
 		var key_s: String = str(key)
-		var need: int = 1
+		var need: int = TypedVariant.as_int(unlocks.get(key_s, 1), 1)
 		match key_s:
-			"frigate", "destroyer":
-				need = 1
-			"mining_barge":
-				need = 1
-			"industrial_command":
-				need = TypedVariant.as_int(unlocks.get("battleship", 10), 10)
-			"capital_industrial":
-				need = maxi(TypedVariant.as_int(unlocks.get("carrier", 15), 15), cap_lv)
-			"carrier", "force_auxiliary", "dreadnought":
-				need = maxi(TypedVariant.as_int(unlocks.get(key_s, 15), 15), cap_lv)
+			"capital_industrial", "carrier", "force_auxiliary", "dreadnought":
+				need = maxi(need, cap_lv)
 			_:
-				need = TypedVariant.as_int(unlocks.get(key_s, 1), 1)
+				pass
 		if level >= need:
 			keys.append(key_s)
 	return keys
@@ -254,15 +400,13 @@ static func _eligible_ship_ids_for_level(level: int, ids: Array) -> Array:
 		if not _shop_eligible(ship):
 			continue
 		var group: String = str(ship.get("ship_group", "frigate"))
-		## Mining unlocks: barge free; Orca mirrors battleship; Rorqual mirrors capitals.
+		## Group unlock from economy.json; capital_* also respect shop_capital_min_level.
 		var min_level: int = TypedVariant.as_int(unlocks.get(group, 1), 1)
 		match group:
-			"mining_barge":
-				min_level = 1
-			"industrial_command":
-				min_level = TypedVariant.as_int(unlocks.get("battleship", 10), 10)
-			"capital_industrial":
-				min_level = maxi(TypedVariant.as_int(unlocks.get("carrier", 15), 15), cap_lv)
+			"capital_industrial", "carrier", "force_auxiliary", "dreadnought":
+				min_level = maxi(min_level, cap_lv)
+			_:
+				pass
 		var ship_min: int = TypedVariant.as_int(ship.get("shop_min_level", 0), 0)
 		if ship_min > 0:
 			min_level = maxi(min_level, ship_min)
@@ -436,16 +580,78 @@ func _roll_equipment_slots() -> void:
 	var pool: Array = DataStore.function_module_shop_pool_ids_for_level(level)
 	var by_cat: Dictionary = _equipment_pool_by_category(pool)
 	var force_cats: Array = _equip_pity_force_categories(by_cat, count)
+	var force_ids: Array = _id_pity_force_equip_ids(pool, count)
 	var force_i: int = 0
+	var force_id_i: int = 0
 	for _i: int in range(count):
 		var pick: String = ""
-		if force_i < force_cats.size():
+		if force_id_i < force_ids.size():
+			pick = str(force_ids[force_id_i])
+			force_id_i += 1
+		if pick == "" and force_i < force_cats.size():
 			pick = _pick_equipment_from_category(str(force_cats[force_i]), by_cat)
 			force_i += 1
 		if pick == "":
-			pick = _pick_equipment_from_pool(pool)
+			pick = _pick_equipment_from_pool_id_pity(pool)
 		equipment_slots.append({"id": pick, "purchased": false})
 	_equip_pity_record_refresh(equipment_slots, by_cat)
+
+
+func _id_pity_force_equip_ids(pool: Array, slot_count: int) -> Array:
+	var window: int = _id_pity_window()
+	if _id_pity_refresh_count < window:
+		return []
+	var missing: Array = []
+	for id_v: Variant in pool:
+		var id_s: String = str(id_v)
+		if id_s == "":
+			continue
+		if not TypedVariant.as_bool(_id_pity_seen_equips.get(id_s, false), false):
+			missing.append(id_s)
+	if missing.is_empty():
+		return []
+	_shuffle_det(missing)
+	return missing.slice(0, mini(slot_count, missing.size()))
+
+
+func _id_pity_record_equip_refresh(slots_arr: Array) -> void:
+	for slot_v: Variant in slots_arr:
+		if typeof(slot_v) != TYPE_DICTIONARY:
+			continue
+		@warning_ignore("unsafe_cast")
+		var slot: Dictionary = slot_v as Dictionary
+		var eid: String = str(slot.get("id", "")).strip_edges()
+		if eid != "":
+			_id_pity_seen_equips[eid] = true
+
+
+func _pick_equipment_from_pool_id_pity(pool: Array) -> String:
+	if pool.is_empty():
+		return ""
+	var total: int = 0
+	var weighted: Array = []
+	for id_v: Variant in pool:
+		var id_s: String = str(id_v)
+		if id_s == "":
+			continue
+		var w: float = 1.0 * _id_pity_equip_weight_mul(id_s)
+		var w_i: int = maxi(1, roundi(w * 100.0))
+		weighted.append({"id": id_s, "weight": w_i})
+		total += w_i
+	if total <= 0:
+		return str(pool[_randi_range(0, pool.size() - 1)])
+	var roll: int = _randi_range(0, total - 1)
+	var acc: int = 0
+	for entry_v: Variant in weighted:
+		@warning_ignore("unsafe_cast")
+		var entry: Dictionary = entry_v as Dictionary
+		acc += TypedVariant.as_int(entry.get("weight", 1), 1)
+		if roll < acc:
+			return str(entry.get("id", ""))
+	if weighted.is_empty():
+		return ""
+	var first: Dictionary = TypedVariant.as_dict(weighted[0])
+	return str(first.get("id", ""))
 
 
 func _equipment_pool_by_category(pool: Array) -> Dictionary:

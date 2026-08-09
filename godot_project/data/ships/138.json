@@ -126,5 +126,7 @@
   ],
   "type_id": 28352.0,
   "unmanned_kind": "",
-  "weapon_fx": "mining"
+  "weapon_fx": "mining",
+  "capacitor_capacity": 67500.0,
+  "capacitor_recharge_s": 4500.0
 }

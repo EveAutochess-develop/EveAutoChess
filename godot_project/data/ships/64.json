@@ -123,5 +123,6 @@
   "is_attack_battlecruiser": true,
   "echoes_item_id": 10401000002,
   "attack_weapon_slots": 8,
-  "sof_hull": "gbc3_t1"
+  "sof_hull": "gbc3_t1",
+  "shop_min_level": 9
 }

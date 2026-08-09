@@ -143,19 +143,37 @@ static func save_history(rows: Array) -> void:
 
 
 static func save_match_report(report: Dictionary) -> void:
+	## Upsert by match_id (MULTIPLAYER_PVP §7.0b): same id replaces; empty/missing id appends.
 	var path: String = "user://save/nullsec_history.json"
 	var prev: Array = []
 	if FileAccess.file_exists(path):
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 		if typeof(parsed) == TYPE_ARRAY:
 			prev = parsed
-	prev.append(report)
+	var mid: String = str(report.get("match_id", "")).strip_edges()
+	var replaced: bool = false
+	if mid != "":
+		for i: int in range(prev.size()):
+			if typeof(prev[i]) != TYPE_DICTIONARY:
+				continue
+			var existing: Dictionary = prev[i]
+			if str(existing.get("match_id", "")).strip_edges() == mid:
+				prev[i] = report
+				replaced = true
+				break
+	if not replaced:
+		prev.append(report)
 	var f: FileAccess = FileAccess.open(path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(prev, "\t"))
 	NetSessionDebug.log_event(
 		"net.match_report",
-		"id=%s players=%d" % [str(report.get("match_id", "")), TypedVariant.as_array(report.get("players", [])).size()]
+		"id=%s players=%d upsert=%d provisional=%d" % [
+			mid,
+			TypedVariant.as_array(report.get("players", [])).size(),
+			1 if replaced else 0,
+			1 if TypedVariant.as_bool(report.get("provisional", false), false) else 0,
+		]
 	)
 
 

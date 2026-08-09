@@ -46,7 +46,7 @@
         "armor": 0,
         "structure": 0
       },
-      "tracking": 0.45,
+      "tracking": 1.35,
       "optimal": 2.5,
       "falloff": 1.0,
       "optimal_sig_radius": 25.0,

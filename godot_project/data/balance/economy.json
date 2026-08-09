@@ -31,15 +31,20 @@
   "shop_max_same_ship_per_refresh": 2,
   "shop_pseudo_random_window": 3,
   "titan_shop_race_weight_mul": 1.1,
+  "loss_comp_rate_start": 0.10,
+  "loss_comp_rate_step": 0.20,
+  "loss_comp_rate_cap": 0.70,
   "shop_unlock_level_by_group": {
+    "frigate": 1,
+    "destroyer": 2,
     "cruiser": 5,
-    "battlecruiser": 5,
-    "battleship": 10,
+    "battlecruiser": 7,
+    "battleship": 13,
     "carrier": 15,
     "dreadnought": 15,
     "force_auxiliary": 15,
-    "mining_barge": 1,
-    "industrial_command": 10,
+    "mining_barge": 2,
+    "industrial_command": 8,
     "capital_industrial": 15
   },
   "shop_capital_min_level": 15,
@@ -49,6 +54,7 @@
   ],
   "shop_capital_roll_weight_pct": 12,
   "shop_tonnage_pity_window": 5,
+  "shop_id_pity_window": 30,
   "shop_tier_costs": [2, 3, 5, 7, 13],
   "shop_odds_by_level": [
     [

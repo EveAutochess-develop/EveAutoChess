@@ -64,7 +64,8 @@ static func set_right_strip(c: Control, width_frac: float, top_frac: float = 0.0
 	set_rect_frac(c, 1.0 - right_margin - width_frac, top_frac, 1.0 - right_margin, 1.0 - bottom_frac)
 
 static func set_bottom_strip(c: Control, height_frac: float, left_frac: float = 0.01, right_frac: float = 0.01, bottom_margin: float = 0.01) -> void:
-	var hi: float = 0.44 if is_ultrawide(c) else 0.32
+	## Allow content+collapse (panel) up to ~0.48 on ultrawide; content alone still ~0.40.
+	var hi: float = 0.50 if is_ultrawide(c) else 0.38
 	height_frac = clampf(height_frac, 0.08, hi)
 	set_rect_frac(c, left_frac, 1.0 - bottom_margin - height_frac, 1.0 - right_frac, 1.0 - bottom_margin)
 
@@ -91,11 +92,27 @@ static func is_ultrawide(from: Node = null) -> bool:
 	return s.y > 1.0 and (s.x / s.y) >= 2.0
 
 static func bottom_shop_height_frac(from: Node = null) -> float:
+	## UI_AND_SHELL §2.1 — height of ShopContent only (screen bottom → collapse button).
+	## Meta:ships = 1:3 inside this band. Do NOT jack ultrawide to 0.40 — that broke the
+	## ratio (D-EAC-49 floor superseded by stretch + scaled Meta; mild floor only).
 	var base: float = 0.22 if is_mobile() else 0.26
 	if is_ultrawide(from):
-		## Raise floor so Meta / refresh / lock stay in the safe area on ultrawide.
-		return maxf(base, 0.36 if is_mobile() else 0.40)
+		return maxf(base, 0.26 if is_mobile() else 0.28)
 	return base
+
+
+## Collapse button strip thickness as viewport fraction (not part of bottom-bar height).
+static func bottom_collapse_btn_frac(from: Node = null) -> float:
+	var s: Vector2 = viewport_size(from)
+	var btn_px: float = 28.0 if is_mobile() else 26.0
+	if s.y <= 1.0:
+		return collapse_strip_frac()
+	return clampf(btn_px / s.y, 0.018, 0.045)
+
+
+## Expanded Shop panel = bottom-bar content + collapse button on top.
+static func bottom_shop_panel_frac(from: Node = null) -> float:
+	return bottom_shop_height_frac(from) + bottom_collapse_btn_frac(from)
 
 ## Collapsed strip thickness (fraction of viewport).
 static func collapse_strip_frac() -> float:
@@ -106,7 +123,8 @@ static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, colla
 	var top: float = top_bar_height_frac() + 0.01
 	var left: float = collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
 	var right: float = (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
-	var bottom: float = (1.0 - collapse_strip_frac()) if collapse_bottom else (1.0 - bottom_shop_height_frac(from) - 0.012)
+	var bottom_band: float = collapse_strip_frac() if collapse_bottom else bottom_shop_panel_frac(from)
+	var bottom: float = 1.0 - bottom_band - 0.012
 	return Rect2(left, top, maxf(0.2, right - left), maxf(0.2, bottom - top))
 
 ## Deprecated name kept for callers; prefer left_col_width_frac.
