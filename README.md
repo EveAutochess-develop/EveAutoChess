@@ -10,6 +10,11 @@ Godot 4.7.1 工程：`godot_project/`
 
 Boot → 热更检查；可点「跳过热更」用内置 content。主菜单：对战 / 无尽。
 
+
+要体验游戏看右边releases——————————》
+
+
+
 ## 结构
 
 - `scripts/admin` · AdminBus  
