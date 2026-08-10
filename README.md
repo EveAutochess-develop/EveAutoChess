@@ -1,3 +1,5 @@
+要体验游戏看右边releases——————————》
+
 # EveAutoChess · 开发仓
 
 Godot 4.7.1 工程：`godot_project/`
