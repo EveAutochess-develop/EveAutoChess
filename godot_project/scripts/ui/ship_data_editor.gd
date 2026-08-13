@@ -75,6 +75,12 @@ var _dirty_modules: bool = false
 var _dirty_function_modules: bool = false
 var _working_titan_pvp: Dictionary = {}
 var _dirty_titan_pvp: bool = false
+var _working_combat: Dictionary = {}
+var _dirty_combat: bool = false
+var _working_economy: Dictionary = {}
+var _dirty_economy: bool = false
+var _hp_drag_sid: int = -1
+var _hp_drag_mode: String = "" ## "total" | "shield" | "armor" | "structure"
 var _fn_ids: Array[String] = []
 var _filtered_fn: Array[String] = []
 var _current_fn_id: String = ""
@@ -134,8 +140,18 @@ func open(pause_game: bool = true) -> void:
 	_dirty_function_modules = false
 	_working_titan_pvp = DataStore.titan_pvp.duplicate(true) if "titan_pvp" in DataStore else {}
 	_dirty_titan_pvp = false
+	_working_combat = DataStore.combat.duplicate(true) if "combat" in DataStore else {}
+	_dirty_combat = false
+	_working_economy = DataStore.economy.duplicate(true) if "economy" in DataStore else {}
+	_dirty_economy = false
 	_current_fn_id = ""
+	## Above main-menu L1 column (z=40) / history tertiary (z=50) — UI_AND_SHELL §2.5.1.
+	z_index = 80
+	z_as_relative = false
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = true
+	if get_parent() != null:
+		get_parent().move_child(self, -1)
 	if pause_game and not _pause_owner:
 		_was_paused = get_tree().paused
 		get_tree().paused = true
@@ -693,8 +709,31 @@ func _build_match_control_fields() -> void:
 	_grid.add_child(sep)
 	for k2: String in loss_keys:
 		_add_match_control_row(k2, str(labels.get(k2, k2)))
+	if _working_combat.is_empty() and DataStore != null and "combat" in DataStore:
+		_working_combat = DataStore.combat.duplicate(true)
+	if not _working_combat.has("speed_meters_per_cell"):
+		_working_combat["speed_meters_per_cell"] = 750
+	if not _working_combat.has("meters_per_cell"):
+		_working_combat["meters_per_cell"] = 2000
+	var sep2: Label = Label.new()
+	sep2.text = "—— 格映射（combat.json）——"
+	UiAssets.apply_label_font(sep2, true, UiLayout.font_size(14, self))
+	sep2.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
+	_grid.add_child(sep2)
+	_add_combat_control_row("speed_meters_per_cell", "一格在计算速度时等于（m）")
+	_add_combat_control_row("meters_per_cell", "一格在计算射程时等于（m）")
+	if _working_economy.is_empty() and DataStore != null and "economy" in DataStore:
+		_working_economy = DataStore.economy.duplicate(true)
+	if not _working_economy.has("ship_scanner_cost"):
+		_working_economy["ship_scanner_cost"] = 50
+	var sep3: Label = Label.new()
+	sep3.text = "—— 经济（economy.json）——"
+	UiAssets.apply_label_font(sep3, true, UiLayout.font_size(14, self))
+	sep3.add_theme_color_override("font_color", Color(0.75, 0.85, 0.95))
+	_grid.add_child(sep3)
+	_add_economy_control_row("ship_scanner_cost", "舰船扫描器费用")
 	if _status:
-		_status.text = "改完点保存并退出 · 写入 balance/titan_pvp.json · 新开对局生效"
+		_status.text = "改完点保存并退出 · titan_pvp + combat + economy"
 
 
 func _match_control_parse_value(key: String, text: String) -> Variant:
@@ -721,6 +760,50 @@ func _add_match_control_row(key: String, label_text: String) -> void:
 	edit.focus_exited.connect(func() -> void:
 		_working_titan_pvp[key_cap] = _match_control_parse_value(key_cap, edit.text)
 		_dirty_titan_pvp = true
+	)
+	row.add_child(edit)
+
+
+func _add_combat_control_row(key: String, label_text: String) -> void:
+	var row: HBoxContainer = HBoxContainer.new()
+	_grid.add_child(row)
+	var lab: Label = Label.new()
+	lab.text = label_text
+	lab.custom_minimum_size = Vector2(280, 0)
+	row.add_child(lab)
+	var edit: LineEdit = LineEdit.new()
+	edit.text = str(_working_combat.get(key, 0))
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var key_cap: String = key
+	edit.text_submitted.connect(func(t: String) -> void:
+		_working_combat[key_cap] = float(t)
+		_dirty_combat = true
+	)
+	edit.focus_exited.connect(func() -> void:
+		_working_combat[key_cap] = float(edit.text)
+		_dirty_combat = true
+	)
+	row.add_child(edit)
+
+
+func _add_economy_control_row(key: String, label_text: String) -> void:
+	var row: HBoxContainer = HBoxContainer.new()
+	_grid.add_child(row)
+	var lab: Label = Label.new()
+	lab.text = label_text
+	lab.custom_minimum_size = Vector2(280, 0)
+	row.add_child(lab)
+	var edit: LineEdit = LineEdit.new()
+	edit.text = str(_working_economy.get(key, 0))
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var key_cap: String = key
+	edit.text_submitted.connect(func(t: String) -> void:
+		_working_economy[key_cap] = int(t)
+		_dirty_economy = true
+	)
+	edit.focus_exited.connect(func() -> void:
+		_working_economy[key_cap] = int(edit.text)
+		_dirty_economy = true
 	)
 	row.add_child(edit)
 
@@ -1088,6 +1171,8 @@ func _build_chart_row(list: VBoxContainer, sid: int, capital: bool) -> void:
 			bar_space.add_child(layer)
 			layers[pair[0]] = layer
 		entry["layers"] = layers
+		bar_space.mouse_filter = Control.MOUSE_FILTER_STOP
+		bar_space.gui_input.connect(func(ev: InputEvent) -> void: _on_hp_bar_gui_input(ev, sid, bar_space, capital))
 	_chart_entries.append(entry)
 
 
@@ -1162,6 +1247,80 @@ func _adjust_chart_hp(sid: int, field: String, delta_1star: float) -> void:
 		ship["stars"] = stars
 		_dirty_ships[sid] = true
 		_refresh_chart_values()
+
+
+func _on_hp_bar_gui_input(ev: InputEvent, sid: int, bar_space: Control, _capital: bool) -> void:
+	if _chart_kind != Tab.HEALTH or bar_space == null:
+		return
+	if ev is InputEventMouseButton:
+		var mb: InputEventMouseButton = ev as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_hp_drag_sid = sid
+				var local_x: float = bar_space.get_local_mouse_position().x
+				var w: float = maxf(bar_space.size.x, 1.0)
+				var frac: float = clampf(local_x / w, 0.0, 1.0)
+				## Edge drag (right 12%) scales total; else set layer by thirds of bar.
+				if frac >= 0.88:
+					_hp_drag_mode = "total"
+				elif frac < 0.33:
+					_hp_drag_mode = "shield"
+				elif frac < 0.66:
+					_hp_drag_mode = "armor"
+				else:
+					_hp_drag_mode = "structure"
+				_apply_hp_bar_drag(sid, bar_space)
+			else:
+				_hp_drag_sid = -1
+				_hp_drag_mode = ""
+	elif ev is InputEventMouseMotion and _hp_drag_sid == sid and _hp_drag_mode != "":
+		_apply_hp_bar_drag(sid, bar_space)
+
+
+func _apply_hp_bar_drag(sid: int, bar_space: Control) -> void:
+	var ship: Dictionary = _chart_ship(sid)
+	var stars: Array = ship.get("stars", [])
+	if stars.is_empty() or not (stars[0] is Dictionary):
+		return
+	var star0: Dictionary = stars[0]
+	var sh: float = maxf(0.0, TypedVariant.as_float(star0.get("shield_hp", 0.0), 0.0))
+	var ar: float = maxf(0.0, TypedVariant.as_float(star0.get("armor_hp", 0.0), 0.0))
+	var st: float = maxf(0.0, TypedVariant.as_float(star0.get("structure_hp", 0.0), 0.0))
+	var total: float = maxf(1.0, sh + ar + st)
+	## Axis scale from chart refresh — approximate using current total as full bar.
+	var local_x: float = bar_space.get_local_mouse_position().x
+	var w: float = maxf(bar_space.size.x, 1.0)
+	var frac: float = clampf(local_x / w, 0.0, 1.0)
+	if _hp_drag_mode == "total":
+		var new_total: float = maxf(0.0, total * frac / maxf(sh + ar + st, 0.001) * total)
+		## Interpret frac as proportion of a soft max = current*1.5 when dragging edge.
+		new_total = maxf(0.0, total * (0.25 + frac * 1.5))
+		var hp_scale: float = new_total / total
+		_set_star0_hp_scaled(sid, sh * hp_scale, ar * hp_scale, st * hp_scale)
+	elif _hp_drag_mode == "shield":
+		_set_star0_hp_scaled(sid, maxf(0.0, total * frac), ar, st)
+	elif _hp_drag_mode == "armor":
+		_set_star0_hp_scaled(sid, sh, maxf(0.0, total * frac), st)
+	else:
+		_set_star0_hp_scaled(sid, sh, ar, maxf(0.0, total * frac))
+
+
+func _set_star0_hp_scaled(sid: int, sh: float, ar: float, st: float) -> void:
+	var ship: Dictionary = _chart_ship(sid)
+	var stars: Array = ship.get("stars", [])
+	if stars.is_empty():
+		return
+	for i: int in range(stars.size()):
+		if not (stars[i] is Dictionary):
+			continue
+		var star: Dictionary = stars[i]
+		var mul: float = float(i + 1)
+		star["shield_hp"] = maxf(0.0, sh * mul)
+		star["armor_hp"] = maxf(0.0, ar * mul)
+		star["structure_hp"] = maxf(0.0, st * mul)
+	ship["stars"] = stars
+	_dirty_ships[sid] = true
+	_refresh_chart_values()
 
 
 ## Unmanned chart arrows: adjust target DPS/HPS; write-back scales star-1 DPH / repair.
@@ -1322,6 +1481,9 @@ func _drone_spawn_policy(ship: Dictionary) -> Dictionary:
 	var race: String = str(ship.get("race", "amarr")).to_lower()
 	var group: String = str(ship.get("ship_group", "")).to_lower()
 	var sid: int = TypedVariant.as_int(ship.get("id", 0), 0)
+	## COMBAT §14C: logistic cruiser / BC — no combat drones (FAX handled above).
+	if TypedVariant.as_bool(ship.get("is_logistic", false), false) and group in ["cruiser", "battlecruiser"]:
+		return {"count": 0, "drone_id": 0}
 	if _DRONE_COUNT_EXCEPTIONS.has(sid):
 		var cnt: int = TypedVariant.as_int(_DRONE_COUNT_EXCEPTIONS[sid], 0)
 		if group == "battlecruiser":
@@ -1858,6 +2020,32 @@ func _save_all() -> Array:
 		else:
 			_status.text = "对局控制写入失败 · balance/titan_pvp.json"
 			return changed
+	if _dirty_combat:
+		if not DataStore.has_method("save_balance_file"):
+			_status.text = "combat.json 无法保存：壳缺少 save_balance_file"
+			return changed
+		var focus2: Control = get_viewport().gui_get_focus_owner() as Control
+		if focus2 != null and focus2.has_signal("text_submitted"):
+			focus2.release_focus()
+		if DataStore.save_balance_file("combat.json", _working_combat):
+			equip_dirty = true
+			_dirty_combat = false
+		else:
+			_status.text = "combat.json 写入失败"
+			return changed
+	if _dirty_economy:
+		if not DataStore.has_method("save_balance_file"):
+			_status.text = "economy.json 无法保存：壳缺少 save_balance_file"
+			return changed
+		var focus3: Control = get_viewport().gui_get_focus_owner() as Control
+		if focus3 != null and focus3.has_signal("text_submitted"):
+			focus3.release_focus()
+		if DataStore.save_balance_file("economy.json", _working_economy):
+			equip_dirty = true
+			_dirty_economy = false
+		else:
+			_status.text = "economy.json 写入失败"
+			return changed
 	_last_equipment_saved = equip_dirty
 	if not changed.is_empty() or equip_dirty:
 		DataStore.reload_all()
@@ -1865,6 +2053,8 @@ func _save_all() -> Array:
 		_working_modules = DataStore.modules.duplicate(true)
 		_working_function_modules = DataStore.function_modules.duplicate(true)
 		_working_titan_pvp = DataStore.titan_pvp.duplicate(true) if "titan_pvp" in DataStore else _working_titan_pvp
+		_working_combat = DataStore.combat.duplicate(true) if "combat" in DataStore else _working_combat
+		_working_economy = DataStore.economy.duplicate(true) if "economy" in DataStore else _working_economy
 		_reload_ids()
 	return changed
 

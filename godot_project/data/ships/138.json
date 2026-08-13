@@ -32,7 +32,6 @@
   "name_en": "Rorqual",
   "portrait": "res://assets/ui/ship_portraits_capital/rorqual.png",
   "race": "ore",
-  "requires_cyno_entry": true,
   "scan_resolution": 75.0,
   "sensor_strength": 115.0,
   "ship_group": "capital_industrial",
@@ -128,5 +127,7 @@
   "unmanned_kind": "",
   "weapon_fx": "mining",
   "capacitor_capacity": 67500.0,
-  "capacitor_recharge_s": 4500.0
+  "capacitor_recharge_s": 4500.0,
+  "faction_ship": true,
+  "requires_cyno_entry": false
 }

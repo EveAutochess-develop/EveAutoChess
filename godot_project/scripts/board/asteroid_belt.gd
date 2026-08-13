@@ -168,7 +168,7 @@ func load_done() -> int:
 
 ## UI_AND_SHELL / MINING §1: hide rock meshes + belt light in no-model perf mode.
 func apply_no_model_visibility() -> void:
-	var nomodel: bool = GameSession != null and GameSession.no_model_perf_mode
+	var nomodel: bool = (PlayerSettings.instance() as PlayerSettings) != null and (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode
 	for child: Node in get_children():
 		if not (child is Node3D):
 			continue
@@ -343,7 +343,7 @@ func _spawn_one_from_spec(spec: Dictionary) -> void:
 	root.set_meta("asteroid_id", id)
 	root.set_meta("mesh_path", mesh_path)
 	add_child(root)
-	var skip_mesh: bool = GameSession != null and GameSession.no_model_perf_mode
+	var skip_mesh: bool = (PlayerSettings.instance() as PlayerSettings) != null and (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode
 	var packed: PackedScene = null
 	if not skip_mesh and mesh_path != "" and ResourceLoader.exists(mesh_path):
 		packed = load(mesh_path) as PackedScene

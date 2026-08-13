@@ -8,7 +8,7 @@ script = ExtResource("1")
 [node name="World" type="Node3D" parent="."]
 
 [node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.544639, 0.838671, 0, -0.838671, 0.544639, -2, 21.464, 18.067)
+transform = Transform3D(1, 0, 0, 0, 0.544639, 0.838671, 0, -0.838671, 0.544639, -0.7521, 35.3927, 29.2707)
 current = true
 fov = 47.0
 
@@ -116,17 +116,15 @@ mouse_filter = 0
 
 [node name="LeftInner" type="VBoxContainer" parent="HUD/Root/LeftCol"]
 layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="CollapseLeftBtn" type="Button" parent="HUD/Root/LeftCol/LeftInner"]
-custom_minimum_size = Vector2(0, 28)
-layout_mode = 2
-text = "◀"
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 0
 
 [node name="LeftContent" type="VBoxContainer" parent="HUD/Root/LeftCol/LeftInner"]
 layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 8
+theme_override_constants/separation = 4
 
 [node name="BonusScroll" type="ScrollContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
 layout_mode = 2
@@ -147,7 +145,7 @@ text = "羁绊"
 [node name="ReserveGrid" type="GridContainer" parent="HUD/Root/LeftCol/LeftInner/LeftContent"]
 layout_mode = 2
 size_flags_vertical = 8
-columns = 4
+columns = 3
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 
@@ -257,26 +255,61 @@ mouse_filter = 0
 
 [node name="ShopCol" type="VBoxContainer" parent="HUD/Root/Shop"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 0
 
 [node name="CollapseBottomBtn" type="Button" parent="HUD/Root/Shop/ShopCol"]
-custom_minimum_size = Vector2(0, 24)
+visible = false
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
+mouse_filter = 2
 text = "▼"
 
 [node name="ShopContent" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol"]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/separation = 6
+theme_override_constants/separation = 0
+alignment = 2
+
+[node name="BottomCluster" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent"]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 8
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="GoldPop" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/BottomCluster"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="GoldBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/BottomCluster/GoldPop"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Gold" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/BottomCluster/GoldPop/GoldBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "0"
+
+[node name="PopBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/BottomCluster/GoldPop"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Pop" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/BottomCluster/GoldPop/PopBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "0/0"
 
 [node name="MetaRow" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent"]
+visible = false
 layout_mode = 2
-size_flags_vertical = 3
-size_flags_stretch_ratio = 1.0
+size_flags_vertical = 0
 theme_override_constants/separation = 12
 alignment = 1
 
 [node name="LeftCtrl" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow"]
+visible = false
 custom_minimum_size = Vector2(560, 0)
 layout_mode = 2
 size_flags_vertical = 4
@@ -335,6 +368,7 @@ layout_mode = 2
 text = ""
 
 [node name="MetaMid" type="VBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow"]
+visible = false
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 0
@@ -344,24 +378,6 @@ layout_mode = 2
 size_flags_vertical = 4
 theme_override_constants/separation = 24
 alignment = 1
-
-[node name="PopBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="Pop" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/PopBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 26
-text = "0/0"
-
-[node name="GoldBox" type="HBoxContainer" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="Gold" type="Label" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/GoldBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 32
-text = "0"
 
 [node name="LockBtn" type="Button" parent="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow"]
 visible = false
@@ -409,6 +425,5 @@ text = "notice"
 [connection signal="pressed" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/ExpBtn" to="." method="_on_exp_pressed"]
 [connection signal="toggled" from="HUD/Root/Shop/ShopCol/ShopContent/MetaRow/MetaMid/StatsRow/LockBtn" to="." method="_on_lock_toggled"]
 [connection signal="pressed" from="HUD/Root/RoundBar/RoundInner/Placement/SkipBtn" to="." method="_on_skip_pressed"]
-[connection signal="pressed" from="HUD/Root/LeftCol/LeftInner/CollapseLeftBtn" to="." method="_on_collapse_left"]
 [connection signal="pressed" from="HUD/Root/RightCol/RightInner/CollapseRightBtn" to="." method="_on_collapse_right"]
 [connection signal="pressed" from="HUD/Root/Shop/ShopCol/CollapseBottomBtn" to="." method="_on_collapse_bottom"]

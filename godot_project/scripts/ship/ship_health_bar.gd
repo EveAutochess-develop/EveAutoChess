@@ -1,5 +1,5 @@
 extends Node3D
-## Extra FX (trail, pulse, green) off when GameSession.no_model_perf_mode.
+## Extra FX (trail, pulse, green) off when (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode.
 ## Local narrowers: this script is preloaded by ShipUnit before global class_name may resolve.
 
 static func __as_bool(v: Variant, default_val: bool = false) -> bool:
@@ -147,19 +147,36 @@ var _overlay_tag: Sprite3D
 var _overlay_key: String = ""
 ## Ring layout baked for enemy (cap left) vs ally (cap right). Rebuilt if team/half changes.
 var _ring_enemy_mirrored: bool = false
-
+## Star outline around HP badge/ring (UI_AND_SHELL / plan K).
+var _star_border: MeshInstance3D
+var _star_border_mat: StandardMaterial3D
+var _star_border_star: int = 0
+## Main-menu gold palette (menu_parallelogram_button).
+const STAR2_SILVER: Color = Color(0.78, 0.82, 0.88, 0.85)
+const STAR3_MID_GOLD: Color = Color(0.58, 0.44, 0.16, 0.95)
+const STAR3_DARK_GOLD: Color = Color(0.22, 0.14, 0.04, 0.95)
+const STAR3_PLATINUM: Color = Color(0.96, 0.94, 0.88, 0.95)
+## ≈3px / ≈4px at badge pixel_size scale.
+const STAR2_OUTLINE_WU: float = BADGE_PIXEL_SIZE * 3.0
+const STAR3_OUTLINE_WU: float = BADGE_PIXEL_SIZE * 4.0
+## Was 1.35s; UI_AND_SHELL §2.3 — 1/20 speed for 3★ gold flow.
+const STAR3_CYCLE_S: float = 27.0
+## Ring star outline skips the same bottom 90° empty as HP/cap (ally −135°→−45°).
+const STAR_BORDER_A0: float = deg_to_rad(-45.0)
+const STAR_BORDER_A1: float = deg_to_rad(225.0)
 
 static func style_is_bars() -> bool:
-	if GameSession == null:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps == null:
 		return false
-	return str(GameSession.get("health_bar_style")) == "bars"
+	return ps.health_bar_style == "bars"
 
 
 static func extra_fx_enabled() -> bool:
-	if GameSession == null:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps == null:
 		return true
-	## Direct typed field ? avoids class_name / preload static-call analyzer issues.
-	return not GameSession.no_model_perf_mode
+	return not ps.no_model_perf_mode
 
 
 func setup(ship: Node3D) -> void:
@@ -221,6 +238,9 @@ func _build() -> void:
 	_overlay_bg = null
 	_overlay_tag = null
 	_overlay_key = ""
+	_star_border = null
+	_star_border_mat = null
+	_star_border_star = 0
 	_reset_layer_state()
 	_style_bars = style_is_bars()
 	if _style_bars:
@@ -244,24 +264,27 @@ func _build() -> void:
 		_tonnage_icon.render_priority = 20
 		_tonnage_icon.position = Vector3(0, badge_y, 0.04)
 		add_child(_tonnage_icon)
-		return
-	_tonnage_label = Label3D.new()
-	_tonnage_label.text = _tonnage_text()
-	var f: Font = UiAssets.display_font()
-	if f:
-		_tonnage_label.font = f
-	_tonnage_label.font_size = 216
-	_tonnage_label.outline_size = 30
-	_tonnage_label.outline_modulate = Color(0, 0, 0, 0.9)
-	_tonnage_label.modulate = _tonnage_color()
-	_tonnage_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_tonnage_label.pixel_size = BADGE_PIXEL_SIZE
-	_tonnage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tonnage_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_tonnage_label.position = Vector3(0, badge_y, 0.04)
-	_tonnage_label.no_depth_test = true
-	_tonnage_label.render_priority = 20
-	add_child(_tonnage_label)
+	else:
+		_tonnage_label = Label3D.new()
+		_tonnage_label.text = _tonnage_text()
+		var f: Font = UiAssets.display_font()
+		if f:
+			_tonnage_label.font = f
+		_tonnage_label.font_size = 216
+		_tonnage_label.outline_size = 30
+		_tonnage_label.outline_modulate = Color(0, 0, 0, 0.9)
+		_tonnage_label.modulate = _tonnage_color()
+		_tonnage_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_tonnage_label.pixel_size = BADGE_PIXEL_SIZE
+		_tonnage_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_tonnage_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_tonnage_label.position = Vector3(0, badge_y, 0.04)
+		_tonnage_label.no_depth_test = true
+		_tonnage_label.render_priority = 20
+		add_child(_tonnage_label)
+	_rebuild_star_border()
+	## Rebuild (ring mirror / style) used to leave FitSlot icons hidden; _process never re-applied them.
+	_refresh_fit_strip()
 
 
 func _layer_radii(idx: int) -> Vector2:
@@ -506,6 +529,8 @@ func _make_fit_icon_mesh(side: float) -> MeshInstance3D:
 	quad.size = _fit_icon_quad_size(side)
 	mi.mesh = quad
 	mi.position = Vector3(0, 0, 0.02)
+	## Parent look_at(cam) aims local -Z at the camera; QuadMesh faces +Z by default.
+	mi.rotation_degrees = Vector3(0.0, 180.0, 0.0)
 	mi.scale = Vector3.ONE
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.material_override = _make_fit_tex_mat(14)
@@ -870,6 +895,81 @@ func refresh() -> void:
 	if _tonnage_label:
 		_tonnage_label.text = _tonnage_text()
 		_tonnage_label.modulate = _tonnage_color()
+	var st: int = _ship_star()
+	if st != _star_border_star:
+		_rebuild_star_border()
+	else:
+		_tick_star_border(0.0)
+
+
+func _ship_star() -> int:
+	if _ship == null or not is_instance_valid(_ship):
+		return 1
+	return clampi(__as_int(_ship.get("star"), 1), 1, 3)
+
+
+func _rebuild_star_border() -> void:
+	if _star_border != null and is_instance_valid(_star_border):
+		_star_border.queue_free()
+	_star_border = null
+	_star_border_mat = null
+	_star_border_star = _ship_star()
+	if _star_border_star < 2:
+		return
+	var badge_y: float = _badge_y()
+	var thick: float = STAR3_OUTLINE_WU if _star_border_star >= 3 else STAR2_OUTLINE_WU
+	if _style_bars:
+		var total_h: float = float(BAR_COUNT) * BAR_H + float(BAR_COUNT - 1) * BAR_GAP
+		var r0: float = BAR_W * 0.5
+		var r1: float = BAR_W * 0.5 + thick
+		_star_border = _make_annulus_sector(r0, r1, 0.0, TAU, STAR2_SILVER, 48, 18)
+		_star_border.position = Vector3(0, 0, -0.01)
+		var sy: float = maxf(total_h / maxf(BAR_W, 0.01), 0.35)
+		_star_border.scale = Vector3(1.0, sy, 1.0)
+	else:
+		var r_mid: float = RING_OUTER + thick * 0.55
+		## Keep bottom 90° empty (same gap as HP/cap rings).
+		_star_border = _make_annulus_sector(
+			r_mid - thick * 0.5, r_mid + thick * 0.5, STAR_BORDER_A0, STAR_BORDER_A1, STAR2_SILVER, 40, 18
+		)
+		_star_border.position = Vector3(0, badge_y, -0.008)
+	_star_border.name = "StarBorder"
+	_star_border_mat = _star_border.material_override as StandardMaterial3D
+	add_child(_star_border)
+	_tick_star_border(0.0)
+
+
+func _tick_star_border(_delta: float) -> void:
+	if _star_border == null or not is_instance_valid(_star_border):
+		return
+	if _star_border_mat == null:
+		_star_border_mat = _star_border.material_override as StandardMaterial3D
+	if _star_border_mat == null:
+		return
+	if _star_border_star == 2:
+		var pulse: float = 0.72 + 0.18 * sin(Time.get_ticks_msec() * 0.001 * TAU / 2.4)
+		var c: Color = STAR2_SILVER
+		c.a = STAR2_SILVER.a * pulse
+		_star_border_mat.albedo_color = c
+		return
+	if _star_border_star >= 3:
+		var t: float = fmod(Time.get_ticks_msec() * 0.001, STAR3_CYCLE_S) / STAR3_CYCLE_S
+		var c0: Color
+		var c1: Color
+		var u: float
+		if t < 0.333:
+			c0 = STAR3_MID_GOLD
+			c1 = STAR3_DARK_GOLD
+			u = t / 0.333
+		elif t < 0.666:
+			c0 = STAR3_DARK_GOLD
+			c1 = STAR3_PLATINUM
+			u = (t - 0.333) / 0.333
+		else:
+			c0 = STAR3_PLATINUM
+			c1 = STAR3_MID_GOLD
+			u = (t - 0.666) / 0.334
+		_star_border_mat.albedo_color = c0.lerp(c1, clampf(u, 0.0, 1.0))
 
 
 func _sync_layer_values() -> void:
@@ -1121,6 +1221,9 @@ func _apply_visuals() -> void:
 	if not _style_bars and _ring_use_enemy_mirror() != _ring_enemy_mirrored:
 		_build()
 		return
+	if not health_bars_shown():
+		_hide_hp_geometry()
+		return
 	var fx: bool = extra_fx_enabled()
 	var pulse: float = 1.0
 	if fx:
@@ -1133,6 +1236,44 @@ func _apply_visuals() -> void:
 		_apply_bar_visuals(fx, pulse)
 	else:
 		_apply_ring_visuals(fx, pulse)
+
+
+static func health_bars_shown() -> bool:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps == null:
+		return true
+	return ps.health_bar_visible
+
+
+func _hide_hp_geometry() -> void:
+	## Keep tonnage / overlays / fit; only hide HP+cap fills and FX meshes.
+	for mi: MeshInstance3D in _sector_fills:
+		if mi:
+			mi.visible = false
+	for mi2: MeshInstance3D in _sector_blacks:
+		if mi2:
+			mi2.visible = false
+	for mi3: MeshInstance3D in _sector_trails:
+		if mi3:
+			mi3.visible = false
+	for mi4: MeshInstance3D in _bar_fills:
+		if mi4:
+			mi4.visible = false
+	for mi5: MeshInstance3D in _bar_blacks:
+		if mi5:
+			mi5.visible = false
+	for mi6: MeshInstance3D in _bar_trails:
+		if mi6:
+			mi6.visible = false
+	for i: int in range(_green_batches.size()):
+		var batches: Array = _green_batches[i]
+		for b: Variant in batches:
+			if typeof(b) != TYPE_DICTIONARY:
+				continue
+			@warning_ignore("unsafe_cast")
+			var gmi: MeshInstance3D = __mesh((b as Dictionary).get("mesh"))
+			if gmi != null and is_instance_valid(gmi):
+				gmi.visible = false
 
 
 func _set_mat_color(mi: MeshInstance3D, col: Color) -> void:
@@ -1371,6 +1512,7 @@ func _process(delta: float) -> void:
 	_sync_layer_values()
 	_tick_fx(delta)
 	_apply_visuals()
+	_tick_star_border(delta)
 	var cam: Camera3D = get_viewport().get_camera_3d() if get_viewport() else null
 	if cam == null:
 		return
@@ -1396,3 +1538,74 @@ func _process(delta: float) -> void:
 	scale = Vector3.ONE * sc
 	if cam.global_position.distance_squared_to(global_position) > 0.0001:
 		look_at(cam.global_position, Vector3.UP)
+
+func flash_lock_brackets(duration_s: float = 0.45) -> void:
+	## Procedural open square around tonnage overlay BG: mid-half of each edge missing; red→yellow→red.
+	var size_wu: float = OVERLAY_BG_WORLD_SIZE * 1.02
+	var badge_y: float = 0.0
+	if _overlay_bg != null and is_instance_valid(_overlay_bg):
+		badge_y = _overlay_bg.position.y
+		size_wu = OVERLAY_BG_WORLD_SIZE * 1.02
+	elif _tonnage_icon != null and is_instance_valid(_tonnage_icon):
+		badge_y = _tonnage_icon.position.y
+	var root: Node3D = get_node_or_null("LockFlashRoot") as Node3D
+	if root != null:
+		root.queue_free()
+	root = Node3D.new()
+	root.name = "LockFlashRoot"
+	root.position = Vector3(0, badge_y, 0.06)
+	add_child(root)
+	var half: float = size_wu * 0.5
+	var corner: float = size_wu * 0.25 ## each end segment = 1/4 edge
+	var mats: Array[StandardMaterial3D] = []
+	var ends: Array[Vector3] = [
+		Vector3(-half, half, 0), Vector3(-half + corner, half, 0),
+		Vector3(half - corner, half, 0), Vector3(half, half, 0),
+		Vector3(-half, -half, 0), Vector3(-half + corner, -half, 0),
+		Vector3(half - corner, -half, 0), Vector3(half, -half, 0),
+		Vector3(-half, half, 0), Vector3(-half, half - corner, 0),
+		Vector3(-half, -half + corner, 0), Vector3(-half, -half, 0),
+		Vector3(half, half, 0), Vector3(half, half - corner, 0),
+		Vector3(half, -half + corner, 0), Vector3(half, -half, 0),
+	]
+	var si: int = 0
+	while si + 1 < ends.size():
+		var a: Vector3 = ends[si]
+		var b: Vector3 = ends[si + 1]
+		si += 2
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		var box: BoxMesh = BoxMesh.new()
+		var mid: Vector3 = (a + b) * 0.5
+		var length: float = a.distance_to(b)
+		var along_x: bool = absf(a.y - b.y) < 0.0001
+		if along_x:
+			box.size = Vector3(maxf(length, 0.001), 0.02, 0.02)
+		else:
+			box.size = Vector3(0.02, maxf(length, 0.001), 0.02)
+		mi.mesh = box
+		mi.position = mid
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(1.0, 0.15, 0.12, 1.0)
+		mat.no_depth_test = true
+		mat.render_priority = 30
+		mi.material_override = mat
+		root.add_child(mi)
+		mats.append(mat)
+	var tw: Tween = create_tween()
+	tw.set_parallel(false)
+	var half_t: float = maxf(0.05, duration_s * 0.5)
+	tw.tween_method(func(t: float) -> void:
+		var c: Color = Color(1.0, 0.15, 0.12, 1.0).lerp(Color(1.0, 0.92, 0.15, 1.0), t)
+		for mat_m: StandardMaterial3D in mats:
+			mat_m.albedo_color = c
+	, 0.0, 1.0, half_t)
+	tw.tween_method(func(t: float) -> void:
+		var c: Color = Color(1.0, 0.92, 0.15, 1.0).lerp(Color(1.0, 0.15, 0.12, 1.0), t)
+		for mat_m2: StandardMaterial3D in mats:
+			mat_m2.albedo_color = c
+	, 0.0, 1.0, half_t)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(root):
+			root.queue_free()
+	)

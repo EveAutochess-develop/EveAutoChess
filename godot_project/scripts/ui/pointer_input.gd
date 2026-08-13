@@ -109,7 +109,7 @@ func _pointer_down(screen: Vector2) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	var allow_drag: bool = ship2.team_id == ShipUnit.TEAM_PLAYER
-	if not allow_drag and get_tree().paused and GameSession.enemy_layout_adjust_active():
+	if not allow_drag and get_tree().paused and (PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust_active():
 		## Dev-only: Prepare+paused enemy layout tweak.
 		allow_drag = stage == MatchController.Stage.PREPARE
 	if allow_drag:
@@ -238,16 +238,26 @@ func _screen_to_ground(screen: Vector2) -> Vector3:
 	return origin + dir * t
 
 func _in_sell_zone(screen: Vector2) -> bool:
-	var sell: Control = _root.hud.get_node_or_null("Root/Shop/ShopCol/ShopContent/ShopInner/SellZone") as Control
+	## Left shop bar never collapses (UI_AND_SHELL §2.1).
+	if _root == null or not _root.is_shop_sell_enabled():
+		return false
+	var sell: Control = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol/ShipOfferHost/SellZone") as Control
+	if sell == null:
+		sell = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShopBody/ShipCol/ShipOfferHost/SellZone") as Control
+	if sell == null:
+		sell = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol/SellZone") as Control
+	if sell == null:
+		sell = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBar/ShopBody/ShipCol/SellZone") as Control
 	if sell == null or not sell.visible:
-		# During drag sell overlay may cover slots area — also accept full shop rect
-		var shop: Control = _root.hud.get_node_or_null("Root/Shop") as Control
-		if shop == null or not shop.visible:
+		var buy: Control = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBarPanel") as Control
+		if buy == null:
+			buy = _root.hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent/ShopBar") as Control
+		if buy == null or not buy.visible:
 			return false
-		var content: Control = _root.hud.get_node_or_null("Root/Shop/ShopCol/ShopContent") as Control
-		if content and not content.visible:
-			return false
-		return shop.get_global_rect().has_point(screen)
+		return buy.get_global_rect().has_point(screen)
+	var left: Control = _root.hud.get_node_or_null("Root/LeftCol") as Control
+	if left == null or not left.visible:
+		return false
 	return sell.get_global_rect().has_point(screen)
 
 func _control_blocks(path: String, screen: Vector2, require_visible_content: bool = false) -> bool:
@@ -264,10 +274,13 @@ func _control_blocks(path: String, screen: Vector2, require_visible_content: boo
 func _ui_blocks(screen: Vector2) -> bool:
 	if _root == null or _root.hud == null:
 		return false
-	## Bottom shop (when expanded), left reserve, right info — not the full HUD root.
+	## Bottom shop (when expanded), left shop chrome, right info — not the full HUD root.
+	## Fetter fade strip is click-through (UI_AND_SHELL §3.3); do NOT block full LeftCol.
 	if _control_blocks("Root/Shop", screen, true):
 		return true
-	if _control_blocks("Root/LeftCol", screen):
+	if _control_blocks("Root/LeftCol/LeftInner/LeftContent/ShopBarPanel", screen):
+		return true
+	if _control_blocks("Root/LeftEdgeChrome", screen):
 		return true
 	if _control_blocks("Root/RightCol", screen):
 		return true

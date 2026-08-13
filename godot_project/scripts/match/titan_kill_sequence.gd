@@ -10,12 +10,14 @@ const WRECK_KEY: Dictionary = {
 	"caldari": "tq_titan_wreck_c",
 	"gallente": "tq_titan_wreck_g",
 	"minmatar": "tq_titan_wreck_m",
+	"angel": "tsl_zhengfuzhe_wreck",
 }
 const WRECK_SHIP_ID: Dictionary = {
 	"amarr": 921,
 	"caldari": 922,
 	"gallente": 923,
 	"minmatar": 924,
+	"angel": 925,
 }
 
 
@@ -25,20 +27,27 @@ static func ensure_wreck_ship_defs() -> void:
 	for race_v: Variant in WRECK_KEY.keys():
 		var race: String = str(race_v)
 		var wid: int = TypedVariant.as_int(WRECK_SHIP_ID.get(race, 0), 0)
-		if DataStore.ships.has(wid):
-			continue
-		DataStore.ships[wid] = {
-			"id": wid,
-			"name": "泰坦残骸",
-			"name_en": "TitanWreck",
-			"race": race,
-			"ship_group": "titan",
-			"model_auto_orient": true,
-			"model_key": str(WRECK_KEY.get(race, "")),
-			"shop_eligible": false,
-			"tags": ["titan", "wreck", "shop_ineligible"],
-			"model_long_axis": 2200.0,
-		}
+		var key: String = str(WRECK_KEY.get(race, ""))
+		var existing: Dictionary = {}
+		if DataStore.ships.has(wid) and DataStore.ships[wid] is Dictionary:
+			existing = DataStore.ships[wid]
+		existing["id"] = wid
+		existing["name"] = str(existing.get("name", "泰坦残骸"))
+		existing["name_en"] = str(existing.get("name_en", "TitanWreck"))
+		existing["race"] = race
+		existing["ship_group"] = "titan"
+		existing["model_auto_orient"] = true
+		existing["model_key"] = key
+		existing["shop_eligible"] = false
+		existing["model_long_axis"] = 2200.0
+		var tags_v: Variant = existing.get("tags", ["titan", "wreck", "shop_ineligible"])
+		var tags: Array = tags_v if tags_v is Array else ["titan", "wreck", "shop_ineligible"]
+		if not tags.has("wreck"):
+			tags.append("wreck")
+		if not tags.has("shop_ineligible"):
+			tags.append("shop_ineligible")
+		existing["tags"] = tags
+		DataStore.ships[wid] = existing
 
 
 ## Runs explode + wreck hold on berth; calls on_done when §2.6 finishes.
@@ -102,6 +111,13 @@ class _Runner extends Node:
 			_wreck.rotation.y = _berth.unit.rotation.y
 			_wreck.scale = _berth.unit.scale
 			_wreck.position = _berth.unit.position
+			var src_mr: Node3D = _berth.unit.model_root()
+			var dst_mr: Node3D = _wreck.model_root()
+			if src_mr != null and dst_mr != null:
+				dst_mr.rotation = src_mr.rotation
+				## Vanquisher wreck GLB bow is 180° opposite the intact pack; berth bow_fit stays.
+				if _berth.race == "angel":
+					dst_mr.rotation_degrees.y += 180.0
 
 	func _finish() -> void:
 		set_process(false)

@@ -1,0 +1,20 @@
+{
+  "id": "guristas",
+  "name": "古斯塔斯",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "ShieldResist",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10
+    },
+    {
+      "champion_count": 3,
+      "effect_type": "ArmorResist",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10
+    }
+  ]
+}

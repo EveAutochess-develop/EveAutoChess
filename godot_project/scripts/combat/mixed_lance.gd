@@ -24,6 +24,24 @@ static func is_lance_def(def: Dictionary) -> bool:
 	return str(def.get("id", "")) == MODULE_ID or str(def.get("activate", "")) == "mixed_lance"
 
 
+## CAPITAL §4.1: only a hull that actually fitted mixed_lance and is in Prep/Fire/End
+## suppresses *that* hull's normal weapons. Never gate unequipped dreads / other ships.
+static func weapons_suppressed(ship: ShipUnit) -> bool:
+	if ship == null or not is_instance_valid(ship):
+		return false
+	for entry: Variant in ship.get_function_fit():
+		var e: Dictionary = TypedVariant.as_dict(entry)
+		var def: Dictionary = TypedVariant.as_dict(e.get("def", {}))
+		if not is_lance_def(def):
+			continue
+		var fid: String = str(e.get("id", "")).strip_edges()
+		var rt: Dictionary = FunctionFit._runtime(ship, fid)
+		var phase: int = TypedVariant.as_int(rt.get("lance_phase", PHASE_IDLE), PHASE_IDLE)
+		if phase != PHASE_IDLE:
+			return true
+	return false
+
+
 static func capital_role_allowed(ship_data: Dictionary, def: Dictionary) -> bool:
 	var want_v: Variant = def.get("require_capital_roles", [])
 	if typeof(want_v) != TYPE_ARRAY:
@@ -72,8 +90,11 @@ static func tick(
 	var rt: Dictionary = FunctionFit._runtime(ship, fid)
 	var phase: int = TypedVariant.as_int(rt.get("lance_phase", PHASE_IDLE), PHASE_IDLE)
 	if phase == PHASE_IDLE:
-		## Idle: wait for flush_salvo (board-wide 齐射). Do not start here.
+		## Idle / 齐射等待: must not leave a sticky suppress on this or any other hull.
+		if TypedVariant.as_bool(ship.get("lance_suppress_weapons"), false):
+			ship.set("lance_suppress_weapons", false)
 		return
+	## Mirror flag for diagnostics; combat gates via weapons_suppressed() (fit+phase).
 	ship.set("lance_suppress_weapons", true)
 	rt["lance_phase_t"] = TypedVariant.as_float(rt.get("lance_phase_t", 0.0)) + sim_dt
 	var phase_t: float = TypedVariant.as_float(rt.get("lance_phase_t", 0.0))
@@ -115,6 +136,8 @@ static func abort_combat_end(ship: ShipUnit) -> void:
 		var phase: int = TypedVariant.as_int(rt.get("lance_phase", PHASE_IDLE), PHASE_IDLE)
 		if phase != PHASE_IDLE:
 			_consume(ship, fid, rt)
+		else:
+			ship.set("lance_suppress_weapons", false)
 		return
 
 
@@ -391,7 +414,9 @@ static func apply_guest_aim(ship: ShipUnit, az_xz: float, el_xy: float) -> void:
 	rt["lance_tip_frac"] = TIP_FRAC
 	rt["lance_flow"] = TypedVariant.as_float(def.get("flow_speed", FLOW_REF))
 	rt["lance_prep_alpha"] = TypedVariant.as_float(def.get("prepare_alpha", PREP_ALPHA_REF))
-	ship.set("lance_suppress_weapons", true)
+	## Guest FX only — do NOT sticky-suppress weapons here. Non-watch peers may never
+	## run guest_tick_visual; unequipped / fit-lag hulls must keep normal attacks
+	## (CAPITAL §4.1). Authority + local fit tick own weapons_suppressed().
 	_ensure_fx(ship, rt, TypedVariant.as_int(rt.get("lance_phase", PHASE_PREP)) == PHASE_PREP)
 	if phase == PHASE_IDLE:
 		_start_sfx(ship, rt, "prep")
@@ -593,6 +618,8 @@ static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
 	for o: ShipUnit in board.all_ships():
 		if o == null or not is_instance_valid(o):
 			continue
+		if o.get_instance_id() == ship.get_instance_id():
+			continue
 		if o.team_id == ship.team_id:
 			continue
 		if not _target_lockable(o):
@@ -608,9 +635,16 @@ static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
 		if d < best_any_d:
 			best_any_d = d
 			best_any = o
-	if best_dread != null:
-		return best_dread
-	return best_any
+	var picked: ShipUnit = best_dread if best_dread != null else best_any
+	if picked != null:
+		SessionDiagnostics.log(
+			"lance.prep",
+			"ship=%d ship_team=%d ship_iid=%d tgt=%d tgt_team=%d tgt_iid=%d" % [
+				ship.ship_id, ship.team_id, ship.get_instance_id(),
+				picked.ship_id, picked.team_id, picked.get_instance_id(),
+			]
+		)
+	return picked
 
 
 static func _tick_damage(
@@ -657,7 +691,14 @@ static func _apply_column_hit(
 	for o: ShipUnit in board.all_ships():
 		if o == null or not is_instance_valid(o) or o.is_destroyed or o.slot_type != "field":
 			continue
-		if not _point_in_cylinder(o.global_position, origin, dir, beam_h, radius):
+		## Volume sphere vs beam cylinder (CAPITAL §4.1) — not point-center only.
+		var center: Vector3 = o.global_position
+		if o.has_method("model_center_world"):
+			center = TypedVariant.as_vector3(o.call("model_center_world"), center)
+		var sphere_r: float = 0.0
+		if o.has_method("collision_radius_wu"):
+			sphere_r = TypedVariant.as_float(o.call("collision_radius_wu"), 0.0)
+		if not _sphere_hits_cylinder(center, sphere_r, origin, dir, beam_h, radius):
 			continue
 		var max_hp: float = o.max_shield + o.max_armor + o.max_structure
 		var raw: float = maxf(floor_v, max_hp * pct)
@@ -699,13 +740,29 @@ static func _apply_column_hit(
 		)
 
 
-static func _point_in_cylinder(p: Vector3, origin: Vector3, dir: Vector3, height: float, radius: float) -> bool:
-	var rel: Vector3 = p - origin
-	var along: float = rel.dot(dir)
-	if along < -0.25 or along > height + 0.25:
+## Finite cylinder segment × sphere: closest point on axis segment within [0,height].
+static func _sphere_hits_cylinder(
+	center: Vector3,
+	sphere_r: float,
+	origin: Vector3,
+	dir: Vector3,
+	height: float,
+	cyl_r: float,
+) -> bool:
+	var d: Vector3 = dir.normalized()
+	if d.length_squared() < 0.0001:
 		return false
-	var radial: Vector3 = rel - dir * along
-	return radial.length() <= radius + 0.35
+	var rel: Vector3 = center - origin
+	var along: float = rel.dot(d)
+	var t: float = clampf(along, 0.0, maxf(0.0, height))
+	var closest: Vector3 = origin + d * t
+	var lim: float = maxf(0.0, cyl_r) + maxf(0.0, sphere_r)
+	return center.distance_squared_to(closest) <= lim * lim
+
+
+static func _point_in_cylinder(p: Vector3, origin: Vector3, dir: Vector3, height: float, radius: float) -> bool:
+	## Legacy point test — prefer `_sphere_hits_cylinder` for combat hits.
+	return _sphere_hits_cylinder(p, 0.0, origin, dir, height, radius)
 
 
 static func _ensure_fx(ship: ShipUnit, rt: Dictionary, prepare: bool) -> void:

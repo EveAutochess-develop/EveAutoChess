@@ -1,125 +1,125 @@
 {
-  "id": 61,
-  "name": "台风级",
-  "name_en": "Typhoon",
-  "type_id": 644,
-  "model_key": "mmte_taifeng",
-  "cost": 13,
-  "ship_groups": [
-    "battleship"
-  ],
-  "ship_group": "battleship",
+  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
+  "agility": 0.5,
+  "attack_cycle_s": 15.0,
+  "capacitor_capacity": 3000.0,
+  "capacitor_recharge_s": 500.0,
+  "cost": 13.0,
+  "drone_bandwidth": 75.0,
+  "echoes_item_id": 10500000009.0,
   "fetter_ids": [
     "minmatar",
     "battleship",
     "projectile"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 10,
+  "id": 61.0,
+  "is_logistic": false,
+  "is_unmanned": false,
+  "low_slots": 6.0,
+  "mass": 10000000.0,
+  "med_slots": 4.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "mmte_taifeng",
+  "name": "台风级",
+  "name_en": "Typhoon",
+  "race": "minmatar",
+  "scan_resolution": 200.0,
+  "sensor_strength": 16.0,
+  "ship_group": "battleship",
+  "ship_groups": [
+    "battleship"
+  ],
+  "signature_radius": 320.0,
+  "sof_hull": "mb1_t1",
+  "source_module_type_id": 13320.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 210.0,
+  "stars": [
+    {
+      "armor_hp": 6600.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "shield_hp": 7150.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 6600.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 13200.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "shield_hp": 14300.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 13200.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 19800.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 999.0,
+      "shield_hp": 21450.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 19800.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    }
   ],
   "tags": [
     "minmatar",
     "battleship",
     "projectile"
   ],
-  "is_logistic": false,
-  "weapon_fx": "missile",
-  "weapon_tier": "large",
-  "race": "minmatar",
-  "signature_radius": 320.0,
-  "sensor_strength": 16.0,
-  "scan_resolution": 200.0,
-  "speed": 210.0,
-  "mass": 10000000.0,
-  "agility": 0.5,
-  "capacitor_capacity": 3000.0,
-  "capacitor_recharge_s": 500.0,
-  "mid_battle_leave_allowed": false,
-  "is_unmanned": false,
+  "type_id": 644.0,
   "unmanned_kind": "",
-  "attack_cycle_s": 15.0,
-  "drone_bandwidth": 75.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 7,
-  "med_slots": 4,
-  "low_slots": 6,
-  "source_module_type_id": 13320,
-  "source_repair_module_type_id": 0,
-  "stars": [
-    {
-      "attack_range": 999,
-      "shield_hp": 7150.0,
-      "armor_hp": 6600.0,
-      "structure_hp": 6600.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 14300.0,
-      "armor_hp": 13200.0,
-      "structure_hp": 13200.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 21450.0,
-      "armor_hp": 19800.0,
-      "structure_hp": 19800.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    }
-  ],
   "visual": {},
-  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10500000009,
-  "sof_hull": "mb1_t1"
+  "weapon_fx": "missile",
+  "weapon_tier": "large"
 }

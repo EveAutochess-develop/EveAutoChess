@@ -20,6 +20,8 @@ static func allowed_sizes_for_ship(ship_data: Dictionary) -> PackedStringArray:
 			return PackedStringArray(["S", "M", "L"])
 		"cruiser", "battlecruiser":
 			return PackedStringArray(["S", "M"])
+		"mining_barge":
+			return PackedStringArray(["S", "M"])
 		_:
 			return PackedStringArray(["S"])
 
@@ -565,27 +567,48 @@ static func _fire_module_effects(
 	_auth_rng: Callable,
 ) -> void:
 	var dur: float = TypedVariant.as_float(def.get("duration_s", 0.0))
+	var cat: String = str(def.get("shop_category", ""))
+	var ewar_mul: float = 1.0
+	var cap_mul: float = 1.0
+	if ship != null and is_instance_valid(ship):
+		ewar_mul = maxf(0.01, ship.fetter_ewar_mul)
+		cap_mul = maxf(0.01, ship.fetter_cap_warfare_mul)
 	for fx: Variant in TypedVariant.as_array(def.get("effects", [])):
 		if typeof(fx) != TYPE_DICTIONARY:
 			continue
 		@warning_ignore("unsafe_cast")
 		var fxd: Dictionary = fx as Dictionary
-		match str(fxd.get("op", "")):
+		var op: String = str(fxd.get("op", ""))
+		## Scale amounts for titan / blood fetter muls (EQUIPMENT §0.2).
+		var scaled: Dictionary = fxd
+		if cat == "ewar" and ewar_mul != 1.0 and op in ["debuff_mul", "mul_stat_active"]:
+			scaled = fxd.duplicate(true)
+			if scaled.has("amount"):
+				scaled["amount"] = TypedVariant.as_float(scaled.get("amount", 0.0), 0.0) * ewar_mul
+			if scaled.has("mul"):
+				## Keep multiplicative shape: convert mul toward 1 by ewar_mul strength.
+				var m0: float = TypedVariant.as_float(scaled.get("mul", 1.0), 1.0)
+				scaled["mul"] = 1.0 + (m0 - 1.0) * ewar_mul
+		elif cat == "cap_warfare" and cap_mul != 1.0 and op in ["nos", "neut", "remote_cap"]:
+			scaled = fxd.duplicate(true)
+			if scaled.has("amount"):
+				scaled["amount"] = TypedVariant.as_float(scaled.get("amount", 0.0), 0.0) * cap_mul
+		match op:
 			"repair":
-				_apply_repair(ship, fxd)
+				_apply_repair(ship, scaled)
 			"nos":
-				_apply_nos(ship, tgt, TypedVariant.as_float(fxd.get("amount", 0.0)))
+				_apply_nos(ship, tgt, TypedVariant.as_float(scaled.get("amount", 0.0)))
 			"neut":
-				_apply_neut(ship, tgt, TypedVariant.as_float(fxd.get("amount", 0.0)))
+				_apply_neut(ship, tgt, TypedVariant.as_float(scaled.get("amount", 0.0)))
 			"remote_cap":
-				_apply_remote_cap(ship, tgt, TypedVariant.as_float(fxd.get("amount", 0.0)))
+				_apply_remote_cap(ship, tgt, TypedVariant.as_float(scaled.get("amount", 0.0)))
 			"add_resist_active":
-				_apply_resist_buff(ship, fxd, dur, str(def.get("id", "fn")))
+				_apply_resist_buff(ship, scaled, dur, str(def.get("id", "fn")))
 			"mul_stat_active":
-				_apply_self_mul_buff(ship, fxd, dur, str(def.get("id", "fn")))
+				_apply_self_mul_buff(ship, scaled, dur, str(def.get("id", "fn")))
 			"debuff_mul":
 				if tgt != null and is_instance_valid(tgt):
-					_apply_debuff_mul(tgt, fxd, dur, str(def.get("id", "fn")))
+					_apply_debuff_mul(tgt, scaled, dur, str(def.get("id", "fn")))
 
 static func _apply_repair(ship: ShipUnit, fx: Dictionary) -> void:
 	var layer: String = str(fx.get("layer", "armor"))
@@ -629,6 +652,7 @@ static func _apply_nos(ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 		ship.call("_notify_health_bar_gain", "cap", gained)
 	_spawn_cap_float(tgt, -drain)
 	_spawn_cap_float(ship, gained)
+	_note_cap_war(ship, drain + gained)
 
 
 static func _apply_neut(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
@@ -638,7 +662,9 @@ static func _apply_neut(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
 		return
 	var before: float = tgt.cap_current
 	tgt.cap_current = maxf(0.0, tgt.cap_current - amount)
+	var drained: float = before - tgt.cap_current
 	_spawn_cap_float(tgt, tgt.cap_current - before)
+	_note_cap_war(_ship, drained)
 
 
 static func _apply_remote_cap(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> void:
@@ -652,6 +678,19 @@ static func _apply_remote_cap(_ship: ShipUnit, tgt: ShipUnit, amount: float) -> 
 	if gained > 0.5 and tgt.has_method("_notify_health_bar_gain"):
 		tgt.call("_notify_health_bar_gain", "cap", gained)
 	_spawn_cap_float(tgt, gained)
+	_note_cap_war(_ship, gained)
+
+
+static func _note_cap_war(ship: ShipUnit, amount: float) -> void:
+	if ship == null or not is_instance_valid(ship) or amount <= 0.0:
+		return
+	var tree: SceneTree = Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	for n: Node in tree.get_nodes_in_group("match_root"):
+		if n.has_method("note_cap_war_stat"):
+			n.call("note_cap_war_stat", ship.get_instance_id(), amount)
+			return
 
 
 ## Shared FloatTextPool — heal green / cap blue, each accumulates (COMBAT.md).

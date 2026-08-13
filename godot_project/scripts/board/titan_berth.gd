@@ -9,6 +9,8 @@ const RACE_SHIP_ID: Dictionary = {
 	"gallente": 203,
 	"minmatar": 204,
 	"amarr": 201,
+	## 唯一势力泰坦：征服者级 205（model_key=tsl_zhengfuzhe；禁止映射神使/其它帝国泰坦壳）。
+	"angel": 205,
 }
 ## TQ titan meshes point their bow at +长轴 end; flip so the bow faces the enemy half.
 const BOW_FLIP: float = PI
@@ -71,11 +73,12 @@ func set_race(p_race: String) -> bool:
 	unit.slot_type = ""
 	unit.immobile_in_combat = false
 	## Bow toward opposing half (home −Z / rival +Z); no per-ship yaw jitter.
-	_orient_bow_at_opposing_half()
+	var applied_bow_flip: bool = _orient_bow_at_opposing_half()
 	_fit_scale()
 	_pin_bow_to_belt()
-	## BOW_FLIP put SOF +Z “aft” nozzles on the visual bow — remirror before trails.
-	if unit.has_method("compensate_bow_flip_for_engines"):
+	## BOW_FLIP puts SOF +Z “aft” nozzles on the visual bow — remirror so trails stay stern.
+	## Hulls with baked bow_fit already coherent: never flip and never remirror on top.
+	if applied_bow_flip and unit.has_method("compensate_bow_flip_for_engines"):
 		unit.compensate_bow_flip_for_engines()
 	_attach_tonnage_badge()
 	_attach_key_light()
@@ -158,20 +161,25 @@ func set_engine_trail_emitting(on: bool) -> void:
 	EngineBoosterTrail.set_emitting_on(unit, on)
 
 
-func _orient_bow_at_opposing_half() -> void:
+func _orient_bow_at_opposing_half() -> bool:
 	## TQ titan GLBs are authored length-on-X (measured: 14k–18k on X vs 2k–6.4k on Z),
 	## so the hull must end up length-on-Z before we pick which end faces the enemy.
 	## ShipUnit auto-orient normally does this; berth re-checks in case content flips
 	## `ship_model_auto_orient` or the def flag, otherwise the titan parks sideways.
+	## Returns true when BOW_FLIP was applied (caller must remirror engine nozzles).
 	if unit == null or not is_instance_valid(unit):
-		return
-	## Base yaw puts the modelled bow at the enemy half; measured hulls came out
-	## back-to-front, so BOW_FLIP swaps the ends (bow away from own half).
-	var yaw: float = BOW_FLIP if home_side else BOW_FLIP + PI
+		return false
+	## Empire TQ hulls need BOW_FLIP. Packs with baked bow_fit (Vanquisher) are already
+	## nozzle-coherent — stacking flip reverses bow/stern and puts trails on the bow.
+	var use_bow_flip: bool = not unit.has_baked_bow_fit()
+	var flip: float = BOW_FLIP if use_bow_flip else 0.0
+	## Base yaw puts the modelled bow at the enemy half; BOW_FLIP swaps ends when needed.
+	var yaw: float = flip if home_side else flip + PI
 	unit.rotation.y = yaw
 	var box: AABB = _world_aabb(unit)
 	if box.size.x > box.size.z:
 		unit.rotation.y = yaw + PI * 0.5
+	return use_bow_flip
 
 
 func _target_width() -> float:

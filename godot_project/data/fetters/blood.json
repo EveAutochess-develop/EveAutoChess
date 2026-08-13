@@ -1,0 +1,13 @@
+{
+  "id": "blood",
+  "name": "血袭者",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "CapWarfare",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 30
+    }
+  ]
+}

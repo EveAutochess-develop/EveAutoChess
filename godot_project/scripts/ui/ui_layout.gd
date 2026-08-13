@@ -6,6 +6,7 @@ class_name UiLayout
 const DESIGN: Vector2 = Vector2(1920.0, 1080.0)
 
 static func viewport_size(from: Node = null) -> Vector2:
+	## HUD canvas size (= window client / stretch visible rect). Frac 1.0 bottom = window bottom.
 	if from != null and is_instance_valid(from) and from.is_inside_tree():
 		var vp: Viewport = from.get_viewport()
 		if vp:
@@ -32,6 +33,18 @@ static func scale(from: Node = null) -> float:
 
 static func px(design_px: float, from: Node = null) -> float:
 	return design_px * scale(from)
+
+## Edge HUD icons: former on-screen ×4, now ×4×⅔ = ×(8/3). Collapse + mode share one side.
+const HUD_EDGE_ICON_MUL: float = 8.0 / 3.0
+## Outer margin shared by side panels + edge chrome (expand/collapse use same formula).
+const HUD_EDGE_MARGIN_FRAC: float = 0.006
+
+static func hud_edge_icon_px(from: Node = null) -> float:
+	## Unified collapse / mode / chrome hit size (UI_ICONS §9 · UI_AND_SHELL §3.4).
+	return px(28.0 * HUD_EDGE_ICON_MUL, from)
+
+static func hud_edge_margin_frac() -> float:
+	return HUD_EDGE_MARGIN_FRAC
 
 static func font_size(design: int, from: Node = null) -> int:
 	var scaled: float = float(design) * scale(from)
@@ -76,15 +89,75 @@ static func set_center_panel_frac(c: Control, width_frac: float, height_frac: fl
 	var t: float = 0.5 - height_frac * 0.5
 	set_rect_frac(c, l, t, l + width_frac, t + height_frac)
 
+static func hud_layout() -> Dictionary:
+	## CONTENT_FORMAT §3.6b — preview snap fracs. Empty if file missing.
+	return ContentRuntimeData.load_json_prefer_runtime("ui/hud_layout.json")
+
+
+static func hud_panel(id_s: String) -> Dictionary:
+	var root_d: Dictionary = hud_layout()
+	var panels_v: Variant = root_d.get("panels", {})
+	if typeof(panels_v) != TYPE_DICTIONARY:
+		return {}
+	var panels: Dictionary = panels_v
+	var fv: Variant = panels.get(id_s, {})
+	if typeof(fv) != TYPE_DICTIONARY:
+		return {}
+	var rec: Dictionary = fv
+	return rec
+
+
+static func hud_frac(id_s: String, key: String, fallback: float) -> float:
+	var p: Dictionary = hud_panel(id_s)
+	if p.is_empty() or not p.has(key):
+		return fallback
+	return TypedVariant.as_float(p.get(key, fallback), fallback)
+
+
+static func hud_width(id_s: String, fallback: float) -> float:
+	var p: Dictionary = hud_panel(id_s)
+	if p.is_empty():
+		return fallback
+	return maxf(0.0, TypedVariant.as_float(p.get("r", 0.0), 0.0) - TypedVariant.as_float(p.get("l", 0.0), 0.0))
+
+
+static func hud_height(id_s: String, fallback: float) -> float:
+	var p: Dictionary = hud_panel(id_s)
+	if p.is_empty():
+		return fallback
+	return maxf(0.0, TypedVariant.as_float(p.get("b", 0.0), 0.0) - TypedVariant.as_float(p.get("t", 0.0), 0.0))
+
+
 static func top_bar_height_frac() -> float:
-	return 0.055 if is_mobile() else 0.06
+	var h: float = hud_height("RoundBar", -1.0)
+	if h > 0.02:
+		return h
+	return 0.050 if is_mobile() else 0.055
 
 static func left_col_width_frac() -> float:
-	return 0.12 if is_mobile() else 0.13
+	## Expanded left = Fetter.r (shop + gap + fetter). UI_AND_SHELL §3.1.
+	var fr: float = hud_frac("Fetter", "r", -1.0)
+	if fr > 0.08:
+		return fr
+	return 0.24 if is_mobile() else 0.281
+
+static func left_shop_width_frac() -> float:
+	var w: float = hud_width("LeftShop", -1.0)
+	if w > 0.08:
+		return w
+	return hud_frac("LeftShop", "r", 0.161)
+
+static func fetter_col_width_frac() -> float:
+	var w: float = hud_width("Fetter", -1.0)
+	if w > 0.02:
+		return w
+	return 0.090 if is_mobile() else 0.106
 
 static func right_col_width_frac() -> float:
-	## Mobile needs a bit more width so InfoPanel weapon squares / portrait fit.
-	return 0.22 if is_mobile() else 0.2
+	var w: float = hud_width("RightCol", -1.0)
+	if w > 0.08:
+		return w
+	return 0.145 if is_mobile() else 0.13
 
 static func is_ultrawide(from: Node = null) -> bool:
 	## D-EAC-49：视口宽:高 ≥ 2:1
@@ -92,14 +165,21 @@ static func is_ultrawide(from: Node = null) -> bool:
 	return s.y > 1.0 and (s.x / s.y) >= 2.0
 
 static func bottom_shop_height_frac(from: Node = null) -> float:
-	## UI_AND_SHELL §2.1 — height of ShopContent only (screen bottom → collapse button).
-	## Meta:ships = 1:3 inside this band. Do NOT jack ultrawide to 0.40 — that broke the
-	## ratio (D-EAC-49 floor superseded by stretch + scaled Meta; mild floor only).
-	var base: float = 0.22 if is_mobile() else 0.26
+	## UI_AND_SHELL §2.1 — Meta + 1×16 equip row only (buy zones live in LeftCol).
+	var h: float = hud_height("BottomBar", -1.0)
+	if h > 0.04:
+		return h
+	var base: float = 0.11 if is_mobile() else 0.12
 	if is_ultrawide(from):
-		return maxf(base, 0.26 if is_mobile() else 0.28)
+		return maxf(base, 0.12 if is_mobile() else 0.13)
 	return base
 
+## Bottom shop strip width as fraction of the full viewport (UI_AND_SHELL §3.1).
+static func bottom_shop_width_frac() -> float:
+	var w: float = hud_width("BottomBar", -1.0)
+	if w > 0.2:
+		return w
+	return 0.60
 
 ## Collapse button strip thickness as viewport fraction (not part of bottom-bar height).
 static func bottom_collapse_btn_frac(from: Node = null) -> float:
@@ -109,21 +189,30 @@ static func bottom_collapse_btn_frac(from: Node = null) -> float:
 		return collapse_strip_frac()
 	return clampf(btn_px / s.y, 0.018, 0.045)
 
-
 ## Expanded Shop panel = bottom-bar content + collapse button on top.
 static func bottom_shop_panel_frac(from: Node = null) -> float:
+	## Content height + edge collapse strip above the shop (UI_AND_SHELL §3.4).
 	return bottom_shop_height_frac(from) + bottom_collapse_btn_frac(from)
 
 ## Collapsed strip thickness (fraction of viewport).
 static func collapse_strip_frac() -> float:
 	return 0.028 if is_mobile() else 0.024
 
-## Playfield open window as viewport fractions: left, top, right, bottom edges.
-static func playfield_safe_rect(collapse_left: bool, collapse_right: bool, collapse_bottom: bool, from: Node = null) -> Rect2:
+## Left band always reserves full shop+fetter width (UI_AND_SHELL §3.4).
+## Left collapse_* args kept for call-site compat; fetter hide must not shift mid.
+static func playfield_safe_rect(
+	_collapse_left: bool,
+	collapse_right: bool,
+	collapse_bottom: bool,
+	from: Node = null,
+	_collapse_left_syn: bool = true,
+	_collapse_left_equip: bool = true
+) -> Rect2:
 	var top: float = top_bar_height_frac() + 0.01
-	var left: float = collapse_strip_frac() if collapse_left else (left_col_width_frac() + 0.012)
-	var right: float = (1.0 - collapse_strip_frac()) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
-	var bottom_band: float = collapse_strip_frac() if collapse_bottom else bottom_shop_panel_frac(from)
+	var arrow_pad: float = 0.045
+	var left: float = left_col_width_frac() + 0.012
+	var right: float = (1.0 - arrow_pad) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
+	var bottom_band: float = arrow_pad if collapse_bottom else bottom_shop_panel_frac(from)
 	var bottom: float = 1.0 - bottom_band - 0.012
 	return Rect2(left, top, maxf(0.2, right - left), maxf(0.2, bottom - top))
 

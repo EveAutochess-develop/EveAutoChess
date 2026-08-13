@@ -27,6 +27,8 @@ var _dmg_total_by_team: Dictionary = {}
 var _dmg_taken_by_key: Dictionary = {}
 var _dmg_taken_by_unit: Dictionary = {} ## iid -> float
 var _heal_total: float = 0.0
+var _heal_by_unit: Dictionary = {} ## iid -> float
+var _cap_war_by_unit: Dictionary = {} ## iid -> float (NOS back + neut + remote_cap)
 var _lost_value: Dictionary = {}
 var _cyno_success_count: Dictionary = {} ## team -> count
 var _open_cyno_count: Dictionary = {} ## team -> cyno hulls on field at round open
@@ -78,7 +80,11 @@ func begin_round(board: BoardController) -> void:
 		return
 	_layout_fingerprint = _compute_layout_fingerprint(board, ShipUnit.TEAM_PLAYER)
 	for s: ShipUnit in board.all_ships():
-		if s == null or not is_instance_valid(s) or s.slot_type != "field" or s.is_destroyed:
+		if s == null or not is_instance_valid(s) or s.is_destroyed:
+			continue
+		## Field manned OR hangar capitals awaiting cyno (rank seeds).
+		var seed_ok: bool = s.slot_type == "field" or (s.slot_type == "hangar" and s.requires_cyno_entry)
+		if not seed_ok:
 			continue
 		if s.is_protect_target:
 			continue
@@ -98,6 +104,11 @@ func begin_round(board: BoardController) -> void:
 			_open_cyno_count[tid] = TypedVariant.as_int(_open_cyno_count.get(tid, 0), 0) + 1
 		_open_shield_max[s.get_instance_id()] = maxf(0.0, float(s.shield_hp))
 		_scan_fit(s)
+		if s.requires_cyno_entry:
+			SessionDiagnostics.log(
+				"rank.seed",
+				"ship=%d slot=%s team=%d iid=%d" % [s.ship_id, s.slot_type, s.team_id, s.get_instance_id()]
+			)
 	## 买瓜子去: for each team, rival manned all mining / no logi / no offense
 	for tid: int in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
 		var rival: int = ShipUnit.TEAM_AI if tid == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
@@ -142,11 +153,14 @@ func tick(board: BoardController) -> void:
 func on_hit(source_id: int, target_id: int, source_team: int, dealt: float) -> void:
 	if dealt <= 0.0:
 		return
-	_dmg_by_unit[source_id] = TypedVariant.as_float(_dmg_by_unit.get(source_id, 0.0), 0.0) + dealt
+	## Unmanned damage / taken rolls up to mothership (UI_AND_SHELL §2.6).
+	var src_credit: int = _credit_unit_iid(source_id)
+	var tgt_credit: int = _credit_unit_iid(target_id)
+	_dmg_by_unit[src_credit] = TypedVariant.as_float(_dmg_by_unit.get(src_credit, 0.0), 0.0) + dealt
 	_dmg_total_by_team[source_team] = TypedVariant.as_float(_dmg_total_by_team.get(source_team, 0.0), 0.0) + dealt
-	var key: String = "%d->%d" % [source_team, target_id]
+	var key: String = "%d->%d" % [source_team, tgt_credit]
 	_dmg_taken_by_key[key] = TypedVariant.as_float(_dmg_taken_by_key.get(key, 0.0), 0.0) + dealt
-	_dmg_taken_by_unit[target_id] = TypedVariant.as_float(_dmg_taken_by_unit.get(target_id, 0.0), 0.0) + dealt
+	_dmg_taken_by_unit[tgt_credit] = TypedVariant.as_float(_dmg_taken_by_unit.get(tgt_credit, 0.0), 0.0) + dealt
 	@warning_ignore("unsafe_cast")
 	var src: ShipUnit = instance_from_id(source_id) as ShipUnit
 	@warning_ignore("unsafe_cast")
@@ -155,27 +169,123 @@ func on_hit(source_id: int, target_id: int, source_team: int, dealt: float) -> v
 		if _ship_has_implant(src, "implant_barrage"):
 			_barrage_dmg[source_team] = TypedVariant.as_float(_barrage_dmg.get(source_team, 0.0), 0.0) + dealt
 		if _ship_has_implant(src, "implant_bombing"):
-			_note_bombing_hit(source_team, source_id, target_id)
+			_note_bombing_hit(source_team, src_credit, tgt_credit)
 		if _ship_has_implant(src, "implant_warhead") and tgt != null and is_instance_valid(tgt):
 			if float(tgt.shield_hp) <= 0.01 and float(tgt.armor_hp) <= 0.01 and float(tgt.structure_hp) > 0.01:
 				_warhead_strip_count[source_team] = TypedVariant.as_int(_warhead_strip_count.get(source_team, 0), 0) + 1
 		if _ship_has_implant(src, "implant_sniper"):
 			var sn: Dictionary = TypedVariant.as_dict(src._implant_state.get("sniper", {}))
 			if TypedVariant.as_bool(sn.get("force_hit", false), false) or FunctionFit.attack_force_hit(src):
-				_sniper_triggers[source_id] = TypedVariant.as_int(_sniper_triggers.get(source_id, 0), 0) + 1
+				_sniper_triggers[src_credit] = TypedVariant.as_int(_sniper_triggers.get(src_credit, 0), 0) + 1
 	if tgt != null and is_instance_valid(tgt) and _ship_has_implant(tgt, "implant_thermal_cycle"):
 		var tc: Dictionary = TypedVariant.as_dict(tgt._implant_state.get("thermal", {"round": 0}))
 		var rnd: int = TypedVariant.as_int(tc.get("round", 0), 0)
 		## Odd rounds = offense (dmg mul); even = defense.
 		if rnd % 2 == 1:
-			_thermal_dmg_offense[target_id] = TypedVariant.as_float(_thermal_dmg_offense.get(target_id, 0.0), 0.0) + dealt
+			_thermal_dmg_offense[tgt_credit] = TypedVariant.as_float(_thermal_dmg_offense.get(tgt_credit, 0.0), 0.0) + dealt
 		else:
-			_thermal_dmg_defense[target_id] = TypedVariant.as_float(_thermal_dmg_defense.get(target_id, 0.0), 0.0) + dealt
+			_thermal_dmg_defense[tgt_credit] = TypedVariant.as_float(_thermal_dmg_defense.get(tgt_credit, 0.0), 0.0) + dealt
 
 
-func on_heal(amount: float) -> void:
+func on_heal(amount: float, healer_id: int = 0) -> void:
 	if amount > 0.0:
 		_heal_total += amount
+		if healer_id != 0:
+			var hid: int = _credit_unit_iid(healer_id)
+			_heal_by_unit[hid] = TypedVariant.as_float(_heal_by_unit.get(hid, 0.0), 0.0) + amount
+
+
+func on_cap_war(source_id: int, amount: float) -> void:
+	if source_id == 0 or amount <= 0.0:
+		return
+	var sid: int = _credit_unit_iid(source_id)
+	_cap_war_by_unit[sid] = TypedVariant.as_float(_cap_war_by_unit.get(sid, 0.0), 0.0) + amount
+
+
+## Ranking board rows: Array of {iid, name, taken, dealt, heal, cap} sorted by key descending.
+func ranking_rows(sort_key: String = "dealt", board: BoardController = null) -> Array:
+	var ids: Dictionary = {}
+	for k: Variant in _dmg_by_unit.keys():
+		ids[TypedVariant.as_int(k, 0)] = true
+	for k: Variant in _dmg_taken_by_unit.keys():
+		ids[TypedVariant.as_int(k, 0)] = true
+	for k: Variant in _heal_by_unit.keys():
+		ids[TypedVariant.as_int(k, 0)] = true
+	for k: Variant in _cap_war_by_unit.keys():
+		ids[TypedVariant.as_int(k, 0)] = true
+	## Seed both teams' manned field ships so enemies appear even at 0 stats.
+	## Hangar capitals awaiting cyno also seed the rank board (plan G / §7.1).
+	if board != null:
+		for s: ShipUnit in board.all_ships():
+			if s == null or not is_instance_valid(s):
+				continue
+			if s.is_unmanned or s.is_protect_target:
+				continue
+			var seed_ok: bool = s.slot_type == "field" or (s.slot_type == "hangar" and s.requires_cyno_entry)
+			if not seed_ok or s.is_destroyed:
+				continue
+			ids[s.get_instance_id()] = true
+	var rows: Array = []
+	for iid_v: Variant in ids.keys():
+		var iid: int = TypedVariant.as_int(iid_v, 0)
+		if iid == 0:
+			continue
+		@warning_ignore("unsafe_cast")
+		var ship: ShipUnit = instance_from_id(iid) as ShipUnit
+		## Skip leftover unmanned rows; stats should already be on mother.
+		if ship != null and is_instance_valid(ship) and ship.is_unmanned:
+			continue
+		var nm: String = "?"
+		var ship_group: String = ""
+		var overlay_key: String = "enemy"
+		var team_id: int = -1
+		if ship != null and is_instance_valid(ship):
+			var data: Dictionary = DataStore.get_ship(ship.ship_id) if DataStore else {}
+			nm = str(data.get("name", "舰%d" % ship.ship_id))
+			ship_group = str(data.get("ship_group", ""))
+			team_id = ship.team_id
+			if ship.is_protect_target or ship_group == "freighter":
+				overlay_key = "friendly"
+			elif team_id == ShipUnit.TEAM_PLAYER:
+				overlay_key = "fleet"
+			else:
+				overlay_key = "enemy"
+		var row: Dictionary = {
+			"iid": iid,
+			"name": nm,
+			"ship_group": ship_group,
+			"overlay_key": overlay_key,
+			"team_id": team_id,
+			"taken": TypedVariant.as_float(_dmg_taken_by_unit.get(iid, 0.0), 0.0),
+			"dealt": TypedVariant.as_float(_dmg_by_unit.get(iid, 0.0), 0.0),
+			"heal": TypedVariant.as_float(_heal_by_unit.get(iid, 0.0), 0.0),
+			"cap": TypedVariant.as_float(_cap_war_by_unit.get(iid, 0.0), 0.0),
+		}
+		rows.append(row)
+	var sk: String = sort_key if sort_key in ["taken", "dealt", "heal", "cap", "name"] else "dealt"
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if sk == "name":
+			return str(a.get("name", "")) < str(b.get("name", ""))
+		return TypedVariant.as_float(a.get(sk, 0.0), 0.0) > TypedVariant.as_float(b.get(sk, 0.0), 0.0)
+	)
+	return rows
+
+
+## Map unmanned unit iid → mothership iid when mother is still valid.
+static func _credit_unit_iid(unit_id: int) -> int:
+	if unit_id == 0:
+		return 0
+	@warning_ignore("unsafe_cast")
+	var s: ShipUnit = instance_from_id(unit_id) as ShipUnit
+	if s == null or not is_instance_valid(s):
+		return unit_id
+	if not s.is_unmanned or s.mother_ship_id == 0:
+		return unit_id
+	@warning_ignore("unsafe_cast")
+	var m: ShipUnit = instance_from_id(s.mother_ship_id) as ShipUnit
+	if m != null and is_instance_valid(m):
+		return m.get_instance_id()
+	return unit_id
 
 
 func on_ship_lost(ship: ShipUnit, killer: ShipUnit = null) -> void:
@@ -277,6 +387,8 @@ func _reset_round() -> void:
 	_dmg_taken_by_key.clear()
 	_dmg_taken_by_unit.clear()
 	_heal_total = 0.0
+	_heal_by_unit.clear()
+	_cap_war_by_unit.clear()
 	_lost_value.clear()
 	_cyno_success_count.clear()
 	_open_cyno_count.clear()

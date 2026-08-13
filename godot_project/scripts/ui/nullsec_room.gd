@@ -10,6 +10,8 @@ const TITAN_CGMA: Array = [
 	{"race": "gallente", "label": "俄洛巴斯 · 盖伦特", "icon": "gallente"},
 	{"race": "minmatar", "label": "拉格纳洛克 · 米玛塔尔", "icon": "minmatar"},
 	{"race": "amarr", "label": "神使 · 艾玛", "icon": "amarr"},
+	## 唯一势力泰坦：天使征服者级（TQ 仅 Vanquisher；禁止七族各塞一项）。
+	{"race": "angel", "label": "征服者 · 天使", "icon": "angel"},
 ]
 const KICK_COL_W: float = 56.0
 
@@ -75,10 +77,14 @@ func _on_host_role_changed_refresh(_is_host_now: bool) -> void:
 
 func _build() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	z_index = 1 ## Main-menu announcement is z=8 and remains visible.
+	## Above main-menu L1 column (z=40); announcement is raised above this while in room.
+	z_index = 50
+	z_as_relative = false
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	var bg: ColorRect = ColorRect.new()
 	bg.color = Color(0.05, 0.06, 0.09, 0.96)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(bg)
 	var root: VBoxContainer = VBoxContainer.new()
 	root.name = "RoomContent"

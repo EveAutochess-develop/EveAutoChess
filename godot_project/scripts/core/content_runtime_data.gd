@@ -14,6 +14,7 @@ const EXPOSE_SUBDIRS: PackedStringArray = [
 	"equipment",
 	"admin",
 	"locale",
+	"ui",
 ]
 ## Flat JSON files at data/ root (portrait/mesh maps stay PCK-only; not seeded).
 const EXPOSE_ROOT_FILES: PackedStringArray = []

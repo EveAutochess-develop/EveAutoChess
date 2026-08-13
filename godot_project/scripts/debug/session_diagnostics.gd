@@ -315,8 +315,8 @@ func _emit_heartbeat() -> void:
 	var nomodel: int = 0
 	var fps_cap: int = 0
 	if GameSession != null:
-		nomodel = 1 if GameSession.no_model_perf_mode else 0
-		fps_cap = GameSession.target_fps
+		nomodel = 1 if (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode else 0
+		fps_cap = (PlayerSettings.instance() as PlayerSettings).target_fps
 	var crit: String = _critical_window if _critical_depth > 0 else ""
 	var detail: String = "fps=%s mem=%s stage=%s round=%s speed=%s nomodel=%d fps_cap=%d boot_phase=%d crit=%s" % [
 		fps, mem, stage, round_n, speed, nomodel, fps_cap, boot_phase, crit

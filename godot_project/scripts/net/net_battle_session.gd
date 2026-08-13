@@ -226,8 +226,7 @@ func on_local_battle_begin() -> void:
 				_enqueue_pvp_or_ai_instant(a, b)
 			var bye: int = TypedVariant.as_int(mu.get("bye_seat", -1), -1)
 			if bye >= 0:
-				var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
-				host_sim.enqueue_pve(bye, task)
+				_enqueue_ai_pve_or_human_pve(bye, round_r)
 		else:
 			## Fallback: legacy sequential pair if matchups missing.
 			for i: int in range(contenders.size()):
@@ -241,25 +240,41 @@ func on_local_battle_begin() -> void:
 						b2 = cand
 						break
 				if b2 < 0:
-					host_sim.enqueue_pve(a2, "pve_eliminate")
+					_enqueue_ai_pve_or_human_pve(a2, round_r)
 				else:
 					used[a2] = true
 					used[b2] = true
 					_enqueue_pvp_or_ai_instant(a2, b2)
 	else:
-		## Nullsec PVE: humans / local seats sim creeps on-device (SEMI_ASYNC §3.2).
-		## Only enqueue lightweight HostSim reports for ai_player seats with no client.
+		## Nullsec PVE: humans sim creeps on-device (SEMI_ASYNC §3.2).
+		## AI seats: instant win + kill gold (MATCH_FLOW §5.0) — no HostSim creep job.
 		for seat_v: Variant in contenders:
 			var seat: int = TypedVariant.as_int(seat_v, -1)
 			if seat < 0:
 				continue
 			if not _pending_seat_is_ai(seat):
 				continue
-			var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
-			host_sim.enqueue_pve(seat, task)
-		## No AI PVE jobs → titan/prepare must not wait on an empty HostSim queue forever.
+			_enqueue_ai_pve_instant(seat)
 		if host_sim.pending_count() == 0:
 			_awaiting_titan = false
+
+
+func _enqueue_ai_pve_or_human_pve(seat: int, round_r: int) -> void:
+	if _pending_seat_is_ai(seat):
+		_enqueue_ai_pve_instant(seat)
+		return
+	var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
+	host_sim.enqueue_pve(seat, task)
+
+
+func _enqueue_ai_pve_instant(seat: int) -> void:
+	var ships: int = _manned_field_count_for_seat(seat)
+	var kg: int = TypedVariant.as_int(DataStore.economy.get("kill_gold_per_ship", 1), 1)
+	_active_serial = host_sim.enqueue_ai_pve_instant(seat, ships, kg)
+	NetSessionDebug.log_event(
+		"net.ai_pve_instant",
+		"seat=%d ships=%d gold=%d" % [seat, ships, ships * kg]
+	)
 
 
 func _enqueue_pvp_or_ai_instant(seat_a: int, seat_b: int) -> void:

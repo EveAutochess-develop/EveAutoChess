@@ -1,8 +1,12 @@
 extends Control
 ## StartScene — left menu column; sizes relative to viewport (UiLayout).
+@warning_ignore_start("untyped_declaration", "inferred_declaration", "unsafe_method_access", "unsafe_call_argument", "inference_on_variant", "unsafe_cast")
 
 # preload: class_name may be missing from shell global cache after load_resource_pack
 const _BgMusic: Script = preload("res://scripts/audio/bg_music.gd")
+const _ParaBtn: Script = preload("res://scripts/ui/menu_parallelogram_button.gd")
+const _BranchReveal: Script = preload("res://scripts/ui/menu_branch_reveal.gd")
+const _LobbyPanel: Script = preload("res://scripts/ui/nullsec_lobby_panel.gd")
 
 const BILIBILI_URL: String = "https://space.bilibili.com/1581878"
 const TITLE_TEXT: String = "星视寰宇EVE自走棋"
@@ -39,6 +43,9 @@ var _fps_lbl: Label
 var _bgm_check: CheckBox
 var _bgm_slider: HSlider
 var _bgm_lbl: Label
+var _sfx_check: CheckBox
+var _sfx_slider: HSlider
+var _sfx_lbl: Label
 var _dev_panel: Control
 var _dev_master_check: CheckBox
 var _dev_soften_check: CheckBox
@@ -54,7 +61,7 @@ var _col: Control
 var _title: Label
 var _btn_box: VBoxContainer
 var _footer: VBoxContainer
-var _nullsec_lobby: NullsecLobbyPopup
+var _nullsec_lobby: Control
 var _nullsec_room: NullsecRoomUI
 var _nullsec_net: NullsecNetSession
 ## Silent match gate: ignore spam clicks while a scan/try-join is in flight (no UI hint).
@@ -62,6 +69,131 @@ var _nullsec_match_busy: bool = false
 ## Continue-last: invalidate in-flight remote rejoin when user cancels / picks local.
 var _continue_rejoin_gen: int = 0
 var _continue_search_dlg: ConfirmationDialog = null
+
+## Main-menu accordion (UI_AND_SHELL §1): 开始游戏 / 选项.
+const BRANCH_PLAY: String = "play"
+const BRANCH_SOLO: String = "solo"
+const BRANCH_ONLINE: String = "online"
+const BRANCH_OPTIONS: String = "options"
+var _branch_open: String = ""
+var _play_mode_open: String = ""
+var _branch_reveal: RefCounted = _BranchReveal.new() as RefCounted
+var _play_mode_reveal: RefCounted = _BranchReveal.new() as RefCounted
+var _tertiary_reveal: RefCounted = _BranchReveal.new() as RefCounted
+var _primary_btns: Dictionary = {} ## id -> Button (L1 + 开始游戏内单机/联机)
+var _secondary_hosts: Dictionary = {} ## id -> Control
+var _branch_rows: Dictionary = {} ## id -> Control (fixed L1 height; secondary overlays)
+var _btn_continue: Button
+var _btn_load: Button
+var _play_root: Control
+var _solo_host: Control
+var _online_host: Control
+var _online_chrome: Control
+var _options_host: Control
+var _play_host: Control
+var _load_tertiary_host: Control
+var _load_tertiary_open: bool = false
+var _history_tertiary_host: Control
+var _history_list: VBoxContainer
+var _history_tertiary_open: bool = false
+var _btn_history: Button
+var _history_reveal: RefCounted = _BranchReveal.new() as RefCounted
+## 1.0 = design pixels; shrink only when tertiary chain would leave the viewport.
+var _menu_fit_scale: float = 1.0
+## Semi-transparent gold plate — same family as menu_parallelogram_button gold.
+const _SECONDARY_BG := Color(0.48, 0.34, 0.10, 0.42)
+const _SECONDARY_BORDER := Color(0.92, 0.82, 0.45, 0.40)
+
+func _menu_design_bw() -> float:
+	return 160.0 if UiLayout.is_mobile() else 200.0
+
+func _menu_design_bh() -> float:
+	return 48.0 if UiLayout.is_mobile() else 56.0
+
+func _menu_design_host_w() -> float:
+	return 280.0 if UiLayout.is_mobile() else 360.0
+
+func _menu_design_tertiary_w() -> float:
+	return 420.0 if UiLayout.is_mobile() else 520.0
+
+func _menu_design_tertiary_h() -> float:
+	return 420.0 if UiLayout.is_mobile() else 520.0
+
+func _menu_design_gap() -> float:
+	return 100.0
+
+func _menu_design_l1_sep() -> float:
+	return 14.0 if UiLayout.is_mobile() else 20.0
+
+func _menu_design_font() -> int:
+	return 18 if UiLayout.is_mobile() else 22
+
+func _menu_px(design: float) -> float:
+	return design * _menu_fit_scale
+
+func _menu_font_px(design: int) -> int:
+	return maxi(10, roundi(float(design) * _menu_fit_scale))
+
+func _compute_menu_fit_scale() -> float:
+	## Fixed design pixels unless 读取存档 tertiary chain clips the viewport (UI_AND_SHELL §1).
+	var vp: Vector2 = UiLayout.viewport_size(self)
+	var edge: float = 8.0
+	var bw: float = _menu_design_bw()
+	var bh: float = _menu_design_bh()
+	var host_w: float = _menu_design_host_w()
+	var tw: float = _menu_design_tertiary_w()
+	var th: float = _menu_design_tertiary_h()
+	var gap: float = _menu_design_gap()
+	var sep: float = 8.0
+	var pad: float = 0.035 if UiLayout.is_mobile() else 0.038
+	var origin_x: float = vp.x * pad
+	var origin_y: float = vp.y * 0.16
+	if _btn_box != null and is_instance_valid(_btn_box) and _btn_box.is_inside_tree():
+		var g: Vector2 = _btn_box.global_position
+		if g.x > 1.0:
+			origin_x = g.x
+		if g.y > 1.0:
+			origin_y = g.y
+	## L1 chain: 开始游戏 + 单机钮 + 单机列 + 读档板.
+	var chain_w: float = bw + gap + bw + gap + host_w + gap + tw
+	var s: float = 1.0
+	var budget_w: float = maxf(vp.x - edge - origin_x, 1.0)
+	if chain_w > budget_w:
+		s = minf(s, budget_w / chain_w)
+	## 单机列第 4 钮为读档；再加一行「单机模式」在开始游戏二级内。
+	var load_y_off: float = bh + sep + 3.0 * (bh + sep)
+	var chain_h: float = load_y_off + th
+	var budget_h: float = maxf(vp.y - edge - origin_y, 1.0)
+	if chain_h > budget_h:
+		s = minf(s, budget_h / chain_h)
+	return clampf(s, 0.55, 1.0)
+
+func _relayout_solo_branch_link() -> void:
+	## 读档/历史滑钮：重铺「开始游戏→模式」与「模式→列」既有连线。
+	if _play_mode_reveal != null and _play_mode_reveal.has_method("relayout_open_link"):
+		_play_mode_reveal.call("relayout_open_link")
+	if _branch_reveal != null and _branch_reveal.has_method("relayout_open_link"):
+		_branch_reveal.call("relayout_open_link")
+
+func _on_play_mode_slide_step() -> void:
+	## 单机/联机右滑：拉长「开始游戏→该模式」白线。
+	if _branch_reveal != null and _branch_reveal.has_method("relayout_open_link"):
+		_branch_reveal.call("relayout_open_link")
+
+func _on_history_slide_step() -> void:
+	## 竖支线 X 锚未滑位；末段水平随滑拉长贴钮 — 须重铺一级→联机 mindmap。
+	_relayout_solo_branch_link()
+	if _history_tertiary_open:
+		_layout_history_tertiary()
+	if _history_reveal != null and _history_reveal.has_method("relayout_open_link"):
+		_history_reveal.call("relayout_open_link")
+
+func _on_history_reveal_finished() -> void:
+	## Wipe restore can leave chrome short — force full plate size again.
+	if _history_tertiary_open:
+		_layout_history_tertiary()
+		if _history_reveal != null and _history_reveal.has_method("relayout_open_link"):
+			_history_reveal.call("relayout_open_link")
 
 func _bgm() -> BgMusic:
 	var n: Variant = _BgMusic.call("instance")
@@ -76,20 +208,25 @@ func _ready() -> void:
 	MatchLoadOverlay.hide_overlay()
 	_bgm()
 	MatchSave.list_slots()  ## seed 旗舰测试 from last_match if needed
+	## L1「开始游戏」→单机/联机 mindmap；模式内读档/历史滑钮重铺上级连线。
+	(_tertiary_reveal as Object).set("on_slide_step", Callable(self, "_relayout_solo_branch_link"))
+	(_history_reveal as Object).set("on_slide_step", Callable(self, "_on_history_slide_step"))
+	(_history_reveal as Object).set("on_finished", Callable(self, "_on_history_reveal_finished"))
+	(_play_mode_reveal as Object).set("on_slide_step", Callable(self, "_on_play_mode_slide_step"))
 	_build()
 	_apply_adaptive_layout()
 	resized.connect(_apply_adaptive_layout)
-	Engine.max_fps = int(GameSession.target_fps)
+	Engine.max_fps = int((PlayerSettings.instance() as PlayerSettings).target_fps)
 	_start_announce_cycle()
 	SessionDiagnostics.log(
 		"boot.ready",
 		"shell=%s content=%s nomodel=%d fps_cap=%d breathe=%d soften=%d" % [
 			GameSession.shell_version,
 			DataStore.content_version,
-			1 if GameSession.no_model_perf_mode else 0,
-			int(GameSession.target_fps),
-			1 if GameSession.camera_breathe_enabled else 0,
-			1 if GameSession.player_citadel_soften else 0,
+			1 if (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode else 0,
+			int((PlayerSettings.instance() as PlayerSettings).target_fps),
+			1 if (PlayerSettings.instance() as PlayerSettings).camera_breathe_enabled else 0,
+			1 if (PlayerSettings.instance() as PlayerSettings).player_citadel_soften else 0,
 		]
 	)
 
@@ -114,6 +251,9 @@ func _build() -> void:
 
 	_col = Control.new()
 	_col.name = "Left"
+	_col.clip_contents = false
+	## Keep L1 above centered modals so primaries stay clickable (UI_AND_SHELL §1.0).
+	_col.z_index = 40
 	add_child(_col)
 
 	_title = Label.new()
@@ -126,31 +266,34 @@ func _build() -> void:
 
 	_btn_box = VBoxContainer.new()
 	_btn_box.name = "Buttons"
+	_btn_box.clip_contents = false
+	## Rows own hits; empty VBox must not steal from overflowing secondary hosts.
+	_btn_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_col.add_child(_btn_box)
 
-	_btn_box.add_child(_menu_btn("开始无尽模式", _on_endless))
-	_btn_box.add_child(_menu_btn("开始对战模式", _on_versus))
-	_btn_box.add_child(_menu_btn("多人联机对战", _on_nullsec_open))
-	var cont: Button = _menu_btn("继续上次对局", _on_continue)
-	cont.disabled = not MatchSave.exists() and not NullsecRejoinTicket.exists()
-	_btn_box.add_child(cont)
-	var load_btn: Button = _menu_btn("读取存档", _on_load_open)
-	load_btn.disabled = MatchSave.list_slots().is_empty() and not MatchSave.exists()
-	_btn_box.add_child(load_btn)
-	_btn_box.add_child(_menu_btn("选项", _on_options_open))
-	_btn_box.add_child(_menu_btn("退出游戏", _on_quit))
-	_btn_box.add_child(_menu_btn("关于我们", _on_about_open))
+	_nullsec_lobby = _LobbyPanel.new() as Control
+	(_nullsec_lobby as Object).connect("request_match_public", _on_nullsec_match_public)
+	(_nullsec_lobby as Object).connect("request_host_room", _on_nullsec_host_room)
+	(_nullsec_lobby as Object).connect("request_join_share", _on_nullsec_join_share)
+	(_nullsec_lobby as Object).connect("request_restore_room", _on_restore_room)
+
+	_add_branch_row(BRANCH_PLAY, "开始游戏", _build_play_secondary)
+	_add_branch_row(BRANCH_OPTIONS, "选项", _build_options_secondary)
 
 	_footer = VBoxContainer.new()
 	_footer.name = "Right"
+	## Footer frac (0.82–0.98) overlaps Buttons (…–0.88). Must IGNORE so 联机二级底钮
+	## (恢复房间 / 历史战绩) stay fully clickable under the声明/版本文字.
+	_footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_col.add_child(_footer)
 
 	var declare: Label = Label.new()
 	declare.name = "Declare"
 	declare.text = DECLARE_TEXT
 	declare.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	declare.add_theme_color_override("font_color", Color(0.92, 0.92, 0.92, 0.95))
-	declare.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	declare.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	declare.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+	declare.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_footer.add_child(declare)
 
 	var ver: Label = Label.new()
@@ -158,6 +301,7 @@ func _build() -> void:
 	## UI_AND_SHELL §1：玩家可见只显示内容热更版。
 	ver.text = "游戏版本:%s" % DataStore.content_version
 	ver.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ver.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ver.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 	ver.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	_footer.add_child(ver)
@@ -181,21 +325,561 @@ func _build() -> void:
 	add_child(_options)
 	_about = _build_about()
 	add_child(_about)
-	_load_panel = _build_load_panel()
-	add_child(_load_panel)
+	## Load list is tertiary under 单机; keep rename panel only.
 	_rename_panel = _build_rename_panel()
 	add_child(_rename_panel)
-	_nullsec_lobby = NullsecLobbyPopup.new()
-	_nullsec_lobby.visible = false
-	add_child(_nullsec_lobby)
-	_nullsec_lobby.request_match_public.connect(_on_nullsec_match_public)
-	_nullsec_lobby.request_host_room.connect(_on_nullsec_host_room)
-	_nullsec_lobby.request_history.connect(_on_nullsec_history)
-	_nullsec_lobby.request_join_share.connect(_on_nullsec_join_share)
+
+func _add_branch_row(id: String, primary_text: String, build_secondary: Callable, attach_to: Control = null) -> void:
+	## Plain Control row: L1 height only — secondary overlays beside without shifting peers.
+	## attach_to: nest under 开始游戏二级；null → `_btn_box` 一级行.
+	var row: Control = Control.new()
+	row.name = "Branch_%s" % id
+	row.clip_contents = false
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	if attach_to != null:
+		attach_to.add_child(row)
+	else:
+		_btn_box.add_child(row)
+	_branch_rows[id] = row
+	var primary_slot: Control = Control.new()
+	primary_slot.name = "PrimarySlot_%s" % id
+	primary_slot.custom_minimum_size = Vector2(160, 48)
+	primary_slot.position = Vector2.ZERO
+	primary_slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.add_child(primary_slot)
+	var is_play_mode: bool = id == BRANCH_SOLO or id == BRANCH_ONLINE
+	var primary: Button = _menu_btn(primary_text, func():
+		if is_play_mode:
+			_toggle_play_mode(id)
+		else:
+			_toggle_branch(id)
+	)
+	primary.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	primary.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	primary.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	primary_slot.add_child(primary)
+	_primary_btns[id] = primary
+	var host: Control = Control.new()
+	host.name = "Secondary_%s" % id
+	host.visible = false
+	host.clip_contents = true
+	## Above footer / later L1 rows when secondary overflows fixed L1 row height.
+	host.z_index = 10
+	host.z_as_relative = false
+	host.mouse_filter = Control.MOUSE_FILTER_STOP
+	host.custom_minimum_size = Vector2(180, 48)
+	row.add_child(host)
+	_secondary_hosts[id] = host
+	var content_v: Variant = build_secondary.call()
+	var content: Control = content_v as Control
+	if content:
+		content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		host.add_child(content)
+	match id:
+		BRANCH_PLAY:
+			_play_host = host
+			host.clip_contents = false
+		BRANCH_SOLO:
+			_solo_host = host
+			## Tertiary load can extend past secondary bounds.
+			host.clip_contents = false
+		BRANCH_ONLINE:
+			_online_host = host
+			host.clip_contents = false
+			_setup_history_tertiary()
+		BRANCH_OPTIONS:
+			_options_host = host
+
+func _build_play_secondary() -> Control:
+	## 开始游戏二级：单机/联机整树（UI_AND_SHELL §1.0）。
+	var root: Control = Control.new()
+	root.name = "PlaySecondaryRoot"
+	root.clip_contents = false
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_play_root = root
+	_add_branch_row(BRANCH_SOLO, "单机模式", _build_solo_secondary, root)
+	_add_branch_row(BRANCH_ONLINE, "联机模式", _build_online_secondary, root)
+	return root
+
+func _make_secondary_chrome(content: Control) -> Control:
+	## Axis-aligned semi-transparent gold rect — 联机二级 / 读取存档三级 / 历史战绩三级.
+	var root: Control = Control.new()
+	root.name = "SecondaryChrome"
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	var bg: Panel = Panel.new()
+	bg.name = "RectBackdrop"
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color = _SECONDARY_BG
+	sb.border_color = _SECONDARY_BORDER
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(4)
+	bg.add_theme_stylebox_override("panel", sb)
+	root.add_child(bg)
+	var pad: MarginContainer = MarginContainer.new()
+	pad.name = "Pad"
+	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var m: int = UiLayout.margin_px(10, self)
+	pad.add_theme_constant_override("margin_left", m)
+	pad.add_theme_constant_override("margin_right", m)
+	pad.add_theme_constant_override("margin_top", m)
+	pad.add_theme_constant_override("margin_bottom", m)
+	root.add_child(pad)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pad.add_child(content)
+	return root
+
+func _build_solo_secondary() -> Control:
+	var root: Control = Control.new()
+	root.name = "SoloSecondaryRoot"
+	root.clip_contents = false
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box: VBoxContainer = VBoxContainer.new()
+	box.name = "SoloBtns"
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 8)
+	root.add_child(box)
+	box.add_child(_menu_btn("开始无尽模式", _on_endless))
+	box.add_child(_menu_btn("开始对战模式", _on_versus))
+	_btn_continue = _menu_btn("继续上次对局", _on_continue)
+	_btn_continue.disabled = not _usable_local_last_match_exists()
+	box.add_child(_btn_continue)
+	_btn_load = _menu_btn("读取存档", _on_load_open)
+	_btn_load.disabled = MatchSave.list_slots().is_empty() and not MatchSave.exists()
+	box.add_child(_btn_load)
+	_load_tertiary_host = Control.new()
+	_load_tertiary_host.name = "LoadTertiary"
+	_load_tertiary_host.visible = false
+	_load_tertiary_host.clip_contents = true
+	_load_tertiary_host.z_index = 8
+	_load_tertiary_host.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(_load_tertiary_host)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.name = "LoadScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_load_list = VBoxContainer.new()
+	_load_list.name = "LoadList"
+	_load_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_load_list.add_theme_constant_override("separation", UiLayout.margin_px(6, self))
+	scroll.add_child(_load_list)
+	var list_chrome: Control = _make_secondary_chrome(scroll)
+	list_chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_load_tertiary_host.add_child(list_chrome)
+	return root
+
+func _build_online_secondary() -> Control:
+	## Root: chrome(lobby) + 历史钮 outside plate (UI_AND_SHELL §1.0).
+	var root: Control = Control.new()
+	root.name = "OnlineSecondaryRoot"
+	root.clip_contents = false
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_online_chrome = _make_secondary_chrome(_nullsec_lobby)
+	_online_chrome.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_online_chrome.anchor_right = 0.0
+	_online_chrome.anchor_bottom = 0.0
+	root.add_child(_online_chrome)
+	_btn_history = _menu_btn("多人联机历史战绩", _on_nullsec_history)
+	_btn_history.name = "HistoryOutside"
+	_btn_history.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(_btn_history)
+	return root
+
+func _build_options_secondary() -> Control:
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.add_child(_menu_btn("关于我们", _on_about_open))
+	box.add_child(_menu_btn("游戏设置", _on_options_open))
+	return box
+
+func _usable_local_last_match_exists() -> bool:
+	return not _usable_local_last_match().is_empty()
+
+func _close_menu_modals() -> void:
+	if _options:
+		_options.visible = false
+	if _about:
+		_about.visible = false
+	if _load_panel:
+		_load_panel.visible = false
+	if _rename_panel:
+		_rename_panel.visible = false
+	if _dev_panel:
+		_dev_panel.visible = false
+	## Transient AcceptDialog / ConfirmationDialog children (history, delete confirm).
+	for c: Node in get_children():
+		if c is AcceptDialog or c is ConfirmationDialog:
+			(c as Window).hide()
+			c.queue_free()
+
+func _dismiss_branch_for_modal() -> void:
+	_collapse_all_tertiaries()
+	_collapse_all_secondaries()
+	_branch_open = ""
+	_play_mode_open = ""
+
+func _toggle_branch(id: String) -> void:
+	_close_menu_modals()
+	_collapse_all_tertiaries()
+	_branch_reveal.call("abort")
+	_play_mode_reveal.call("abort")
+	if _branch_open == id:
+		_collapse_all_secondaries()
+		_branch_open = ""
+		_play_mode_open = ""
+		return
+	_collapse_all_secondaries()
+	_branch_open = id
+	_play_mode_open = ""
+	var host: Control = _secondary_hosts.get(id) as Control
+	var primary: Control = _primary_btns.get(id) as Control
+	if host == null or primary == null:
+		return
+	host.visible = true
+	_apply_branch_host_sizes()
+	await get_tree().process_frame
+	_apply_branch_host_sizes()
+	_branch_reveal.call("play", get_tree(), primary, host, _SECONDARY_BG)
+
+func _toggle_play_mode(id: String) -> void:
+	## Nested under 开始游戏 — solo/online accordion (UI_AND_SHELL §1.0).
+	if _branch_open != BRANCH_PLAY:
+		return
+	_close_menu_modals()
+	_collapse_all_tertiaries()
+	_play_mode_reveal.call("abort")
+	if _play_mode_open == id:
+		_collapse_play_mode_hosts()
+		_play_mode_open = ""
+		if _branch_reveal != null and _branch_reveal.has_method("relayout_open_link"):
+			_branch_reveal.call("relayout_open_link")
+		return
+	_collapse_play_mode_hosts()
+	_play_mode_open = id
+	var host: Control = _secondary_hosts.get(id) as Control
+	var primary: Control = _primary_btns.get(id) as Control
+	if host == null or primary == null:
+		return
+	host.visible = true
+	_apply_branch_host_sizes()
+	await get_tree().process_frame
+	_apply_branch_host_sizes()
+	if id == BRANCH_ONLINE and _nullsec_lobby and _nullsec_lobby.has_method("refresh_restore_enabled"):
+		_nullsec_lobby.call("refresh_restore_enabled")
+	_play_mode_reveal.call("play", get_tree(), primary, host, _SECONDARY_BG)
+
+func _collapse_play_mode_hosts() -> void:
+	for mid: String in [BRANCH_SOLO, BRANCH_ONLINE]:
+		var h: Control = _secondary_hosts.get(mid) as Control
+		if h:
+			h.visible = false
+		var p: Control = _primary_btns.get(mid) as Control
+		if p:
+			p.modulate = Color.WHITE
+			if p.has_method("set_slide_offset_px"):
+				p.call("set_slide_offset_px", 0.0)
+			if p.has_method("set_reveal_progress"):
+				p.call("set_reveal_progress", 1.0)
+
+func _collapse_tertiary_load() -> void:
+	_tertiary_reveal.call("abort")
+	_load_tertiary_open = false
+	if _load_tertiary_host:
+		_load_tertiary_host.visible = false
+	if _btn_load:
+		_btn_load.modulate = Color.WHITE
+		if _btn_load.has_method("set_slide_offset_px"):
+			_btn_load.call("set_slide_offset_px", 0.0)
+		if _btn_load.has_method("set_reveal_progress"):
+			_btn_load.call("set_reveal_progress", 1.0)
+	_relayout_solo_branch_link()
+
+func _collapse_history_tertiary() -> void:
+	_history_reveal.call("abort")
+	_history_tertiary_open = false
+	if _history_tertiary_host:
+		_history_tertiary_host.visible = false
+		_history_tertiary_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_history_tertiary_host.position = Vector2(-10000, -10000)
+		_history_tertiary_host.size = Vector2.ZERO
+		_history_tertiary_host.custom_minimum_size = Vector2.ZERO
+	if _btn_history:
+		_btn_history.z_index = 0
+		_btn_history.modulate = Color.WHITE
+		if _btn_history.has_method("set_slide_offset_px"):
+			_btn_history.call("set_slide_offset_px", 0.0)
+		if _btn_history.has_method("set_reveal_progress"):
+			_btn_history.call("set_reveal_progress", 1.0)
+	_relayout_solo_branch_link()
+
+func _collapse_all_tertiaries() -> void:
+	_collapse_tertiary_load()
+	_collapse_history_tertiary()
+
+func _collapse_all_secondaries() -> void:
+	_branch_reveal.call("abort")
+	_play_mode_reveal.call("abort")
+	_collapse_all_tertiaries()
+	_play_mode_open = ""
+	for k: Variant in _secondary_hosts.keys():
+		var h: Control = _secondary_hosts[k] as Control
+		if h:
+			h.visible = false
+	for k2: Variant in _primary_btns.keys():
+		var p: Control = _primary_btns[k2] as Control
+		if p:
+			p.modulate = Color.WHITE
+			if p.has_method("set_slide_offset_px"):
+				p.call("set_slide_offset_px", 0.0)
+			if p.has_method("set_reveal_progress"):
+				p.call("set_reveal_progress", 1.0)
+
+func _apply_branch_host_sizes() -> void:
+	var bh: float = _menu_px(_menu_design_bh())
+	var bw: float = _menu_px(_menu_design_bw())
+	var host_w: float = _menu_px(_menu_design_host_w())
+	var gap: float = _branch_secondary_gap()
+	var sep: float = _menu_px(8.0)
+	var pad: float = _menu_px(10.0) * 2.0
+	var host_h_solo: float = bh * 4.0 + sep * 3.0 + pad + 4.0
+	var host_h_opt: float = bh * 2.0 + sep + pad + 4.0
+	## Online width ×1.5 (UI_AND_SHELL §1.0). Chrome height = lobby; host adds框外历史钮.
+	var host_w_online: float = host_w * 1.5
+	var chrome_h_online: float = _menu_px(400.0 if UiLayout.is_mobile() else 460.0)
+	var l1_sep: int = maxi(4, roundi(_menu_px(_menu_design_l1_sep())))
+	if _nullsec_lobby and _nullsec_lobby.has_method("apply_layout_metrics"):
+		_nullsec_lobby.call("apply_layout_metrics", bh, l1_sep)
+	if _nullsec_lobby and _nullsec_lobby.has_method("content_min_size"):
+		var cm: Vector2 = _nullsec_lobby.call("content_min_size") as Vector2
+		if cm.y > 1.0:
+			chrome_h_online = maxf(cm.y + pad + 4.0, chrome_h_online * 0.5)
+			host_w_online = maxf(host_w_online, maxf(cm.x * 1.5, cm.x + pad))
+	var host_h_online: float = chrome_h_online + float(l1_sep) + bh
+	var mode_col_w: float = bw
+	var mode_content_w: float = 0.0
+	var mode_content_h: float = 0.0
+	if _play_mode_open == BRANCH_SOLO:
+		mode_content_w = host_w
+		mode_content_h = host_h_solo
+	elif _play_mode_open == BRANCH_ONLINE:
+		mode_content_w = host_w_online
+		mode_content_h = host_h_online
+	var play_inner_w: float = mode_col_w + (gap + mode_content_w if mode_content_w > 1.0 else 0.0)
+	var play_modes_h: float = bh * 2.0 + float(l1_sep)
+	var play_h: float = maxf(play_modes_h, float(l1_sep) + bh + mode_content_h)
+	## Row height locked to L1 — secondary overlays and must not shove peers.
+	for id_v: Variant in _branch_rows.keys():
+		var id: String = str(id_v)
+		var row: Control = _branch_rows[id] as Control
+		var host: Control = _secondary_hosts.get(id) as Control
+		var primary: Control = _primary_btns.get(id) as Control
+		if row == null:
+			continue
+		var hw: float = host_w
+		var hh: float = bh
+		var row_w: float = bw + gap + hw
+		if id == BRANCH_PLAY:
+			hw = play_inner_w
+			hh = play_h
+			row_w = bw + gap + hw
+		elif id == BRANCH_SOLO:
+			hw = host_w
+			hh = host_h_solo
+			row_w = bw + gap + hw
+		elif id == BRANCH_ONLINE:
+			hw = host_w_online
+			hh = host_h_online
+			row_w = bw + gap + hw
+		elif id == BRANCH_OPTIONS:
+			hw = host_w * 0.75
+			hh = host_h_opt
+			row_w = bw + gap + hw
+		row.custom_minimum_size = Vector2(row_w, bh)
+		row.size = Vector2(maxi(row.size.x, row_w), bh)
+		if primary:
+			var slot: Control = primary.get_parent() as Control
+			if slot:
+				slot.position = Vector2.ZERO
+				slot.size = Vector2(bw, bh)
+				slot.custom_minimum_size = Vector2(bw, bh)
+			var slide_keep: float = 0.0
+			if primary.get("slide_offset_px") != null:
+				slide_keep = float(primary.get("slide_offset_px"))
+			primary.custom_minimum_size = Vector2(bw, bh)
+			primary.size = Vector2(bw, bh)
+			if id == BRANCH_SOLO or id == BRANCH_ONLINE:
+				primary.position = Vector2(slide_keep, primary.position.y)
+		if host:
+			host.position = Vector2(bw + gap, 0.0)
+			host.custom_minimum_size = Vector2(hw, hh)
+			host.size = Vector2(hw, hh)
+		if id == BRANCH_ONLINE:
+			_layout_online_outside_history(hw, chrome_h_online, float(l1_sep), bh)
+	## Nest 单机/联机 rows inside 开始游戏 secondary root.
+	if _play_root != null and is_instance_valid(_play_root):
+		var solo_row: Control = _branch_rows.get(BRANCH_SOLO) as Control
+		var online_row: Control = _branch_rows.get(BRANCH_ONLINE) as Control
+		if solo_row:
+			solo_row.position = Vector2.ZERO
+			solo_row.size = Vector2(play_inner_w, bh)
+		if online_row:
+			online_row.position = Vector2(0.0, bh + float(l1_sep))
+			online_row.size = Vector2(play_inner_w, bh)
+	var solo_btns: Node = _solo_host.find_child("SoloBtns", true, false) if _solo_host else null
+	if solo_btns is VBoxContainer:
+		(solo_btns as VBoxContainer).add_theme_constant_override("separation", maxi(4, roundi(sep)))
+	if _options_host:
+		for ch: Node in _options_host.get_children():
+			if ch is VBoxContainer:
+				(ch as VBoxContainer).add_theme_constant_override("separation", maxi(4, roundi(sep)))
+	_layout_load_tertiary()
+	_layout_history_tertiary()
+	if _branch_reveal != null and _branch_reveal.has_method("relayout_open_link"):
+		_branch_reveal.call("relayout_open_link")
+	if _play_mode_reveal != null and _play_mode_reveal.has_method("relayout_open_link"):
+		_play_mode_reveal.call("relayout_open_link")
+	if _tertiary_reveal != null and _tertiary_reveal.has_method("relayout_open_link"):
+		_tertiary_reveal.call("relayout_open_link")
+	if _history_reveal != null and _history_reveal.has_method("relayout_open_link"):
+		_history_reveal.call("relayout_open_link")
+
+func _branch_secondary_gap() -> float:
+	## L1→二级外框 / 读取存档→三级外框 同一间距（UI_AND_SHELL §1.0a）.
+	return _menu_px(_menu_design_gap())
+
+func _layout_online_outside_history(hw: float, chrome_h: float, hist_gap: float, bh: float) -> void:
+	## Chrome fills top; 历史钮 below plate with L1 row gap (outside底框).
+	if _online_chrome != null and is_instance_valid(_online_chrome):
+		_online_chrome.position = Vector2.ZERO
+		_online_chrome.custom_minimum_size = Vector2(hw, chrome_h)
+		_online_chrome.size = Vector2(hw, chrome_h)
+	if _btn_history != null and is_instance_valid(_btn_history):
+		var slide_x: float = 0.0
+		if _btn_history.get("slide_offset_px") != null:
+			slide_x = float(_btn_history.get("slide_offset_px"))
+		_btn_history.custom_minimum_size = Vector2(hw, bh)
+		_btn_history.size = Vector2(hw, bh)
+		_btn_history.position = Vector2(slide_x, chrome_h + hist_gap)
+
+func _layout_load_tertiary() -> void:
+	if _load_tertiary_host == null or _btn_load == null:
+		return
+	var parent: Control = _load_tertiary_host.get_parent() as Control
+	if parent == null:
+		return
+	var gap: float = _branch_secondary_gap()
+	var tw: float = _menu_px(_menu_design_tertiary_w())
+	var th: float = _menu_px(_menu_design_tertiary_h())
+	## Place from un-slid button AABB + gap — same model as L1 host at bw+gap
+	## (button slide then eats into gap, matching 联机模式→外框净距).
+	var slide: float = 0.0
+	if _btn_load.get("slide_offset_px") != null:
+		slide = float(_btn_load.get("slide_offset_px"))
+	var local: Vector2 = parent.get_global_transform_with_canvas().affine_inverse() * _btn_load.global_position
+	local.x -= slide
+	_load_tertiary_host.position = Vector2(local.x + _btn_load.size.x + gap, local.y)
+	_load_tertiary_host.custom_minimum_size = Vector2(tw, th)
+	_load_tertiary_host.size = Vector2(tw, th)
+	if _load_list:
+		## Force row width so long name buttons fill the plate.
+		_load_list.custom_minimum_size = Vector2(maxf(tw - _menu_px(36.0), 200.0 * _menu_fit_scale), 0.0)
+
+func _setup_history_tertiary() -> void:
+	## History tertiary — chrome + scroll. Parent = MainMenu so z/hit never covers 联机二级钮.
+	## _btn_history is created in _build_online_secondary (outside plate).
+	_history_tertiary_host = Control.new()
+	_history_tertiary_host.name = "HistoryTertiary"
+	_history_tertiary_host.visible = false
+	## Scroll clips list; host must not clip chrome border (bottom frame was vanishing).
+	_history_tertiary_host.clip_contents = false
+	_history_tertiary_host.z_index = 50
+	_history_tertiary_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_history_tertiary_host.position = Vector2(-10000, -10000)
+	_history_tertiary_host.size = Vector2.ZERO
+	add_child(_history_tertiary_host)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.name = "HistoryScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_history_list = VBoxContainer.new()
+	_history_list.name = "HistoryList"
+	_history_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_history_list.add_theme_constant_override("separation", maxi(4, roundi(_menu_px(6.0))))
+	scroll.add_child(_history_list)
+	var list_chrome: Control = _make_secondary_chrome(scroll)
+	list_chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_history_tertiary_host.add_child(list_chrome)
+
+func _layout_history_tertiary() -> void:
+	if _history_tertiary_host == null or _btn_history == null or _online_host == null:
+		return
+	if not _history_tertiary_open:
+		_history_tertiary_host.visible = false
+		_history_tertiary_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_history_tertiary_host.position = Vector2(-10000, -10000)
+		_history_tertiary_host.size = Vector2.ZERO
+		_history_tertiary_host.custom_minimum_size = Vector2.ZERO
+		return
+	var gap: float = _branch_secondary_gap()
+	var tw: float = _menu_px(_menu_design_tertiary_w())
+	var th: float = _menu_px(_menu_design_tertiary_h())
+	var inv := get_global_transform_with_canvas().affine_inverse()
+	var btn_tl: Vector2 = inv * (_btn_history.get_global_transform_with_canvas() * Vector2.ZERO)
+	var slide: float = 0.0
+	if _btn_history.get("slide_offset_px") != null:
+		slide = float(_btn_history.get("slide_offset_px"))
+	## Rest (un-slid) for gap; slide_reserve keeps plate clear of sliding face.
+	btn_tl.x -= slide
+	var slide_reserve: float = maxf(_btn_history.size.x, 1.0) * 0.25
+	var x: float = btn_tl.x + _btn_history.size.x + gap + slide_reserve
+	var btn_bottom: float = btn_tl.y + _btn_history.size.y
+	var margin: float = 8.0
+	var vp: Vector2 = size
+	if vp.x < 2.0 or vp.y < 2.0:
+		vp = UiLayout.viewport_size(self)
+	var max_h: float = maxf(160.0, vp.y - margin * 2.0)
+	th = minf(th, max_h)
+	## Bottom-align tertiary plate to 历史钮 bottom (UI_AND_SHELL §1.0).
+	var y: float = btn_bottom - th
+	if y < margin:
+		th = minf(th, maxf(160.0, btn_bottom - margin))
+		y = btn_bottom - th
+	var max_w: float = maxf(160.0, vp.x - margin * 2.0)
+	tw = minf(tw, max_w)
+	x = clampf(x, margin, maxf(margin, vp.x - tw - margin))
+	if y + th > vp.y - margin:
+		y = maxf(margin, vp.y - th - margin)
+	else:
+		y = maxf(y, margin)
+	_history_tertiary_host.position = Vector2(x, y)
+	_history_tertiary_host.custom_minimum_size = Vector2(tw, th)
+	_history_tertiary_host.size = Vector2(tw, th)
+	_history_tertiary_host.mouse_filter = Control.MOUSE_FILTER_STOP
+	for ch: Node in _history_tertiary_host.get_children():
+		if ch is Control and not str(ch.name).begins_with("BranchReveal"):
+			var c: Control = ch as Control
+			c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			c.position = Vector2.ZERO
+			c.size = Vector2(tw, th)
+			break
+	if _history_list:
+		_history_list.custom_minimum_size = Vector2(maxf(tw - _menu_px(36.0), 200.0 * _menu_fit_scale), 0.0)
 
 func _apply_adaptive_layout() -> void:
 	var pad: float = 0.035 if UiLayout.is_mobile() else 0.038
-	var col_w: float = 0.38 if UiLayout.is_mobile() else 0.42
+	## Wider left column so secondary wipe fits beside primaries.
+	var col_w: float = 0.72 if UiLayout.is_mobile() else 0.62
+	if _col:
+		_col.clip_contents = false
 	UiLayout.set_rect_frac(_col, 0.0, 0.0, col_w, 1.0)
 
 	# Title band ~ top 4%–11%
@@ -203,18 +887,27 @@ func _apply_adaptive_layout() -> void:
 	UiAssets.apply_label_font(_title, true, UiLayout.font_size(36, self))
 	_title.add_theme_constant_override("outline_size", UiLayout.margin_px(6, self))
 
-	# Buttons: middle of left column
+	# Buttons: wider when secondary may open (left column + wipe area)
 	var btn_left: float = pad / col_w
-	var btn_w: float = 0.55 if UiLayout.is_mobile() else 0.48
-	UiLayout.set_rect_frac(_btn_box, btn_left, 0.22, btn_left + btn_w, 0.78)
-	_btn_box.add_theme_constant_override("separation", UiLayout.margin_px(18 if UiLayout.is_mobile() else 28, self))
-	var bh: float = UiLayout.px(48 if UiLayout.is_mobile() else 56, self)
-	var bw: float = UiLayout.px(160 if UiLayout.is_mobile() else 200, self)
-	var bfs: int = UiLayout.font_size(18 if UiLayout.is_mobile() else 22, self)
-	for c: Node in _btn_box.get_children():
-		if c is Button:
-			(c as Button).custom_minimum_size = Vector2(bw, bh)
-			UiAssets.apply_button_font(c as Button, bfs)
+	var btn_w: float = 0.92 if UiLayout.is_mobile() else 0.95
+	UiLayout.set_rect_frac(_btn_box, btn_left, 0.16, minf(btn_left + btn_w, 0.98), 0.88)
+	## Fixed design px for menu chrome; shrink only if tertiary would clip.
+	_menu_fit_scale = _compute_menu_fit_scale()
+	_btn_box.add_theme_constant_override("separation", maxi(4, roundi(_menu_px(_menu_design_l1_sep()))))
+	var bh: float = _menu_px(_menu_design_bh())
+	var bw: float = _menu_px(_menu_design_bw())
+	var bfs: int = _menu_font_px(_menu_design_font())
+	_size_menu_buttons(_btn_box, bw, bh, bfs)
+	for k: Variant in _primary_btns.keys():
+		var primary: Button = _primary_btns[k] as Button
+		if primary:
+			primary.custom_minimum_size = Vector2(bw, bh)
+			primary.size = Vector2(bw, bh)
+		var slot: Node = primary.get_parent() if primary else null
+		if slot is Control:
+			(slot as Control).custom_minimum_size = Vector2(bw, bh)
+			(slot as Control).size = Vector2(bw, bh)
+	_apply_branch_host_sizes()
 
 	# Footer bottom of column
 	UiLayout.set_rect_frac(_footer, pad / col_w, 0.82, 0.96, 0.98)
@@ -222,11 +915,15 @@ func _apply_adaptive_layout() -> void:
 	var declare: Label = _footer.get_node_or_null("Declare") as Label
 	if declare:
 		UiAssets.apply_label_font(declare, false, UiLayout.font_size(12, self))
+		declare.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		declare.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		declare.add_theme_constant_override("outline_size", UiLayout.margin_px(2, self))
 	var ver: Label = _footer.get_node_or_null("VersionLabel") as Label
 	if ver:
 		ver.text = "游戏版本:%s" % DataStore.content_version
 		UiAssets.apply_label_font(ver, false, UiLayout.font_size(13, self))
+		ver.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		ver.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		ver.add_theme_constant_override("outline_size", UiLayout.margin_px(2, self))
 
 	# Announcements: bottom-right ~28%×18%
@@ -248,24 +945,27 @@ func _apply_adaptive_layout() -> void:
 	if _dev_panel:
 		UiLayout.set_center_panel_frac(_dev_panel, 0.78 if UiLayout.is_mobile() else 0.52, 0.52 if UiLayout.is_mobile() else 0.46)
 
+func _size_menu_buttons(n: Node, bw: float, bh: float, bfs: int) -> void:
+	if n is Button:
+		var b: Button = n as Button
+		var is_primary: bool = false
+		for k: Variant in _primary_btns.keys():
+			if _primary_btns[k] == b:
+				is_primary = true
+				break
+		if is_primary:
+			b.custom_minimum_size = Vector2(bw, bh)
+			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		else:
+			b.custom_minimum_size = Vector2(bw, bh)
+		UiAssets.apply_button_font(b, bfs)
+	for c: Node in n.get_children():
+		_size_menu_buttons(c, bw, bh, bfs)
+
 func _menu_btn(text: String, cb: Callable) -> Button:
-	var b: Button = Button.new()
+	var b: Button = _ParaBtn.new() as Button
 	b.text = text
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_color_override("font_color", Color(1, 1, 1, 1))
-	b.add_theme_color_override("font_hover_color", Color(1.0, 0.92, 0.55, 1))
-	b.add_theme_color_override("font_pressed_color", Color(0.85, 0.75, 0.4, 1))
-	var normal: StyleBoxFlat = StyleBoxFlat.new()
-	normal.bg_color = Color(0.12, 0.14, 0.18, 0.82)
-	normal.set_corner_radius_all(3)
-	normal.set_content_margin_all(8)
-	var hover: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	hover.bg_color = Color(0.22, 0.26, 0.34, 0.92)
-	var pressed: StyleBoxFlat = normal.duplicate() as StyleBoxFlat
-	pressed.bg_color = Color(0.08, 0.1, 0.14, 0.95)
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", pressed)
 	b.pressed.connect(cb)
 	return b
 
@@ -297,13 +997,13 @@ func _build_options() -> Control:
 	_fps_slider.min_value = 30
 	_fps_slider.max_value = 240
 	_fps_slider.step = 1
-	_fps_slider.value = GameSession.target_fps
+	_fps_slider.value = (PlayerSettings.instance() as PlayerSettings).target_fps
 	_fps_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fps_slider.value_changed.connect(_on_fps_changed)
 	row.add_child(_fps_slider)
 	_fps_lbl = Label.new()
 	_fps_lbl.custom_minimum_size = Vector2(UiLayout.px(40, self), 0)
-	_fps_lbl.text = str(int(GameSession.target_fps))
+	_fps_lbl.text = str(int((PlayerSettings.instance() as PlayerSettings).target_fps))
 	UiAssets.apply_label_font(_fps_lbl, false, UiLayout.font_size(16, self))
 	row.add_child(_fps_lbl)
 	box.add_child(row)
@@ -323,7 +1023,7 @@ func _build_options() -> Control:
 	nomodel_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
 	var nomodel: CheckBox = CheckBox.new()
 	nomodel.text = "无模型性能模式（亦关血条特效）"
-	nomodel.button_pressed = GameSession.no_model_perf_mode
+	nomodel.button_pressed = (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode
 	UiAssets.apply_button_font(nomodel, UiLayout.font_size(16, self))
 	nomodel.toggled.connect(_on_no_model_toggled)
 	nomodel_row.add_child(nomodel)
@@ -334,7 +1034,7 @@ func _build_options() -> Control:
 	var fx_simple: CheckBox = CheckBox.new()
 	fx_simple.text = "装备与武器特效简化"
 	fx_simple.tooltip_text = "关闭=正常特效（与预览同套）；开启=色块束/单球加农/直线导弹"
-	fx_simple.button_pressed = GameSession.weapon_fx_simplified
+	fx_simple.button_pressed = (PlayerSettings.instance() as PlayerSettings).weapon_fx_simplified
 	UiAssets.apply_button_font(fx_simple, UiLayout.font_size(16, self))
 	fx_simple.toggled.connect(_on_weapon_fx_simplified_toggled)
 	fx_simple_row.add_child(fx_simple)
@@ -344,11 +1044,21 @@ func _build_options() -> Control:
 	breathe_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
 	var breathe: CheckBox = CheckBox.new()
 	breathe.text = "镜头呼吸浮动"
-	breathe.button_pressed = GameSession.camera_breathe_enabled
+	breathe.button_pressed = (PlayerSettings.instance() as PlayerSettings).camera_breathe_enabled
 	UiAssets.apply_button_font(breathe, UiLayout.font_size(16, self))
 	breathe.toggled.connect(_on_camera_breathe_toggled)
 	breathe_row.add_child(breathe)
 	box.add_child(breathe_row)
+
+	var hp_vis_row: HBoxContainer = HBoxContainer.new()
+	var hp_vis: CheckBox = CheckBox.new()
+	hp_vis.text = "显示血条"
+	hp_vis.tooltip_text = "关闭后隐藏盾/甲/结构/电量几何；吨位章与装备格仍显示"
+	hp_vis.button_pressed = (PlayerSettings.instance() as PlayerSettings).health_bar_visible
+	UiAssets.apply_button_font(hp_vis, UiLayout.font_size(16, self))
+	hp_vis.toggled.connect(_on_health_bar_visible_toggled)
+	hp_vis_row.add_child(hp_vis)
+	box.add_child(hp_vis_row)
 
 	var hp_row: HBoxContainer = HBoxContainer.new()
 	hp_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
@@ -359,7 +1069,7 @@ func _build_options() -> Control:
 	var hp_opt: OptionButton = OptionButton.new()
 	hp_opt.add_item("环形血量展示", 0)
 	hp_opt.add_item("四条血量展示", 1)
-	var bars_on: bool = str(GameSession.get("health_bar_style")) == "bars"
+	var bars_on: bool = PlayerSettings.get_or_null() != null and PlayerSettings.get_or_null().health_bar_style == "bars"
 	hp_opt.select(1 if bars_on else 0)
 	UiAssets.apply_button_font(hp_opt, UiLayout.font_size(16, self))
 	hp_opt.item_selected.connect(_on_health_bar_style_selected)
@@ -386,6 +1096,38 @@ func _build_options() -> Control:
 	UiAssets.apply_label_font(_bgm_lbl, false, UiLayout.font_size(16, self))
 	bgm_vol_row.add_child(_bgm_lbl)
 	box.add_child(bgm_vol_row)
+
+	var ps_audio: PlayerSettings = PlayerSettings.get_or_null()
+	var sfx_on_row: HBoxContainer = HBoxContainer.new()
+	sfx_on_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	_sfx_check = CheckBox.new()
+	_sfx_check.text = "音效"
+	_sfx_check.button_pressed = ps_audio.sfx_enabled if ps_audio else true
+	UiAssets.apply_button_font(_sfx_check, UiLayout.font_size(16, self))
+	_sfx_check.toggled.connect(_on_sfx_toggled)
+	sfx_on_row.add_child(_sfx_check)
+	box.add_child(sfx_on_row)
+
+	var sfx_vol_row: HBoxContainer = HBoxContainer.new()
+	sfx_vol_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var sfx_cap: Label = Label.new()
+	sfx_cap.text = "音效音量"
+	UiAssets.apply_label_font(sfx_cap, false, UiLayout.font_size(16, self))
+	sfx_vol_row.add_child(sfx_cap)
+	_sfx_slider = HSlider.new()
+	_sfx_slider.min_value = 0
+	_sfx_slider.max_value = 100
+	_sfx_slider.step = 1
+	_sfx_slider.value = ps_audio.sfx_volume_pct if ps_audio else 80.0
+	_sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sfx_slider.value_changed.connect(_on_sfx_volume_changed)
+	sfx_vol_row.add_child(_sfx_slider)
+	_sfx_lbl = Label.new()
+	_sfx_lbl.custom_minimum_size = Vector2(UiLayout.px(40, self), 0)
+	_sfx_lbl.text = str(int(_sfx_slider.value))
+	UiAssets.apply_label_font(_sfx_lbl, false, UiLayout.font_size(16, self))
+	sfx_vol_row.add_child(_sfx_lbl)
+	box.add_child(sfx_vol_row)
 
 	var export_btn: Button = Button.new()
 	export_btn.text = "导出 debug 日志"
@@ -447,31 +1189,31 @@ func _build_developer_debug_panel() -> Control:
 
 	_dev_master_check = CheckBox.new()
 	_dev_master_check.text = "启用开发者调试"
-	_dev_master_check.button_pressed = GameSession.developer_debug_enabled
+	_dev_master_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_master_check, UiLayout.font_size(16, self))
 	_dev_master_check.toggled.connect(_on_dev_master_toggled)
 	box.add_child(_dev_master_check)
 
 	_dev_soften_check = CheckBox.new()
 	_dev_soften_check.text = "我方扣血软化（失败惩罚减为 1）"
-	_dev_soften_check.button_pressed = GameSession.player_citadel_soften
-	_dev_soften_check.disabled = not GameSession.developer_debug_enabled
+	_dev_soften_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).player_citadel_soften
+	_dev_soften_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_soften_check, UiLayout.font_size(16, self))
 	_dev_soften_check.toggled.connect(_on_dev_soften_toggled)
 	box.add_child(_dev_soften_check)
 
 	_dev_economy_check = CheckBox.new()
 	_dev_economy_check.text = "人机双倍经济（我方战斗收入×同人机）"
-	_dev_economy_check.button_pressed = GameSession.player_ai_double_economy
-	_dev_economy_check.disabled = not GameSession.developer_debug_enabled
+	_dev_economy_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).player_ai_double_economy
+	_dev_economy_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_economy_check, UiLayout.font_size(16, self))
 	_dev_economy_check.toggled.connect(_on_dev_economy_toggled)
 	box.add_child(_dev_economy_check)
 
 	_dev_enemy_layout_check = CheckBox.new()
 	_dev_enemy_layout_check.text = "敌方布局调整许可（暂停时可拖敌方单位）"
-	_dev_enemy_layout_check.button_pressed = GameSession.enemy_layout_adjust
-	_dev_enemy_layout_check.disabled = not GameSession.developer_debug_enabled
+	_dev_enemy_layout_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust
+	_dev_enemy_layout_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_enemy_layout_check, UiLayout.font_size(16, self))
 	_dev_enemy_layout_check.toggled.connect(_on_dev_enemy_layout_toggled)
 	box.add_child(_dev_enemy_layout_check)
@@ -479,7 +1221,7 @@ func _build_developer_debug_panel() -> Control:
 	_dev_ship_data_btn = Button.new()
 	_dev_ship_data_btn.text = "全舰船装备数据调整"
 	_dev_ship_data_btn.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
-	_dev_ship_data_btn.disabled = not GameSession.developer_debug_enabled
+	_dev_ship_data_btn.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_ship_data_btn, UiLayout.font_size(16, self))
 	_dev_ship_data_btn.pressed.connect(_on_dev_ship_data_open)
 	box.add_child(_dev_ship_data_btn)
@@ -582,35 +1324,50 @@ func _start_announce_cycle() -> void:
 
 func _on_fps_changed(v: float) -> void:
 	if GameSession.has_method("set_target_fps"):
-		GameSession.set_target_fps(int(v))
+		(PlayerSettings.instance() as PlayerSettings).set_target_fps(int(v))
 	else:
-		GameSession.target_fps = int(v)
-		Engine.max_fps = GameSession.target_fps
-		GameSession.save_settings()
+		(PlayerSettings.instance() as PlayerSettings).target_fps = int(v)
+		Engine.max_fps = (PlayerSettings.instance() as PlayerSettings).target_fps
+		(PlayerSettings.instance() as PlayerSettings).save_settings()
 	if _fps_lbl:
-		_fps_lbl.text = str(GameSession.target_fps)
+		_fps_lbl.text = str((PlayerSettings.instance() as PlayerSettings).target_fps)
 
 func _on_no_model_toggled(on: bool) -> void:
-	GameSession.set_no_model_perf_mode(on)
+	(PlayerSettings.instance() as PlayerSettings).set_no_model_perf_mode(on)
 
 func _on_weapon_fx_simplified_toggled(on: bool) -> void:
-	GameSession.set_weapon_fx_simplified(on)
+	(PlayerSettings.instance() as PlayerSettings).set_weapon_fx_simplified(on)
 
 func _on_camera_breathe_toggled(on: bool) -> void:
-	GameSession.set_camera_breathe_enabled(on)
+	(PlayerSettings.instance() as PlayerSettings).set_camera_breathe_enabled(on)
+
+func _on_health_bar_visible_toggled(on: bool) -> void:
+	if GameSession.has_method("set_health_bar_visible"):
+		(PlayerSettings.instance() as PlayerSettings).set_health_bar_visible(on)
+	else:
+		GameSession.set("health_bar_visible", on)
+		if GameSession.has_method("save_settings"):
+			(PlayerSettings.instance() as PlayerSettings).save_settings()
+		get_tree().call_group("match_root", "refresh_all_ship_health_bars")
 
 func _on_health_bar_style_selected(idx: int) -> void:
 	var style: String = "bars" if idx == 1 else "ring"
 	if GameSession.has_method("set_health_bar_style"):
-		GameSession.set_health_bar_style(style)
+		(PlayerSettings.instance() as PlayerSettings).set_health_bar_style(style)
 	else:
 		GameSession.set("health_bar_style", style)
 		if GameSession.has_method("save_settings"):
-			GameSession.save_settings()
+			(PlayerSettings.instance() as PlayerSettings).save_settings()
 	get_tree().call_group("match_root", "rebuild_all_ship_health_bars")
 
 func _on_nullsec_open() -> void:
-	_nullsec_lobby.popup_centered(Vector2(720, 420))
+	await _ensure_play_mode_open(BRANCH_ONLINE)
+
+func _ensure_play_mode_open(mode_id: String) -> void:
+	if _branch_open != BRANCH_PLAY:
+		await _toggle_branch(BRANCH_PLAY)
+	if _play_mode_open != mode_id:
+		await _toggle_play_mode(mode_id)
 
 func _ensure_nullsec_net() -> NullsecNetSession:
 	if GameSession:
@@ -644,7 +1401,23 @@ func _show_nullsec_room() -> void:
 	_nullsec_room.leave_room.connect(_on_nullsec_leave)
 	_nullsec_room.start_match.connect(_on_nullsec_start_match)
 	add_child(_nullsec_room)
-	_nullsec_lobby.hide()
+	_collapse_all_secondaries()
+	_branch_open = ""
+	_play_mode_open = ""
+	_set_main_menu_chrome_for_nullsec_room(true)
+
+
+func _set_main_menu_chrome_for_nullsec_room(in_room: bool) -> void:
+	## UI_AND_SHELL / MATCH_FLOW: room covers accordion; keep bottom-right announce on top.
+	if _col:
+		_col.visible = not in_room
+	if _announce:
+		if in_room:
+			_announce.z_index = 90
+			_announce.z_as_relative = false
+		else:
+			_announce.z_index = 8
+
 
 func _on_nullsec_leave() -> void:
 	MatchLoadOverlay.hide_overlay()
@@ -656,6 +1429,7 @@ func _on_nullsec_leave() -> void:
 	if _nullsec_room:
 		_nullsec_room.queue_free()
 		_nullsec_room = null
+	_set_main_menu_chrome_for_nullsec_room(false)
 
 
 func _on_nullsec_kicked() -> void:
@@ -666,9 +1440,10 @@ func _on_nullsec_kicked() -> void:
 	if _nullsec_room:
 		_nullsec_room.queue_free()
 		_nullsec_room = null
+	_set_main_menu_chrome_for_nullsec_room(false)
 	if _nullsec_lobby and is_instance_valid(_nullsec_lobby):
 		_nullsec_lobby.set_status("你已被踢出房间")
-		_nullsec_lobby.show()
+		await _ensure_play_mode_open(BRANCH_ONLINE)
 
 func _on_nullsec_start_match(assignments: Dictionary) -> void:
 	var net: NullsecNetSession = _ensure_nullsec_net()
@@ -756,7 +1531,7 @@ func _nullsec_match_public_run() -> void:
 	for rv: Variant in rooms:
 		if typeof(rv) != TYPE_DICTIONARY:
 			continue
-		var rd: Dictionary = rv
+		var rd: Dictionary = TypedVariant.as_dict(rv)
 		if room_log_n < 12:
 			LanJoinDebug.log_room(rd, room_log_n)
 			SessionDiagnostics.log(
@@ -807,7 +1582,7 @@ func _nullsec_match_public_run() -> void:
 	for pick: Variant in candidates:
 		if typeof(pick) != TYPE_DICTIONARY:
 			continue
-		var d: Dictionary = pick
+		var d: Dictionary = TypedVariant.as_dict(pick)
 		var code: int = TypedVariant.as_int(d.get("code", 0), 0)
 		var ip: String = str(d.get("ip", "")).strip_edges()
 		var port: int = TypedVariant.as_int(d.get("port", NullsecNetSession.port_for_code(code)), NullsecNetSession.port_for_code(code))
@@ -932,7 +1707,7 @@ func _on_nullsec_host_room(password: String = "") -> void:
 	var taken: Dictionary = {}
 	for r: Variant in rooms:
 		if typeof(r) == TYPE_DICTIONARY:
-			var rd: Dictionary = r
+			var rd: Dictionary = TypedVariant.as_dict(r)
 			taken[TypedVariant.as_int(rd.get("code", 0), 0)] = true
 	var rules: String = MatchRng.compute_rules_hash()
 	var net: NullsecNetSession = _ensure_nullsec_net()
@@ -1001,7 +1776,7 @@ func _on_nullsec_join_full_share(blob: String) -> void:
 		for r: Variant in rooms:
 			if typeof(r) != TYPE_DICTIONARY:
 				continue
-			var d: Dictionary = r
+			var d: Dictionary = TypedVariant.as_dict(r)
 			if TypedVariant.as_int(d.get("code", 0), 0) != room_code:
 				continue
 			LanJoinDebug.log_room(d, lan_i)
@@ -1048,7 +1823,7 @@ func _on_nullsec_join_full_share(blob: String) -> void:
 	for e: Variant in endpoints:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
-		var ep: Dictionary = e
+		var ep: Dictionary = TypedVariant.as_dict(e)
 		var key: String = "%s:%d" % [str(ep.get("ip", "")), TypedVariant.as_int(ep.get("port", 0), 0)]
 		if key == ":0" or seen.has(key):
 			continue
@@ -1075,7 +1850,7 @@ func _on_nullsec_join_full_share(blob: String) -> void:
 	for e: Variant in uniq:
 		if typeof(e) != TYPE_DICTIONARY:
 			continue
-		var ep: Dictionary = e
+		var ep: Dictionary = TypedVariant.as_dict(e)
 		var ip: String = str(ep.get("ip", ""))
 		var port: int = TypedVariant.as_int(ep.get("port", 0), 0)
 		if ip == "" or port <= 0 or ip.begins_with("127."):
@@ -1151,26 +1926,49 @@ func _await_nullsec_join_ex(net: NullsecNetSession, timeout_s: float) -> Diction
 	return {"ok": net.local_seat >= 0, "in_match": net.match_started, "reason": ""}
 
 func _on_nullsec_history() -> void:
+	## Tertiary under 联机二级 — chrome list, hover highlight, click → detail (UI_AND_SHELL §1.0).
+	if _btn_history == null or _history_tertiary_host == null:
+		return
+	if _history_tertiary_open:
+		_collapse_history_tertiary()
+		return
 	var entries: Array = NullsecSettlement.load_all()
 	if entries.is_empty():
-		_nullsec_lobby.set_status("尚无历史战绩")
+		if _nullsec_lobby:
+			_nullsec_lobby.set_status("尚无历史战绩")
 		return
-	## Multi-entry list: show newest summary bars; click opens detail via settlement panel.
-	var list_win: AcceptDialog = AcceptDialog.new()
-	list_win.title = "多人联机历史战绩"
-	list_win.dialog_text = ""
-	var vbox: VBoxContainer = VBoxContainer.new()
-	list_win.add_child(vbox)
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(480, 320)
-	vbox.add_child(scroll)
-	var rows_box: VBoxContainer = VBoxContainer.new()
-	scroll.add_child(rows_box)
+	_collapse_tertiary_load()
+	_refresh_history_list(entries)
+	_history_tertiary_open = true
+	_history_tertiary_host.visible = true
+	_history_tertiary_host.mouse_filter = Control.MOUSE_FILTER_STOP
+	## Keep 历史钮 above tertiary plate if slide edges kiss the frame.
+	_btn_history.z_index = 12
+	_layout_history_tertiary()
+	await get_tree().process_frame
+	_layout_history_tertiary()
+	_history_reveal.call("play", get_tree(), _btn_history, _history_tertiary_host, _SECONDARY_BG)
+
+func _refresh_history_list(entries: Array) -> void:
+	if _history_list == null:
+		return
+	for c: Node in _history_list.get_children():
+		c.queue_free()
+	var title: Label = Label.new()
+	title.text = "多人联机历史战绩"
+	title.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	title.add_theme_constant_override("outline_size", 2)
+	UiAssets.apply_label_font(title, true, _menu_font_px(16 if UiLayout.is_mobile() else 18))
+	_history_list.add_child(title)
+	var row_h: float = _menu_px(48.0 if UiLayout.is_mobile() else 52.0)
+	var name_fs: int = _menu_font_px(14 if UiLayout.is_mobile() else 15)
+	var pad_x: float = _menu_px(14.0)
 	for i: int in range(entries.size() - 1, -1, -1):
 		var e_v: Variant = entries[i]
 		if typeof(e_v) != TYPE_DICTIONARY:
 			continue
-		var e: Dictionary = e_v
+		var e: Dictionary = TypedVariant.as_dict(e_v)
 		var mid: String = str(e.get("match_id", e.get("at", "#%d" % i)))
 		var summary: Dictionary = TypedVariant.as_dict(e.get("summary", {}))
 		if summary.is_empty():
@@ -1180,21 +1978,67 @@ func _on_nullsec_history() -> void:
 		var gold: int = TypedVariant.as_int(summary.get("gold_earned", 0), 0)
 		var res: String = str(summary.get("result", "?"))
 		var nick: String = NickCodec.display_short(str(summary.get("nick", summary.get("nick_full", "?"))))
-		var btn: Button = Button.new()
-		btn.text = "%s · %s · 黄%d · %s" % [mid.substr(0, mini(16, mid.length())), nick, gold, res]
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var captured: Dictionary = e
-		btn.pressed.connect(func() -> void:
-			list_win.hide()
-			var panel: NullsecSettlementPanel = NullsecSettlementPanel.new()
-			add_child(panel)
-			panel.title = "战绩详情 · %s" % mid.substr(0, mini(20, mid.length()))
-			var detail_rows: Array = TypedVariant.as_array(captured.get("players", captured.get("rows", [])))
-			panel.show_rows(detail_rows, false)
+		var at: String = str(e.get("at", ""))
+		var line: String = "%s · %s · 黄%d · %s" % [mid.substr(0, mini(16, mid.length())), nick, gold, res]
+		if at != "":
+			line = "%s\n%s" % [line, at]
+		## No action buttons — whole row is hoverable / clickable (UI_AND_SHELL §1.0).
+		var row: PanelContainer = PanelContainer.new()
+		row.custom_minimum_size = Vector2(0, row_h)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		var sb_n: StyleBoxFlat = StyleBoxFlat.new()
+		sb_n.bg_color = Color(0.08, 0.09, 0.12, 0.35)
+		sb_n.set_corner_radius_all(4)
+		sb_n.content_margin_left = pad_x
+		sb_n.content_margin_right = pad_x
+		sb_n.content_margin_top = 6
+		sb_n.content_margin_bottom = 6
+		var sb_h: StyleBoxFlat = sb_n.duplicate() as StyleBoxFlat
+		sb_h.bg_color = Color(0.18, 0.28, 0.42, 0.72)
+		sb_h.border_color = Color(0.85, 0.9, 1.0, 0.45)
+		sb_h.set_border_width_all(1)
+		row.add_theme_stylebox_override("panel", sb_n)
+		row.mouse_entered.connect(func() -> void:
+			if is_instance_valid(row):
+				row.add_theme_stylebox_override("panel", sb_h)
 		)
-		rows_box.add_child(btn)
-	add_child(list_win)
-	list_win.popup_centered()
+		row.mouse_exited.connect(func() -> void:
+			if is_instance_valid(row):
+				row.add_theme_stylebox_override("panel", sb_n)
+		)
+		var captured: Dictionary = e
+		var mid_cap: String = mid
+		row.gui_input.connect(func(ev: InputEvent) -> void:
+			if ev is InputEventMouseButton:
+				var mb: InputEventMouseButton = ev
+				if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+					_open_history_detail(captured, mid_cap)
+					row.accept_event()
+			elif ev is InputEventScreenTouch:
+				var st: InputEventScreenTouch = ev
+				if st.pressed:
+					_open_history_detail(captured, mid_cap)
+					row.accept_event()
+		)
+		var lab: Label = Label.new()
+		lab.text = line
+		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lab.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		lab.add_theme_constant_override("outline_size", 2)
+		UiAssets.apply_label_font(lab, false, name_fs)
+		row.add_child(lab)
+		_history_list.add_child(row)
+
+func _open_history_detail(entry: Dictionary, mid: String) -> void:
+	var panel: NullsecSettlementPanel = NullsecSettlementPanel.new()
+	add_child(panel)
+	panel.title = "战绩详情 · %s" % mid.substr(0, mini(20, mid.length()))
+	var detail_rows: Array = TypedVariant.as_array(entry.get("players", entry.get("rows", [])))
+	panel.show_rows(detail_rows, false)
 
 func _on_versus() -> void:
 	if not DataStore.host_ships_override.is_empty():
@@ -1219,11 +2063,16 @@ func _on_endless() -> void:
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_continue() -> void:
-	## Prefer live nullsec rejoin ticket (SEMI_ASYNC §5.3a); else single-player last_match.
-	if NullsecRejoinTicket.exists():
-		await _continue_nullsec_rejoin()
-		return
+	## Solo secondary only — local last_match (MATCH_FLOW §5.0b).
 	_continue_local_last_match()
+
+func _on_restore_room() -> void:
+	## Online secondary — nullsec rejoin ticket.
+	if not NullsecRejoinTicket.exists():
+		if _nullsec_lobby:
+			_nullsec_lobby.set_status("没有可恢复的房间连接")
+		return
+	await _continue_nullsec_rejoin()
 
 
 func _usable_local_last_match() -> Dictionary:
@@ -1389,7 +2238,7 @@ func _try_nullsec_rejoin_from_ticket(ticket: Dictionary, gen: int) -> bool:
 	for r: Variant in rooms:
 		if typeof(r) != TYPE_DICTIONARY:
 			continue
-		var d: Dictionary = r
+		var d: Dictionary = TypedVariant.as_dict(r)
 		if TypedVariant.as_int(d.get("code", -1), -1) != want_code:
 			continue
 		if not TypedVariant.as_bool(d.get("in_match", false), false):
@@ -1403,7 +2252,7 @@ func _try_nullsec_rejoin_from_ticket(ticket: Dictionary, gen: int) -> bool:
 			return false
 		if typeof(c) != TYPE_DICTIONARY:
 			continue
-		var cand: Dictionary = c
+		var cand: Dictionary = TypedVariant.as_dict(c)
 		var ip: String = str(cand.get("ip", ""))
 		var port: int = TypedVariant.as_int(cand.get("port", 0), 0)
 		if ip == "" or port <= 0:
@@ -1456,11 +2305,20 @@ func _enter_nullsec_from_rejoin(net: NullsecNetSession, payload: Dictionary) -> 
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
 func _on_load_open() -> void:
-	if _load_panel == null:
+	## Tertiary accordion under 单机二级 (UI_AND_SHELL §1.0) — not the old center modal list.
+	if _btn_load == null or _load_tertiary_host == null:
 		return
+	if _load_tertiary_open:
+		_collapse_tertiary_load()
+		return
+	_collapse_history_tertiary()
 	_refresh_load_list()
-	_apply_adaptive_layout()
-	_load_panel.visible = true
+	_load_tertiary_open = true
+	_load_tertiary_host.visible = true
+	_layout_load_tertiary()
+	await get_tree().process_frame
+	_layout_load_tertiary()
+	_tertiary_reveal.call("play", get_tree(), _btn_load, _load_tertiary_host, _SECONDARY_BG)
 
 func _build_load_panel() -> Control:
 	var panel: PanelContainer = _modal_panel("LoadSavePanel")
@@ -1504,40 +2362,109 @@ func _refresh_load_list() -> void:
 	if slots.is_empty():
 		var empty: Label = Label.new()
 		empty.text = "暂无存档"
+		empty.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 		UiAssets.apply_label_font(empty, false, UiLayout.font_size(16, self))
 		_load_list.add_child(empty)
+		var eof0: Label = Label.new()
+		eof0.text = "到头了"
+		eof0.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		eof0.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eof0.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		eof0.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9, 0.75))
+		UiAssets.apply_label_font(eof0, false, _menu_font_px(11 if UiLayout.is_mobile() else 12))
+		_load_list.add_child(eof0)
 		return
+	var title: Label = Label.new()
+	title.text = "存档列表"
+	title.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+	UiAssets.apply_label_font(title, true, _menu_font_px(18))
+	_load_list.add_child(title)
+	var row_h: float = _menu_px(48.0 if UiLayout.is_mobile() else 52.0)
+	var op_h: float = _menu_px(34.0 if UiLayout.is_mobile() else 36.0)
+	var name_fs: int = _menu_font_px(15 if UiLayout.is_mobile() else 17)
+	var time_fs: int = _menu_font_px(11 if UiLayout.is_mobile() else 12)
+	var op_fs: int = _menu_font_px(12 if UiLayout.is_mobile() else 13)
+	var op_w: float = _menu_px(64.0 if UiLayout.is_mobile() else 72.0)
+	var pad_x: float = _menu_px(18.0)
 	for s: Variant in slots:
 		if typeof(s) != TYPE_DICTIONARY:
 			continue
-		var entry: Dictionary = s
+		var entry: Dictionary = TypedVariant.as_dict(s)
 		var sid: String = str(entry.get("id", ""))
 		var slot_name: String = str(entry.get("name", sid))
 		var updated: String = str(entry.get("updated_at", ""))
-		var row: HBoxContainer = HBoxContainer.new()
+		## One long parallelogram bar wraps name + time + smaller rename/delete.
+		var row: Control = Control.new()
+		row.custom_minimum_size = Vector2(0, row_h)
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", UiLayout.margin_px(8, self))
-		var load_btn: Button = Button.new()
-		load_btn.text = slot_name if updated == "" else "%s\n%s" % [slot_name, updated]
-		load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		load_btn.custom_minimum_size = Vector2(0, UiLayout.px(52, self))
-		load_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		UiAssets.apply_button_font(load_btn, UiLayout.font_size(15, self))
-		load_btn.pressed.connect(_on_load_slot.bind(sid))
-		row.add_child(load_btn)
-		var rename_btn: Button = Button.new()
+		var bar: Button = _ParaBtn.new() as Button
+		bar.text = "" ## Labels draw name; bar is the long plate + load hit.
+		bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bar.pressed.connect(_on_load_slot.bind(sid))
+		UiAssets.apply_button_font(bar, name_fs)
+		row.add_child(bar)
+		var overlay: HBoxContainer = HBoxContainer.new()
+		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		overlay.offset_left = pad_x
+		overlay.offset_right = -pad_x
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		overlay.add_theme_constant_override("separation", maxi(4, roundi(_menu_px(10.0))))
+		overlay.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_child(overlay)
+		var name_lbl: Label = Label.new()
+		name_lbl.text = slot_name
+		name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		name_lbl.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		name_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		name_lbl.add_theme_constant_override("outline_size", 2)
+		UiAssets.apply_label_font(name_lbl, true, name_fs)
+		overlay.add_child(name_lbl)
+		var time_lbl: Label = Label.new()
+		time_lbl.text = updated if updated != "" else "—"
+		time_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		time_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		time_lbl.custom_minimum_size = Vector2(_menu_px(120.0 if UiLayout.is_mobile() else 150.0), 0)
+		time_lbl.add_theme_color_override("font_color", Color(0.82, 0.86, 0.94, 0.95))
+		UiAssets.apply_label_font(time_lbl, false, time_fs)
+		overlay.add_child(time_lbl)
+		var rename_btn: Button = _ParaBtn.new() as Button
 		rename_btn.text = "重命名"
-		rename_btn.custom_minimum_size = Vector2(UiLayout.px(72, self), UiLayout.px(52, self))
-		UiAssets.apply_button_font(rename_btn, UiLayout.font_size(14, self))
+		rename_btn.custom_minimum_size = Vector2(op_w, op_h)
+		rename_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		UiAssets.apply_button_font(rename_btn, op_fs)
 		rename_btn.pressed.connect(_on_rename_open.bind(sid, slot_name))
-		row.add_child(rename_btn)
-		var del_btn: Button = Button.new()
+		var del_btn: Button = _ParaBtn.new() as Button
 		del_btn.text = "删除"
-		del_btn.custom_minimum_size = Vector2(UiLayout.px(64, self), UiLayout.px(52, self))
-		UiAssets.apply_button_font(del_btn, UiLayout.font_size(14, self))
+		del_btn.custom_minimum_size = Vector2(_menu_px(56.0 if UiLayout.is_mobile() else 64.0), op_h)
+		del_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		UiAssets.apply_button_font(del_btn, op_fs)
 		del_btn.pressed.connect(_on_delete_slot.bind(sid, slot_name))
-		row.add_child(del_btn)
+		## Visual face gap = L1 row sep (not tertiary 100px / overlay container gap).
+		## Same-skew paras: AABB sep = face_gap − skew_dx so faces read as row spacing; keep ≥2px AABB so hits don't stack.
+		var face_gap: float = _menu_px(_menu_design_l1_sep())
+		var skew_dx: float = op_h / maxf(tan(deg_to_rad(60.0)), 0.01)
+		var ops_sep: int = maxi(2, roundi(face_gap - skew_dx))
+		var ops: HBoxContainer = HBoxContainer.new()
+		ops.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ops.add_theme_constant_override("separation", ops_sep)
+		ops.add_child(rename_btn)
+		ops.add_child(del_btn)
+		overlay.add_child(ops)
 		_load_list.add_child(row)
+	## End marker — centered small type (UI_AND_SHELL §1.0).
+	var eof: Label = Label.new()
+	eof.text = "到头了"
+	eof.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	eof.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eof.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	eof.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9, 0.75))
+	eof.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	eof.add_theme_constant_override("outline_size", 1)
+	UiAssets.apply_label_font(eof, false, _menu_font_px(11 if UiLayout.is_mobile() else 12))
+	_load_list.add_child(eof)
 
 
 func _build_rename_panel() -> Control:
@@ -1618,24 +2545,17 @@ func _on_delete_slot(slot_id: String, display_name: String) -> void:
 
 
 func _disable_continue_btn() -> void:
-	if _btn_box == null:
-		return
-	for c: Node in _btn_box.get_children():
-		var b: Button = c as Button
-		if b and b.text == "继续上次对局":
-			b.disabled = true
-			return
+	if _btn_continue:
+		_btn_continue.disabled = true
 
 
 func _refresh_continue_btn() -> void:
-	if _btn_box == null:
-		return
-	var enable: bool = MatchSave.exists() or NullsecRejoinTicket.exists()
-	for c: Node in _btn_box.get_children():
-		var b: Button = c as Button
-		if b and b.text == "继续上次对局":
-			b.disabled = not enable
-			return
+	if _btn_continue:
+		_btn_continue.disabled = not _usable_local_last_match_exists()
+	if _nullsec_lobby and _nullsec_lobby.has_method("refresh_restore_enabled"):
+		_nullsec_lobby.call("refresh_restore_enabled")
+	if _btn_load:
+		_btn_load.disabled = MatchSave.list_slots().is_empty() and not MatchSave.exists()
 
 
 func _on_load_slot(slot_id: String) -> void:
@@ -1680,12 +2600,27 @@ func _on_bgm_volume_changed(v: float) -> void:
 	if bgm:
 		bgm.set_volume_pct(v)
 
+
+func _on_sfx_toggled(on: bool) -> void:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps:
+		ps.set_sfx_enabled(on)
+
+
+func _on_sfx_volume_changed(v: float) -> void:
+	if _sfx_lbl:
+		_sfx_lbl.text = str(int(v))
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps:
+		ps.set_sfx_volume_pct(v)
+
 func _on_options_open() -> void:
+	_dismiss_branch_for_modal()
 	if _options:
 		_apply_adaptive_layout()
 		_options.visible = true
 		if _fps_slider:
-			_fps_slider.value = GameSession.target_fps
+			_fps_slider.value = (PlayerSettings.instance() as PlayerSettings).target_fps
 		var bgm: BgMusic = _bgm()
 		if bgm:
 			if _bgm_check:
@@ -1694,9 +2629,18 @@ func _on_options_open() -> void:
 				_bgm_slider.set_value_no_signal(bgm.volume_pct)
 			if _bgm_lbl:
 				_bgm_lbl.text = str(int(bgm.volume_pct))
+		var ps: PlayerSettings = PlayerSettings.get_or_null()
+		if ps:
+			if _sfx_check:
+				_sfx_check.set_pressed_no_signal(ps.sfx_enabled)
+			if _sfx_slider:
+				_sfx_slider.set_value_no_signal(ps.sfx_volume_pct)
+			if _sfx_lbl:
+				_sfx_lbl.text = str(int(ps.sfx_volume_pct))
 
 
 func _on_dev_debug_open() -> void:
+	_dismiss_branch_for_modal()
 	if _options:
 		_options.visible = false
 	_sync_dev_debug_widgets()
@@ -1707,23 +2651,23 @@ func _on_dev_debug_open() -> void:
 
 func _sync_dev_debug_widgets() -> void:
 	if _dev_master_check:
-		_dev_master_check.set_pressed_no_signal(GameSession.developer_debug_enabled)
-	var master_on: bool = GameSession.developer_debug_enabled
+		_dev_master_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).developer_debug_enabled)
+	var master_on: bool = (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	if _dev_soften_check:
-		_dev_soften_check.set_pressed_no_signal(GameSession.player_citadel_soften)
+		_dev_soften_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).player_citadel_soften)
 		_dev_soften_check.disabled = not master_on
 	if _dev_economy_check:
-		_dev_economy_check.set_pressed_no_signal(GameSession.player_ai_double_economy)
+		_dev_economy_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).player_ai_double_economy)
 		_dev_economy_check.disabled = not master_on
 	if _dev_enemy_layout_check:
-		_dev_enemy_layout_check.set_pressed_no_signal(GameSession.enemy_layout_adjust)
+		_dev_enemy_layout_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust)
 		_dev_enemy_layout_check.disabled = not master_on
 	if _dev_ship_data_btn:
 		_dev_ship_data_btn.disabled = not master_on
 
 
 func _on_dev_master_toggled(on: bool) -> void:
-	GameSession.set_developer_debug_enabled(on)
+	(PlayerSettings.instance() as PlayerSettings).set_developer_debug_enabled(on)
 	SessionDiagnostics.log("dev.debug", "on=%s" % on)
 	if _dev_soften_check:
 		_dev_soften_check.disabled = not on
@@ -1737,13 +2681,15 @@ func _on_dev_master_toggled(on: bool) -> void:
 
 ## UI_AND_SHELL §2.5.1 — same editor as in-match; exit autosaves and reloads DataStore.
 func _on_dev_ship_data_open() -> void:
-	if not GameSession.developer_debug_enabled:
+	if not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled:
 		return
 	if _ship_data_editor == null or not is_instance_valid(_ship_data_editor):
 		_ship_data_editor = ShipDataEditor.new()
 		_ship_data_editor.closed.connect(_on_ship_data_editor_closed)
 		add_child(_ship_data_editor)
-	_ship_data_editor.z_index = 9
+	_ship_data_editor.z_index = 80
+	_ship_data_editor.z_as_relative = false
+	_ship_data_editor.mouse_filter = Control.MOUSE_FILTER_STOP
 	_ship_data_editor.open(false)
 	SessionDiagnostics.log("editor.open", "menu")
 
@@ -1784,21 +2730,19 @@ func _on_ship_data_editor_closed(changed_ids: Array, equipment_changed: bool = f
 
 
 func _on_dev_soften_toggled(on: bool) -> void:
-	GameSession.set_player_citadel_soften(on)
+	(PlayerSettings.instance() as PlayerSettings).set_player_citadel_soften(on)
 
 
 func _on_dev_economy_toggled(on: bool) -> void:
-	GameSession.set_player_ai_double_economy(on)
+	(PlayerSettings.instance() as PlayerSettings).set_player_ai_double_economy(on)
 
 
 func _on_dev_enemy_layout_toggled(on: bool) -> void:
-	GameSession.set_enemy_layout_adjust(on)
+	(PlayerSettings.instance() as PlayerSettings).set_enemy_layout_adjust(on)
 
 
 func _on_about_open() -> void:
+	_dismiss_branch_for_modal()
 	if _about:
 		_apply_adaptive_layout()
 		_about.visible = true
-
-func _on_quit() -> void:
-	get_tree().quit()

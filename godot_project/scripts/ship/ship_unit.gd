@@ -35,7 +35,8 @@ func set_lance_suppress(v: bool) -> void:
 
 
 func is_lance_suppressing() -> bool:
-	return lance_suppress_weapons
+	## Prefer fit+phase gate (CAPITAL §4.1); flag is diagnostic mirror only.
+	return MixedLance.weapons_suppressed(self)
 
 
 @warning_ignore("unused_private_class_variable")
@@ -114,6 +115,11 @@ var damage_pct_bonus: float = 0.0
 var star_dph_mul: float = 1.0
 var fetter_repair_mul: float = 1.0
 var fetter_speed_mul: float = 1.0
+## Cap warfare / ewar function-module effect muls (FETTERS blood · titan EwarCapWarfare).
+var fetter_cap_warfare_mul: float = 1.0
+var fetter_ewar_mul: float = 1.0
+## Baseline scan for SensorStrength SelfFetter reapply (SoE).
+var base_scan_resolution: float = 400.0
 var _base_shield_resist_emp: float = 0.0
 var _base_armor_resist_emp: float = 0.0
 var _base_structure_resist_emp: float = 0.0
@@ -172,6 +178,7 @@ var _mesh: MeshInstance3D
 var _mat: StandardMaterial3D
 var _model_root: Node3D
 var _health_bar: Node3D  # ShipHealthBar (avoid class_name cycle with ShipUnit)
+var _tactical_stem: Node3D
 ## Bow muzzle in ShipUnit local space (after model normalize). Forward = −Z.
 var _muzzle_local: Vector3 = Vector3(0.0, 0.4, -0.9)
 ## All turret hardpoints in ShipUnit local; `get_muzzle_global` cycles them.
@@ -285,6 +292,15 @@ func model_root() -> Node3D:
 	return _model_root
 
 
+## World-space center of the visible hull (AABB), else logic origin. Used by tactical stem.
+func model_center_world() -> Vector3:
+	if _model_root != null and is_instance_valid(_model_root):
+		var aabb: AABB = _aabb_in_ship_space(_model_root)
+		if aabb.size.length_squared() > 1e-8:
+			return visual_to_global(aabb.get_center())
+	return global_position
+
+
 ## Ship-local hardpoints were baked while the mesh sat at `_model_rest_local`.
 ## Map them through the *current* mesh pose so FX / trails stay glued when soft-follow lags.
 func visual_to_global(ship_local: Vector3) -> Vector3:
@@ -360,6 +376,7 @@ func _process(delta: float) -> void:
 	var yaw_err: float = angle_difference(_visual_yaw, rotation.y)
 	if err.length_squared() > snap_wu * snap_wu or absf(yaw_err) > deg_to_rad(yaw_snap_deg):
 		_snap_visual_to_logic()
+		sync_tactical_stem()
 		SessionDiagnostics.add_usec(&"ship", Time.get_ticks_usec() - t0)
 		return
 	rate = maxf(0.5, rate)
@@ -378,6 +395,8 @@ func _process(delta: float) -> void:
 	var max_yaw: float = deg_to_rad(maxf(1.0, yaw_rate_deg)) * delta
 	_visual_yaw += clampf(yaw_err, -max_yaw, max_yaw)
 	_apply_visual_yaw_to_model()
+	## Stem uses model center; refresh after soft-follow pose this frame.
+	sync_tactical_stem()
 	SessionDiagnostics.add_usec(&"ship", Time.get_ticks_usec() - t0)
 
 
@@ -507,7 +526,7 @@ func _ensure_mesh() -> void:
 	## Berth titans keep GLB even in no-model (UI_AND_SHELL: 泰坦停泊仍加载).
 	var berth_decor: bool = get_parent() is TitanBerth
 	## Performance mode: skip GLB load; keep empty node for transforms / health bar.
-	if (not berth_decor) and GameSession and TypedVariant.as_bool(GameSession.get("no_model_perf_mode")):
+	if (not berth_decor) and PlayerSettings.get_or_null() != null and PlayerSettings.get_or_null().no_model_perf_mode:
 		_model_root = Node3D.new()
 		_model_root.name = "NoModelPlaceholder"
 		add_child(_model_root)
@@ -657,6 +676,42 @@ func get_health_bar() -> Node3D:
 	return _health_bar if _health_bar != null and is_instance_valid(_health_bar) else null
 
 
+func flash_tonnage_lock(duration_s: float = 0.45) -> void:
+	_ensure_health_bar()
+	if _health_bar != null and _health_bar.has_method("flash_lock_brackets"):
+		_health_bar.call("flash_lock_brackets", duration_s)
+
+
+func _ensure_tactical_stem() -> void:
+	if slot_type != "field":
+		_clear_tactical_stem()
+		return
+	if _tactical_stem != null and is_instance_valid(_tactical_stem):
+		return
+	var stem_n: ShipTacticalStem = ShipTacticalStem.new()
+	_tactical_stem = stem_n
+	_tactical_stem.name = "TacticalStem"
+	## Keep stem under ship for lifetime ownership; sync uses top_level world vertical.
+	add_child(_tactical_stem)
+	if _tactical_stem.has_method("setup"):
+		_tactical_stem.call("setup", BoardController.DECK_Y)
+
+
+func _clear_tactical_stem() -> void:
+	if _tactical_stem != null and is_instance_valid(_tactical_stem):
+		_tactical_stem.queue_free()
+	_tactical_stem = null
+
+
+func sync_tactical_stem() -> void:
+	if is_unmanned or slot_type != "field" or is_destroyed:
+		_clear_tactical_stem()
+		return
+	_ensure_tactical_stem()
+	if _tactical_stem != null and _tactical_stem.has_method("sync_to_ship"):
+		_tactical_stem.call("sync_to_ship", self)
+
+
 func rebuild_health_bar() -> void:
 	## Recreate badge/bars after external FX accidentally mutated overlay materials.
 	clear_health_bar()
@@ -675,7 +730,13 @@ func _apply_model_orientation(root: Node3D) -> void:
 	## both the global default and the extent guess below (CONTENT_FORMAT §喷口).
 	var fit: Dictionary = _bow_fit()
 	if fit.has("model_yaw_deg"):
-		root.rotation_degrees = Vector3(pitch, TypedVariant.as_float(fit["model_yaw_deg"]), model_roll)
+		var fit_pitch: float = TypedVariant.as_float(fit.get("model_pitch_deg", pitch), pitch)
+		var fit_roll: float = TypedVariant.as_float(fit.get("model_roll_deg", model_roll), model_roll)
+		root.rotation_degrees = Vector3(
+			fit_pitch,
+			TypedVariant.as_float(fit["model_yaw_deg"]),
+			fit_roll
+		)
 		if TypedVariant.as_bool(DataStore.visual.get("ship_model_level_keel", true)):
 			_level_model_keel(root)
 		return
@@ -1034,6 +1095,10 @@ func _tint_model(root: Node) -> void:
 			smat.set_shader_parameter("pmwo_tex", pmwo)
 			smat.set_shader_parameter("rg_tex", rg_tex)
 			ShipLook.apply_to_unity_shader_material(smat)
+			## Stratios-style glass: albedo alpha marks atlas padding / membrane UVs.
+			var glass_flag: String = "res://assets/models/ships/%s/glass_cutout.on" % key
+			if _texture_file_ok(glass_flag):
+				smat.set_shader_parameter("alpha_cutoff", 0.5)
 			mat = smat
 		elif diffuse and normal and pmwo and rg_tex and reduction and not use_unity:
 			var smat: ShaderMaterial = ShaderMaterial.new()
@@ -1235,6 +1300,9 @@ func reload_stats() -> void:
 	_base_structure_resist_emp = structure_resist_emp
 	signature_radius = TypedVariant.as_float(ship.get("signature_radius", 40.0))
 	scan_resolution = TypedVariant.as_float(ship.get("scan_resolution", 400.0))
+	base_scan_resolution = scan_resolution
+	fetter_cap_warfare_mul = 1.0
+	fetter_ewar_mul = 1.0
 	base_speed = TypedVariant.as_float(ship.get("speed", 300.0))
 	base_mass = maxf(TypedVariant.as_float(ship.get("mass", 1000000.0)), 1.0)
 	base_agility = maxf(TypedVariant.as_float(ship.get("agility", 1.0)), 0.001)
@@ -1270,9 +1338,13 @@ func reload_stats() -> void:
 	is_unmanned = TypedVariant.as_bool(ship.get("is_unmanned", false))
 	unmanned_kind = str(ship.get("unmanned_kind", ""))
 	drone_bandwidth = TypedVariant.as_float(ship.get("drone_bandwidth", 0.0))
-	drone_bay_slots = TypedVariant.as_int(ship.get("drone_bay_slots", ship.get("drone_count_cap", 0)))
-	if drone_bay_slots <= 0 and drone_bandwidth > 0.0:
-		drone_bay_slots = int(floorf(drone_bandwidth / 5.0))
+	## Explicit drone_bay_slots=0 must win (faction frigates). Bandwidth invent only if key omitted.
+	if ship.has("drone_bay_slots"):
+		drone_bay_slots = TypedVariant.as_int(ship.get("drone_bay_slots"), 0)
+	else:
+		drone_bay_slots = TypedVariant.as_int(ship.get("drone_count_cap", 0))
+		if drone_bay_slots <= 0 and drone_bandwidth > 0.0:
+			drone_bay_slots = int(floorf(drone_bandwidth / 5.0))
 	visible = true
 	reset_combat_runtime()
 	if _health_bar:
@@ -1527,8 +1599,8 @@ func tick_stat_modifiers(sim_dt: float) -> void:
 func combat_move_speed() -> float:
 	var wu: float = CombatFormulas.world_units_per_cell()
 	var move_scale: float = TypedVariant.as_float(DataStore.combat.get("move_speed_scale", 1.65))
-	## Movement runs on its own metric — 1 cell = 500 m, never the 2 km range metric.
-	var m_per_cell: float = TypedVariant.as_float(DataStore.combat.get("speed_meters_per_cell", 500.0))
+	## Movement runs on its own metric — 1 cell = 750 m, never the 2 km range metric.
+	var m_per_cell: float = TypedVariant.as_float(DataStore.combat.get("speed_meters_per_cell", 750.0))
 	var spd: float = get_stat("speed", base_speed)
 	var mapped: float = spd / m_per_cell * wu * move_scale * fetter_speed_mul
 	var speed: float = maxf(mapped, 0.5)
@@ -1890,7 +1962,8 @@ func _resolve_turret_locals(root: Node3D, aabb: AABB) -> void:
 		var doc: Dictionary = _turret_doc_for(key)
 		if not doc.is_empty():
 			## Formal: SOF-native items + hull_aabb (same Z-flip map as engine_boosters).
-			_muzzle_locals = _map_sof_turret_items(doc, aabb)
+			var mapped: Array = _map_sof_turret_items_named(doc, aabb)
+			_muzzle_locals = _select_firing_muzzle_locals(mapped)
 			## Legacy baked mesh-local list (pre-SOF sidecar).
 			if _muzzle_locals.is_empty():
 				var arr: Variant = doc.get("anchors_mesh_local", [])
@@ -1909,9 +1982,9 @@ func _resolve_turret_locals(root: Node3D, aabb: AABB) -> void:
 		_muzzle_locals.append(Vector3(0.0, mid_y, aabb.position.z))
 	_muzzle_local = _muzzle_locals[0]
 
-## Map turret_anchors.json SOF pos → ShipUnit local (mesh AABB, length Z flipped).
-func _map_sof_turret_items(doc: Dictionary, mesh_aabb: AABB) -> Array[Vector3]:
-	var out: Array[Vector3] = []
+## Map turret_anchors.json SOF pos → named ShipUnit-local rows.
+func _map_sof_turret_items_named(doc: Dictionary, mesh_aabb: AABB) -> Array:
+	var out: Array = []
 	var items: Variant = doc.get("items", [])
 	if typeof(items) != TYPE_ARRAY or TypedVariant.as_array(items).is_empty():
 		return out
@@ -1935,11 +2008,68 @@ func _map_sof_turret_items(doc: Dictionary, mesh_aabb: AABB) -> Array[Vector3]:
 		var ny: float = clampf((sof_p.y - sof_aabb.position.y) / sof_aabb.size.y, -0.05, 1.05)
 		var nz: float = clampf((sof_p.z - sof_aabb.position.z) / sof_aabb.size.z, -0.05, 1.05)
 		## Flip length: SOF min-Z aft → Godot max-Z aft (same as engine nozzles).
-		out.append(Vector3(
+		var local_p: Vector3 = Vector3(
 			mesh_aabb.position.x + nx * mesh_aabb.size.x,
 			mesh_aabb.position.y + ny * mesh_aabb.size.y,
 			mesh_aabb.position.z + (1.0 - nz) * mesh_aabb.size.z
-		))
+		)
+		out.append({"name": str(d.get("name", "")), "pos": local_p})
+	return out
+
+
+## COMBAT §8: pick real gun/launcher hardpoints for fire FX (not every SOF locator).
+func _select_firing_muzzle_locals(mapped: Array) -> Array[Vector3]:
+	var empty: Array[Vector3] = []
+	if mapped.is_empty():
+		return empty
+	var fx: String = resolve_weapon_fx_kind().to_lower()
+	var prefs: Array[String] = []
+	if fx == "missile":
+		prefs = ["locator_launcher", "locator_xl", "locator_turretm", "locator_turret"]
+	else:
+		## Laser / rail / cannon / heal: dorsal turret mounts; avoid belly *b and XL unless needed.
+		prefs = ["locator_turret", "locator_turretm", "locator_launcher", "locator_xl"]
+	var pool: Array = []
+	for prefix: String in prefs:
+		pool.clear()
+		for row_v: Variant in mapped:
+			var row: Dictionary = TypedVariant.as_dict(row_v)
+			var n: String = str(row.get("name", "")).to_lower()
+			if n.find(prefix) >= 0:
+				pool.append(row)
+		if not pool.is_empty():
+			break
+	if pool.is_empty():
+		pool = mapped.duplicate()
+	## Same-slot pairs are `…1a` / `…1b`; prefer dorsal `*a` when any exist.
+	var dorsal: Array = []
+	for row_v2: Variant in pool:
+		var row2: Dictionary = TypedVariant.as_dict(row_v2)
+		var n2: String = str(row2.get("name", "")).to_lower()
+		if n2.ends_with("a"):
+			dorsal.append(row2)
+	if not dorsal.is_empty():
+		pool = dorsal
+	## Bow-most first (min Z), then higher deck (max Y).
+	pool.sort_custom(func(a: Variant, b: Variant) -> bool:
+		var pa: Vector3 = TypedVariant.as_vector3(TypedVariant.as_dict(a).get("pos", Vector3.ZERO))
+		var pb: Vector3 = TypedVariant.as_vector3(TypedVariant.as_dict(b).get("pos", Vector3.ZERO))
+		if absf(pa.z - pb.z) > 0.001:
+			return pa.z < pb.z
+		return pa.y > pb.y
+	)
+	var want: int = _turret_slot_count()
+	var out: Array[Vector3] = []
+	for i: int in range(mini(want, pool.size())):
+		out.append(TypedVariant.as_vector3(TypedVariant.as_dict(pool[i]).get("pos", Vector3.ZERO)))
+	return out
+
+
+## Legacy helper — full SOF map without fire selection (unused by resolve path).
+func _map_sof_turret_items(doc: Dictionary, mesh_aabb: AABB) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for row_v: Variant in _map_sof_turret_items_named(doc, mesh_aabb):
+		out.append(TypedVariant.as_vector3(TypedVariant.as_dict(row_v).get("pos", Vector3.ZERO)))
 	return out
 
 func _sample_turret_locals_from_mesh(root: Node3D, aabb: AABB, want: int) -> Array[Vector3]:

@@ -1,0 +1,28 @@
+{
+  "id": "titan_angel",
+  "name": "征服者 · 天使",
+  "meta": true,
+  "effects": [
+    {
+      "champion_count": 0,
+      "effect_type": "ShieldHP",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 5
+    },
+    {
+      "champion_count": 0,
+      "effect_type": "ShopRaceWeight",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 10
+    },
+    {
+      "champion_count": 0,
+      "effect_type": "EwarCapWarfare",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfAll",
+      "value": 10
+    }
+  ]
+}

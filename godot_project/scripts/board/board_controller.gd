@@ -952,6 +952,7 @@ func recall_cyno_entry_ships_to_hangar() -> int:
 		_hangar_occupied[_key("hangar", s.team_id, hang.x, hang.y)] = s
 		moved += 1
 	if moved > 0 or sold > 0:
+		SessionDiagnostics.log("capital.recall", "n=%d sold=%d" % [moved, sold])
 		refresh_cross_team_cell_offsets()
 		board_changed.emit()
 	return moved
@@ -1119,7 +1120,7 @@ func begin_drag(ship: ShipUnit) -> void:
 	if not is_board_piece(ship):
 		return
 	if ship.team_id != ShipUnit.TEAM_PLAYER:
-		if not get_tree().paused or not GameSession.enemy_layout_adjust_active():
+		if not get_tree().paused or not (PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust_active():
 			return
 	_drag_ship = ship
 
@@ -1354,16 +1355,25 @@ func recalculate_fetters(team: int) -> Array:
 		var effects: Array = TypedVariant.as_array(fetter.get("effects", []))
 		var best: Variant = null
 		var best_c: int = -1
+		var base_need: int = _fetter_base_need(effects)
 		for e: Dictionary in effects:
 			var need: int = TypedVariant.as_int(e.get("champion_count", 0), 0)
 			if need <= TypedVariant.as_int(counts[fid], 0) and need >= best_c:
 				best_c = need
 				best = e
 		if best != null:
-			var payload: Dictionary = {"fetter_id": fid, "champion_count": counts[fid], "effect": best}
+			var count_n: int = TypedVariant.as_int(counts[fid], 0)
+			var stepped: Dictionary = _fetter_effect_with_step(TypedVariant.as_dict(best), count_n, base_need)
+			var payload: Dictionary = {"fetter_id": fid, "champion_count": count_n, "effect": stepped}
 			var r: Dictionary = AdminBus.request(&"fetter.activate", payload)
 			if TypedVariant.as_bool(r.get("accepted", true), true):
-				active.append({"fetter_id": fid, "count": counts[fid], "effect": best})
+				active.append({
+					"fetter_id": fid,
+					"count": count_n,
+					"effect": stepped,
+					"base_need": base_need,
+					"step_ships": TypedVariant.as_int(stepped.get("step_ships", 0), 0),
+				})
 	_append_titan_fetter(team, active)
 	var shield_mul: float = 1.0
 	var armor_mul: float = 1.0
@@ -1373,6 +1383,7 @@ func recalculate_fetters(team: int) -> Array:
 	var armor_hp_pct_all: float = 0.0
 	var shield_hp_pct_all: float = 0.0
 	var flat_hp_all: float = 0.0
+	var ewar_cap_mul_all: float = 1.0
 	## SelfFetter repair extras keyed by fetter_id → multiplier product.
 	var repair_mul_by_fetter: Dictionary = {}
 	for a: Dictionary in active:
@@ -1412,6 +1423,10 @@ func recalculate_fetters(team: int) -> Array:
 			"FlatHP":
 				if not self_fetter:
 					flat_hp_all += val
+			"EwarCapWarfare":
+				## Titan meta: ewar + cap-warfare gear +10% for whole team.
+				if not self_fetter:
+					ewar_cap_mul_all *= mul
 	for s: ShipUnit in field_ships(team):
 		if s == null or not is_instance_valid(s):
 			continue
@@ -1420,6 +1435,13 @@ func recalculate_fetters(team: int) -> Array:
 		@warning_ignore("unsafe_cast")
 		var fids: Array = ship.get("fetter_ids", []) as Array
 		var ship_repair: float = repair_mul_all
+		var ship_shield_mul: float = shield_mul
+		var ship_armor_mul: float = armor_mul
+		var ship_atk_spd: float = attack_speed_mul
+		var ship_shield_hp_pct: float = shield_hp_pct_all
+		var ship_sensor_mul: float = 1.0
+		var ship_cap_war: float = ewar_cap_mul_all
+		var ship_ewar: float = ewar_cap_mul_all
 		for a: Dictionary in active:
 			## Titan meta fetter buffs every own hull; race fetters only their own members.
 			var is_meta: bool = TypedVariant.as_bool(a.get("meta", false), false)
@@ -1430,25 +1452,47 @@ func recalculate_fetters(team: int) -> Array:
 			var et: String = str(eff.get("effect_type", ""))
 			var vt: String = str(eff.get("effect_value_type", ""))
 			var target: String = str(eff.get("effect_target", "SelfAll"))
+			var val: float = TypedVariant.as_float(eff.get("value", 0.0), 0.0)
+			var mul: float = _fetter_multiplier(vt, val)
+			var self_fetter: bool = target == "SelfFetter" and not is_meta
 			if et == "Damage" and vt == "Percentage":
 				## SelfFetter Damage only hits members; SelfAll / meta hits everyone already gated by on_ship.
 				if target == "SelfFetter" or target == "SelfAll" or is_meta:
-					s.damage_pct_bonus += TypedVariant.as_float(eff.get("value", 0.0), 0.0)
+					s.damage_pct_bonus += val
+			if self_fetter:
+				match et:
+					"ShieldResist":
+						ship_shield_mul *= mul
+					"ArmorResist":
+						ship_armor_mul *= mul
+					"AttackSpeed":
+						ship_atk_spd *= mul
+					"ShieldHP":
+						if vt == "Percentage":
+							ship_shield_hp_pct += val
+					"SensorStrength":
+						ship_sensor_mul *= mul
+					"CapWarfare":
+						ship_cap_war *= mul
 		for fid2: Variant in repair_mul_by_fetter.keys():
 			if fid2 in fids:
 				ship_repair *= TypedVariant.as_float(repair_mul_by_fetter[fid2], 1.0)
-		s.apply_fetter_mods(shield_mul, armor_mul, ship_repair, speed_mul)
+		s.apply_fetter_mods(ship_shield_mul, ship_armor_mul, ship_repair, speed_mul)
+		s.fetter_cap_warfare_mul = ship_cap_war
+		s.fetter_ewar_mul = ship_ewar
 		# Recompute cycle from baseline — never stack-divide attack_duration across recalcs.
 		var base_cycle: float = s.base_attack_duration if s.base_attack_duration > 0.0 else s.attack_duration
-		if attack_speed_mul != 1.0 and base_cycle > 0.0:
-			s.attack_duration = maxf(0.2, base_cycle / attack_speed_mul)
+		if ship_atk_spd != 1.0 and base_cycle > 0.0:
+			s.attack_duration = maxf(0.2, base_cycle / ship_atk_spd)
 		else:
 			s.attack_duration = base_cycle
+		var base_scan: float = s.base_scan_resolution if s.base_scan_resolution > 0.0 else s.scan_resolution
+		s.scan_resolution = base_scan * ship_sensor_mul
 		## HP bonuses always from base max — prevents compounding to astronomical values.
 		var sh_ratio: float = 1.0 if s.base_max_shield <= 0.0 else clampf(s.shield_hp / maxf(s.max_shield, 0.001), 0.0, 1.0)
 		var ar_ratio: float = 1.0 if s.base_max_armor <= 0.0 else clampf(s.armor_hp / maxf(s.max_armor, 0.001), 0.0, 1.0)
 		var st_ratio: float = 1.0 if s.base_max_structure <= 0.0 else clampf(s.structure_hp / maxf(s.max_structure, 0.001), 0.0, 1.0)
-		s.max_shield = s.base_max_shield * (1.0 + shield_hp_pct_all / 100.0)
+		s.max_shield = s.base_max_shield * (1.0 + ship_shield_hp_pct / 100.0)
 		s.max_armor = s.base_max_armor * (1.0 + armor_hp_pct_all / 100.0)
 		s.max_structure = s.base_max_structure + flat_hp_all
 		s.shield_hp = minf(s.max_shield, s.max_shield * sh_ratio)
@@ -1481,10 +1525,53 @@ func _append_titan_fetter(team: int, active: Array) -> void:
 	var effects: Array = TypedVariant.as_array(fetter.get("effects", []))
 	if effects.is_empty():
 		return
-	var payload: Dictionary = {"fetter_id": fid, "champion_count": 0, "effect": effects[0]}
-	var r: Dictionary = AdminBus.request(&"fetter.activate", payload)
-	if TypedVariant.as_bool(r.get("accepted", true), true):
-		active.append({"fetter_id": fid, "count": 0, "effect": effects[0], "meta": true})
+	## Append all titan effects (combat + ShopRaceWeight sidebar + EwarCapWarfare).
+	for e_v: Variant in effects:
+		if typeof(e_v) != TYPE_DICTIONARY:
+			continue
+		@warning_ignore("unsafe_cast")
+		var eff0: Dictionary = e_v as Dictionary
+		var payload: Dictionary = {"fetter_id": fid, "champion_count": 0, "effect": eff0}
+		var r: Dictionary = AdminBus.request(&"fetter.activate", payload)
+		if TypedVariant.as_bool(r.get("accepted", true), true):
+			active.append({"fetter_id": fid, "count": 0, "effect": eff0, "meta": true})
+
+
+## Lowest positive ChampionCount = base trigger (FETTERS §2 stepwise).
+static func _fetter_base_need(effects: Array) -> int:
+	var mn: int = 0
+	var found: bool = false
+	for e_v: Variant in effects:
+		if typeof(e_v) != TYPE_DICTIONARY:
+			continue
+		var need: int = TypedVariant.as_int(TypedVariant.as_dict(e_v).get("champion_count", 0), 0)
+		if need <= 0:
+			continue
+		if not found or need < mn:
+			mn = need
+			found = true
+	return mn if found else 0
+
+
+## After base trigger: each extra matching ship adds 1% to the effect (FETTERS §2).
+static func _fetter_effect_with_step(eff: Dictionary, field_count: int, base_need: int) -> Dictionary:
+	if base_need <= 0 or field_count <= base_need:
+		var copy0: Dictionary = eff.duplicate(true)
+		copy0["step_ships"] = 0
+		return copy0
+	var step: int = field_count - base_need
+	var out: Dictionary = eff.duplicate(true)
+	var vt: String = str(out.get("effect_value_type", ""))
+	var val: float = TypedVariant.as_float(out.get("value", 0.0), 0.0)
+	if vt == "Percentage":
+		out["value"] = val + float(step)
+	elif vt == "Multiplier":
+		out["value"] = val * (1.0 + 0.01 * float(step))
+	else:
+		## FixedValue and unspecified — scale by +1% of magnitude per extra ship.
+		out["value"] = val * (1.0 + 0.01 * float(step))
+	out["step_ships"] = step
+	return out
 
 
 static func _fetter_multiplier(value_type: String, value: float) -> float:

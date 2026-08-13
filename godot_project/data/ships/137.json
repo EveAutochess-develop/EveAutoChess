@@ -119,5 +119,6 @@
   "unmanned_kind": "",
   "weapon_fx": "mining",
   "capacitor_capacity": 8000.0,
-  "capacitor_recharge_s": 1200.0
+  "capacitor_recharge_s": 1200.0,
+  "faction_ship": true
 }

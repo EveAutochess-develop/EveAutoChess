@@ -14,7 +14,7 @@
       "style": "beam",
       "look": "solid",
       "color": [1.0, 0.92, 0.25, 0.95],
-      "width": 0.05,
+      "width": 0.10,
       "duration_scale": 1.0,
       "alternate_near_far": true,
       "role_near": "pulse",
@@ -44,7 +44,7 @@
       "style": "beam",
       "look": "solid",
       "color": [0.35, 0.85, 1.0, 0.95],
-      "width": 0.04,
+      "width": 0.08,
       "duration_scale": 0.75,
       "alternate_near_far": true,
       "role_near": "blast",
@@ -126,7 +126,8 @@
       "tex_grid": "res://assets/vfx/module_fx/heal/waves.png",
       "tex_flare": "res://assets/vfx/module_fx/heal/whitesharphifi.png",
       "grid_mix": 0.62,
-      "scroll_speed": 2.2,
+      "scroll_speed": 0.44,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/remotearmorrepair_st_t1a.black"
     },
     "mining": {
@@ -149,6 +150,7 @@
       "tex_flare": "res://assets/vfx/module_fx/nos/empulse4.png",
       "grid_mix": 0.7,
       "scroll_speed": 2.8,
+      "flow_to_target": false,
       "tq_black": "res:/fisfx/module/energyvampire_st_t1a.black"
     },
     "neut": {
@@ -163,6 +165,7 @@
       "tex_flare": "res://assets/vfx/module_fx/neut/lightningmodulator.png",
       "grid_mix": 0.65,
       "scroll_speed": 2.4,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/energydestabilization_st_t1a.black"
     },
     "remote_cap": {
@@ -177,6 +180,7 @@
       "tex_flare": "res://assets/vfx/module_fx/remote_cap/energytransfer.png",
       "grid_mix": 0.6,
       "scroll_speed": 2.5,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/energytransfer_st_t1a.black"
     },
     "sensor_damp": {
@@ -191,6 +195,7 @@
       "tex_flare": "res://assets/vfx/module_fx/sensor_damp/aurora_01.png",
       "grid_mix": 0.85,
       "scroll_speed": 1.6,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/sensordampener_st_t1a.black"
     },
     "tracking_disrupt": {
@@ -205,6 +210,7 @@
       "tex_flare": "res://assets/vfx/module_fx/tracking_disrupt/aurora_01.png",
       "grid_mix": 0.85,
       "scroll_speed": 1.7,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/trackingdisruptor_st_t1a.black"
     },
     "guidance_disrupt": {
@@ -219,6 +225,7 @@
       "tex_flare": "res://assets/vfx/module_fx/guidance_disrupt/aurora_01_bw.png",
       "grid_mix": 0.75,
       "scroll_speed": 1.7,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/modular_guidancedisruption_tr_t1a.black",
       "_comment": "Dedicated TQ modular guidance black (not a reuse of trackingdisruptor)"
     },
@@ -235,6 +242,7 @@
       "tex_flare": "res://assets/vfx/module_fx/target_painter/gradient_02.png",
       "grid_mix": 0.35,
       "scroll_speed": 3.0,
+      "flow_to_target": true,
       "tq_black": "res:/fisfx/module/targetpaint_st_t1a.black",
       "_comment": "sensor.dds is TQ ramp used on unit_plane_laser target mark; disc silhouette from mesh+billboard, not a painted circle PNG"
     }

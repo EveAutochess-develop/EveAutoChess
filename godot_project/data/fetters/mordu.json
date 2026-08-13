@@ -1,0 +1,13 @@
+{
+  "id": "mordu",
+  "name": "莫德团",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "AttackSpeed",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 10
+    }
+  ]
+}

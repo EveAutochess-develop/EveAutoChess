@@ -1,126 +1,130 @@
 {
-  "id": 48,
-  "name": "幼龙级",
-  "name_en": "Drake",
-  "type_id": 24698,
-  "model_key": "jdl_youlong",
-  "cost": 7,
-  "ship_groups": [
-    "battlecruiser"
-  ],
-  "ship_group": "battlecruiser",
+  "_stub_note": "logistics BC 2026-08-10; model reused T1 hull",
+  "agility": 0.5,
+  "attack_cycle_s": 8.0,
+  "capacitor_capacity": 3000.0,
+  "capacitor_recharge_s": 500.0,
+  "cost": 7.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 10404000002.0,
   "fetter_ids": [
     "caldari",
     "battlecruiser",
-    "missile"
+    "logistic"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 4,
+  "id": 48.0,
+  "is_logistic": true,
+  "is_unmanned": false,
+  "low_slots": 4.0,
+  "mass": 10000000.0,
+  "med_slots": 6.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "jdl_youlong",
+  "name": "幼龙级后勤型",
+  "name_en": "Drake",
+  "race": "caldari",
+  "scan_resolution": 200.0,
+  "sensor_strength": 80.0,
+  "ship_group": "battlecruiser",
+  "ship_groups": [
+    "battlecruiser"
+  ],
+  "signature_radius": 150.0,
+  "sof_hull": "cbc2_t1",
+  "source_module_type_id": 0.0,
+  "source_repair_module_type_id": 3606.0,
+  "speed": 200.0,
+  "stars": [
+    {
+      "armor_hp": 3250.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 12.0,
+      "is_logistic": true,
+      "shield_hp": 5500.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 3750.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 6500.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 12.0,
+      "is_logistic": true,
+      "shield_hp": 11000.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 7500.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 9750.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 12.0,
+      "is_logistic": true,
+      "shield_hp": 16500.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 11250.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    }
   ],
   "tags": [
     "caldari",
     "battlecruiser",
-    "missile"
+    "logistic"
   ],
-  "is_logistic": false,
-  "weapon_fx": "missile",
-  "weapon_tier": "medium",
-  "race": "caldari",
-  "signature_radius": 150.0,
-  "sensor_strength": 16.0,
-  "scan_resolution": 200.0,
-  "speed": 200.0,
-  "mass": 10000000.0,
-  "agility": 0.5,
-  "capacitor_capacity": 3000.0,
-  "capacitor_recharge_s": 500.0,
-  "mid_battle_leave_allowed": false,
-  "is_unmanned": false,
+  "type_id": 24698.0,
   "unmanned_kind": "",
-  "attack_cycle_s": 15.0,
-  "drone_bandwidth": 50.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 7,
-  "med_slots": 6,
-  "low_slots": 4,
-  "source_module_type_id": 501,
-  "source_repair_module_type_id": 0,
-  "stars": [
-    {
-      "attack_range": 999,
-      "shield_hp": 1200.0,
-      "armor_hp": 1800.0,
-      "structure_hp": 900.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 2400.0,
-      "armor_hp": 3600.0,
-      "structure_hp": 1800.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 3600.0,
-      "armor_hp": 5400.0,
-      "structure_hp": 2700.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    }
-  ],
   "visual": {},
-  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10400000003,
-  "attack_weapon_slots": 6,
-  "sof_hull": "cbc2_t1"
+  "weapon_fx": "heal",
+  "weapon_tier": "large",
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0
 }

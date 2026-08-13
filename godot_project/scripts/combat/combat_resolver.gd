@@ -10,8 +10,11 @@ var authority_only: bool = false
 var _retarget_acc: float = 0.0
 var _combat_sim_time: float = 0.0
 var _fx: Object = null  # FiringFx
-var _missile_queue: Array = []  # {pos, source_id, target_id, damage, speed_cells_per_s}
+var _missile_queue: Array = []  # {pos, source_id, target_id, damage, speed_cells_per_s, source_ship_id?}
 var _float_text: FloatTextPool
+## Capital attack probes (COMBAT §15.5): iid:reason -> last sim_s; iid -> stats logged.
+var _atk_diag_gate_cd: Dictionary = {}
+var _atk_diag_stats_done: Dictionary = {}
 var _debris: Array = []  # {node: Node3D, cooldown: Dictionary}
 var _drone_orbit_phase: Dictionary = {}  # instance_id -> float
 ## Orbit tangent sign: +1 / -1 (reverse when stuck ~2s).
@@ -49,9 +52,22 @@ var visual_rng: VisualRng = VisualRng.new()
 const DRONE_BW_COST: float = 5.0
 const DRONE_CAP: int = 5
 const DRONE_REVIVE_DELAY_S: float = 400.0
-const RACE_DRONE_LIGHT: Dictionary = {"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004}
-const RACE_DRONE_MEDIUM: Dictionary = {"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008}
-const RACE_DRONE_HEAVY: Dictionary = {"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014}
+const RACE_DRONE_LIGHT: Dictionary = {
+	"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004,
+	## Pirate → empire parent race (SHIPS §1.3).
+	"blood": 1001, "sansha": 1001, "mordu": 1002, "serpentis": 1003, "soe": 1003, "angel": 1004,
+	"guristas": 1502,
+}
+const RACE_DRONE_MEDIUM: Dictionary = {
+	"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008,
+	"blood": 1005, "sansha": 1005, "mordu": 1006, "serpentis": 1007, "soe": 1007, "angel": 1008,
+	"guristas": 1506,
+}
+const RACE_DRONE_HEAVY: Dictionary = {
+	"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014,
+	"blood": 1011, "sansha": 1011, "mordu": 1012, "serpentis": 1013, "soe": 1013, "angel": 1014,
+	"guristas": 1512,
+}
 const DRONE_COUNT_EXCEPTIONS: Dictionary = {42: 5, 44: 4, 55: 4, 56: 5}
 
 func bind(board: BoardController, fx: Object = null) -> void:
@@ -115,6 +131,8 @@ func start_combat() -> void:
 	_combat_sim_time = 0.0
 	_retarget_acc = 0.0
 	_missile_queue.clear()
+	_atk_diag_gate_cd.clear()
+	_atk_diag_stats_done.clear()
 	_drone_orbit_phase.clear()
 	_drone_orbit_dir.clear()
 	_drone_orbit_tilt.clear()
@@ -191,6 +209,8 @@ func stop_combat() -> void:
 			]
 		)
 	_missile_queue.clear()
+	_atk_diag_gate_cd.clear()
+	_atk_diag_stats_done.clear()
 	_drone_revive_queue.clear()
 	_clear_drones()
 	_clear_debris()
@@ -297,14 +317,14 @@ func tick(delta: float) -> void:
 			s.sync_pre_lock(_find_target(s, tgt))
 		s.advance_pre_lock(delta)
 		## Covert cyno: pinned + no weapons. Other immobile (dread siege / Rorqual industrial):
-		## stay put / no yaw, but still lock+fire (morph is visual-only).
+		## stay put / no yaw, but still lock+fire (morph / unstack are visual / slide only).
 		if s.has_cyno_module():
 			continue
 		if s.hull_morph_unstacking:
 			s.clear_move_velocity()
 			EngineBoosterTrail.set_emitting_on(s, false)
-			continue
-		if s.immobile_in_combat:
+			## CAPITAL §4: unstack allows brief slide but must not gate lock/fire.
+		elif s.immobile_in_combat:
 			s.clear_move_velocity()
 			EngineBoosterTrail.set_emitting_on(s, false)
 		elif s.is_unmanned and s.unmanned_kind.find("sentry") < 0:
@@ -944,21 +964,78 @@ func _best_heal_ally(logi: ShipUnit) -> ShipUnit:
 			best = o
 	return best
 
-func _try_attack(s: ShipUnit, tgt: ShipUnit, now: float) -> void:
-	if s.has_cyno_module():
+func _is_atk_diag_subject(s: ShipUnit) -> bool:
+	if s == null or not is_instance_valid(s):
+		return false
+	if s.requires_cyno_entry:
+		return true
+	return not str(s.capital_role).is_empty()
+
+
+func _atk_diag_gate(s: ShipUnit, reason: String, extra: String = "") -> void:
+	if not _is_atk_diag_subject(s):
 		return
-	if s.has_method("is_lance_suppressing") and TypedVariant.as_bool(s.call("is_lance_suppressing"), false):
+	var iid: int = s.get_instance_id()
+	var key: String = "%d:%s" % [iid, reason]
+	var last: float = TypedVariant.as_float(_atk_diag_gate_cd.get(key, -9999.0), -9999.0)
+	if _combat_sim_time - last < 2.0:
+		return
+	_atk_diag_gate_cd[key] = _combat_sim_time
+	var detail: String = "ship=%d reason=%s" % [s.ship_id, reason]
+	if extra != "":
+		detail += " " + extra
+	SessionDiagnostics.log("atk.gate", detail)
+
+
+func _atk_diag_stats_once(s: ShipUnit) -> void:
+	if not _is_atk_diag_subject(s):
+		return
+	var iid: int = s.get_instance_id()
+	if TypedVariant.as_bool(_atk_diag_stats_done.get(iid, false), false):
+		return
+	_atk_diag_stats_done[iid] = true
+	var dph: float = s.damage_emp + s.damage_thermal + s.damage_kinetic + s.damage_explosive
+	SessionDiagnostics.log(
+		"atk.stats",
+		"ship=%d role=%s fx=%s dph=%.1f cycle=%.2f er=%.1f ev=%.1f scan=%.1f cap=%.0f/%.0f" % [
+			s.ship_id,
+			s.capital_role,
+			s.resolve_weapon_fx_kind(),
+			dph,
+			s.attack_duration,
+			s.explosion_radius,
+			s.explosion_velocity,
+			s.scan_resolution,
+			s.cap_current,
+			s.cap_capacity,
+		]
+	)
+
+
+func _try_attack(s: ShipUnit, tgt: ShipUnit, now: float) -> void:
+	_atk_diag_stats_once(s)
+	if s.has_cyno_module():
+		_atk_diag_gate(s, "cyno")
+		return
+	## CAPITAL §4.1: suppress only the hull that fitted lance and is in Prep/Fire/End.
+	if MixedLance.weapons_suppressed(s):
+		_atk_diag_gate(s, "lance")
 		return
 	if not s.is_logistic and not s.has_offensive_damage():
+		_atk_diag_gate(s, "no_dph")
 		return
 	if now - s.last_attack_time < s.attack_duration:
+		## Expected CD — do not log (would flood even throttled on short cycles).
 		return
 	if not s.attacks_enabled():
+		_atk_diag_gate(s, "cap", "frac=%.2f" % s.cap_fraction())
 		return
 	if not s.is_target_locked():
+		_atk_diag_gate(s, "unlock", "lt=%.2f need=%.2f" % [s.lock_timer, s.lock_duration_s])
 		return
 	var dist_cells: float = s.grid_dist_to(tgt)
 	if dist_cells > s.world_range_cells() + 0.001:
+		_atk_diag_gate(s, "range", "dist=%.2f max=%.2f" % [dist_cells, s.world_range_cells()])
 		return
 	s.last_attack_time = now
 	s.consume_cap_for_cycle()
@@ -981,6 +1058,7 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 		AdminBus.request(&"combat.heal", payload)
 	else:
 		var raw: Dictionary = s.damage_dict_scaled()
+		var raw_sum: float = s.sum_damage_amount(raw)
 		if s.is_missile_weapon():
 			var factor: float = s.missile_damage_factor_vs(tgt)
 			var scaled: Dictionary = {}
@@ -995,7 +1073,18 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 				"target_id": tgt.get_instance_id(),
 				"damage": scaled,
 				"speed_cells_per_s": spd,
+				"source_ship_id": s.ship_id,
+				"target_ship_id": tgt.ship_id,
+				"raw_sum": raw_sum * factor,
+				"diag_capital": _is_atk_diag_subject(s),
 			})
+			if _is_atk_diag_subject(s):
+				SessionDiagnostics.log(
+					"atk.fire",
+					"ship=%d tgt=%d kind=missile raw=%.0f factor=%.3f dist=%.2f spd=%.2f" % [
+						s.ship_id, tgt.ship_id, raw_sum, factor, dist_cells, spd
+					]
+				)
 		else:
 			var p_hit: float = s.turret_hit_chance_vs(tgt, dist_cells)
 			if FunctionFit.attack_force_hit(s):
@@ -1012,9 +1101,29 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 					"target_id": tgt.get_instance_id(),
 					"damage": scaled_t,
 				}
-				AdminBus.request(&"combat.hit", payload2)
+				var hit_res: Dictionary = AdminBus.request(&"combat.hit", payload2)
+				if _is_atk_diag_subject(s):
+					SessionDiagnostics.log(
+						"atk.fire",
+						"ship=%d tgt=%d kind=%s raw=%.0f qual=%.2f dealt=%.0f dist=%.2f" % [
+							s.ship_id,
+							tgt.ship_id,
+							s.resolve_weapon_fx_kind(),
+							raw_sum,
+							quality,
+							TypedVariant.as_float(hit_res.get("dealt", 0.0), 0.0),
+							dist_cells,
+						]
+					)
 			else:
 				FunctionFit.on_attack_miss(s)
+				if _is_atk_diag_subject(s):
+					SessionDiagnostics.log(
+						"atk.fire",
+						"ship=%d tgt=%d kind=%s raw=%.0f qual=0 miss dist=%.2f" % [
+							s.ship_id, tgt.ship_id, s.resolve_weapon_fx_kind(), raw_sum, dist_cells
+						]
+					)
 	if _fx != null and _fx.has_method("play"):
 		_fx.call("play", s, tgt, s.resolve_weapon_fx_kind(), s.attack_duration, fx_travel_s, fx_speed_cells)
 	if s.has_method("advance_muzzle"):
@@ -1030,6 +1139,14 @@ func _tick_missiles(dt: float) -> void:
 		var tid: int = TypedVariant.as_int(m.get("target_id", 0), 0)
 		var tgt: ShipUnit = instance_from_id(tid) as ShipUnit
 		if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
+			if TypedVariant.as_bool(m.get("diag_capital", false), false):
+				SessionDiagnostics.log(
+					"atk.missile_drop",
+					"ship=%d tgt=%d reason=tgt_gone" % [
+						TypedVariant.as_int(m.get("source_ship_id", 0), 0),
+						TypedVariant.as_int(m.get("target_ship_id", 0), 0),
+					]
+				)
 			_missile_queue.remove_at(i)
 			continue
 		var pos_v: Variant = m.get("pos", tgt.global_position)
@@ -1041,11 +1158,21 @@ func _tick_missiles(dt: float) -> void:
 		var speed_wu: float = TypedVariant.as_float(m.get("speed_cells_per_s", 1.5), 1.5) * wu
 		var step: float = speed_wu * dt
 		if dist <= maxf(hit_r, step) or dist < 0.001:
-			AdminBus.request(&"combat.hit", {
+			var hit_res: Dictionary = AdminBus.request(&"combat.hit", {
 				"source_id": TypedVariant.as_int(m.get("source_id", 0), 0),
 				"target_id": tid,
 				"damage": m.get("damage", {}),
 			})
+			if TypedVariant.as_bool(m.get("diag_capital", false), false):
+				SessionDiagnostics.log(
+					"atk.missile_hit",
+					"ship=%d tgt=%d dealt=%.0f raw=%.0f" % [
+						TypedVariant.as_int(m.get("source_ship_id", 0), 0),
+						TypedVariant.as_int(m.get("target_ship_id", 0), 0),
+						TypedVariant.as_float(hit_res.get("dealt", 0.0), 0.0),
+						TypedVariant.as_float(m.get("raw_sum", 0.0), 0.0),
+					]
+				)
 			_missile_queue.remove_at(i)
 			continue
 		m["pos"] = pos + delta_p * (step / dist)
@@ -1233,14 +1360,21 @@ func _spawn_combat_drones() -> void:
 		var n: int = mini(DRONE_CAP, TypedVariant.as_int(policy.get("count", 0), 0))
 		if n <= 0:
 			continue
+		@warning_ignore("unsafe_cast")
+		var id_list: Array = policy.get("drone_ids", []) as Array
 		var drone_id: int = TypedVariant.as_int(policy.get("drone_id", 0), 0)
-		if drone_id <= 0:
+		if id_list.is_empty() and drone_id <= 0:
 			continue
 		for i: int in range(n):
+			var spawn_id: int = drone_id
+			if id_list.size() > 0:
+				spawn_id = TypedVariant.as_int(id_list[i % id_list.size()], 0)
+			if spawn_id <= 0:
+				continue
 			var ang: float = float(i) * TAU / float(maxi(1, n))
 			var rad: float = 1.15
 			var offset: Vector3 = Vector3(cos(ang) * rad, 0.2, sin(ang) * rad)
-			var drone: ShipUnit = _board.spawn_unmanned(drone_id, s.team_id, s.global_position + offset, s)
+			var drone: ShipUnit = _board.spawn_unmanned(spawn_id, s.team_id, s.global_position + offset, s)
 			_ensure_drone_trail(drone)
 			var did: int = drone.get_instance_id()
 			## Even phase + alternate orbit dir — less VisualRng scatter (COMBAT §14C).
@@ -1256,6 +1390,17 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 	var ship_data: Dictionary = DataStore.get_ship(s.ship_id)
 	var group: String = str(ship_data.get("ship_group", "")).to_lower()
 	var sid: int = int(s.ship_id)
+	## Explicit multi-id list (Guristas C×2, Nestor logistics 1421–1424).
+	@warning_ignore("unsafe_cast")
+	var unit_ids: Array = ship_data.get("drone_unit_ids", []) as Array
+	if unit_ids.size() > 0:
+		var ids_out: Array = []
+		for u: Variant in unit_ids:
+			var uid: int = TypedVariant.as_int(u, 0)
+			if uid > 0:
+				ids_out.append(uid)
+		if ids_out.size() > 0:
+			return {"count": ids_out.size(), "drone_ids": ids_out, "drone_id": TypedVariant.as_int(ids_out[0], 0)}
 	## Rorqual / industrial: explicit mining Excavator template (not race light drones).
 	var mining_drone_id: int = TypedVariant.as_int(ship_data.get("mining_drone_id", 0), 0)
 	if mining_drone_id > 0:
@@ -1263,6 +1408,10 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 		if mcount <= 0:
 			mcount = TypedVariant.as_int(ship_data.get("mining_drone_count", 4), 4)
 		return {"count": mcount, "drone_id": mining_drone_id}
+	## COMBAT §14C: logistic cruiser / BC never launch combat drones (FAX still uses auxiliaries).
+	## Nestor battleship with drone_unit_ids already returned above.
+	if TypedVariant.as_bool(s.is_logistic, false) and group in ["cruiser", "battlecruiser"]:
+		return {"count": 0, "drone_id": 0}
 	if DRONE_COUNT_EXCEPTIONS.has(sid):
 		var cnt: int = TypedVariant.as_int(DRONE_COUNT_EXCEPTIONS[sid], 0)
 		if group == "battlecruiser":
@@ -1272,12 +1421,16 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 	if group == "battlecruiser":
 		return {"count": 1, "drone_id": TypedVariant.as_int(RACE_DRONE_MEDIUM.get(race, 1005), 1005)}
 	if group == "battleship":
+		## Logistic battleship without explicit drone_unit_ids: no combat heavies.
+		if TypedVariant.as_bool(s.is_logistic, false):
+			return {"count": 0, "drone_id": 0}
 		return {"count": 2, "drone_id": TypedVariant.as_int(RACE_DRONE_HEAVY.get(race, 1011), 1011)}
 	## Mining barges: G medium 1007; Orca (industrial_command): G heavy 1013 (MINING §2).
 	var slots: int = TypedVariant.as_int(s.get("drone_bay_slots"), 0)
 	if slots <= 0:
 		slots = TypedVariant.as_int(ship_data.get("drone_bay_slots", ship_data.get("drone_count_cap", 0)), 0)
-	if slots <= 0 and s.drone_bandwidth > 0.0:
+	## Explicit bay=0 must stay 0 — do not invent from leftover SDE bandwidth.
+	if slots <= 0 and not ship_data.has("drone_bay_slots") and s.drone_bandwidth > 0.0:
 		slots = floori(s.drone_bandwidth / DRONE_BW_COST)
 	if slots <= 0:
 		return {"count": 0, "drone_id": 0}
@@ -1285,6 +1438,18 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 		return {"count": slots, "drone_id": 1007}
 	if group == "industrial_command":
 		return {"count": slots, "drone_id": 1013}
+	## Faction / empire cruiser with explicit bay: prefer medium when race map has pirate entry
+	## and ship marked faction_ship; else light (empire Dominix etc.).
+	if group == "cruiser":
+		if TypedVariant.as_bool(ship_data.get("faction_ship", false), false):
+			return {"count": slots, "drone_id": TypedVariant.as_int(RACE_DRONE_MEDIUM.get(race, 1005), 1005)}
+	## Guristas race fallback → doubled C drones.
+	if race == "guristas":
+		if group == "cruiser":
+			return {"count": slots, "drone_id": 1506}
+		if group == "battleship":
+			return {"count": slots, "drone_id": 1512}
+		return {"count": slots, "drone_id": 1502}
 	return {"count": slots, "drone_id": TypedVariant.as_int(RACE_DRONE_LIGHT.get(race, 1001), 1001)}
 
 
@@ -1306,7 +1471,8 @@ func _count_children_of(mother: ShipUnit) -> int:
 
 func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 	var data: Dictionary = DataStore.get_ship(s.ship_id)
-	if s.capital_role == "carrier" or TypedVariant.as_int(data.get("fighter_unit_id", 0), 0) > 0:
+	var fighter_ids: Array = _carrier_fighter_unit_ids(data)
+	if s.capital_role == "carrier" or fighter_ids.size() > 0:
 		_ensure_carrier_fighter_squadrons(s, data)
 		return
 	if s.capital_role == "force_auxiliary" or TypedVariant.as_int(data.get("heavy_repair_drone_id", 0), 0) > 0:
@@ -1316,7 +1482,7 @@ func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 		var need2: int = TypedVariant.as_int(data.get("heavy_repair_drone_count", 4), 4)
 		var have2: int = _count_children_of(s)
 		for j: int in range(have2, need2):
-			var ang2: int = float(j) * TAU / float(maxi(1, need2))
+			var ang2: float = float(j) * TAU / float(maxi(1, need2))
 			var offset2: Vector3 = Vector3(cos(ang2) * 1.6, 0.25, sin(ang2) * 1.6)
 			## Repair drones always ★1 heal (reload_stats ignores star for repair).
 			var d: ShipUnit = _board.spawn_unmanned(drone_id, s.team_id, s.global_position + offset2, s, 1)
@@ -1327,13 +1493,32 @@ func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 		_board.recalculate_fetters(s.team_id)
 
 
+func _carrier_fighter_unit_ids(data: Dictionary) -> Array:
+	@warning_ignore("unsafe_cast")
+	var arr: Array = data.get("fighter_unit_ids", []) as Array
+	var out: Array = []
+	for v: Variant in arr:
+		var fid: int = TypedVariant.as_int(v, 0)
+		if fid > 0:
+			out.append(fid)
+	if out.size() > 0:
+		return out
+	var one: int = TypedVariant.as_int(data.get("fighter_unit_id", 0), 0)
+	if one > 0:
+		out.append(one)
+	return out
+
+
 func _ensure_carrier_fighter_squadrons(s: ShipUnit, data: Dictionary) -> void:
 	## Max `fighter_squadrons` active at once; lifetime pool `fighter_squadron_pool`.
 	## When a whole squadron is wiped, launch another while pool remains.
-	var fighter_id: int = TypedVariant.as_int(data.get("fighter_unit_id", 0), 0)
-	if fighter_id <= 0:
+	## Multi-type: `fighter_unit_ids[]` — each active slot uses ids[slot % len] (Delirium 4 races).
+	var fighter_ids: Array = _carrier_fighter_unit_ids(data)
+	if fighter_ids.is_empty():
 		return
 	var active_max: int = TypedVariant.as_int(data.get("fighter_squadrons", 3), 3)
+	if fighter_ids.size() > 1:
+		active_max = maxi(active_max, fighter_ids.size())
 	var tubes: int = TypedVariant.as_int(data.get("fighter_tubes_per_squadron", 3), 3)
 	var pool_cap: int = TypedVariant.as_int(data.get("fighter_squadron_pool", 10), 10)
 	active_max = maxi(1, active_max)
@@ -1358,6 +1543,7 @@ func _ensure_carrier_fighter_squadrons(s: ShipUnit, data: Dictionary) -> void:
 		var sq_id: int = s.fighter_next_squadron_id
 		s.fighter_next_squadron_id += 1
 		s.fighter_squadron_pool_left -= 1
+		var fighter_id: int = TypedVariant.as_int(fighter_ids[active_count % fighter_ids.size()], 0)
 		for i: int in range(tubes):
 			var ang: float = float(active_count * tubes + i) * TAU / float(active_max * tubes)
 			var offset: Vector3 = Vector3(cos(ang) * 1.4, 0.25, sin(ang) * 1.4)

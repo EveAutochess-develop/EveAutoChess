@@ -200,6 +200,10 @@ func _despawn_cyno_ship(cyno: ShipUnit) -> void:
 	if cyno == null or not is_instance_valid(cyno):
 		return
 	_teardown_fx(cyno.get_instance_id())
+	SessionDiagnostics.log(
+		"cyno.despawn",
+		"ship=%d iid=%d team=%d" % [cyno.ship_id, cyno.get_instance_id(), cyno.team_id]
+	)
 	cyno.visible = false
 	cyno.is_destroyed = true
 	cyno.immobile_in_combat = false

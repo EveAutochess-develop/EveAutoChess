@@ -1,0 +1,13 @@
+{
+  "id": "serpentis",
+  "name": "天蛇",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "Damage",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 15
+    }
+  ]
+}

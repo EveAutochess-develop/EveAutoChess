@@ -6,8 +6,9 @@ class_name MapEnv
 ## rightmost field hex (AI: leftmost). Body extends outward so it does not cover hexes.
 
 const STRUCT_DIR: String = "res://assets/models/structures"
-const CITADEL_TEX: String = "res://assets/textures/structures_png/citadel_d.png"
-const CITADEL_MESH_ASCII: String = "res://assets/models/structures/citadel.glb"
+const CITADEL_TEX: String = "res://assets/models/structures/cyno_beacon/albedo.png"
+const CITADEL_MESH_ASCII: String = "res://assets/models/structures/cyno_beacon/model.glb"
+const CITADEL_NORMAL: String = "res://assets/models/structures/cyno_beacon/normal.png"
 
 ## Player-side citadel node (for world HP bar). AI citadel is not tracked in v1.
 var player_citadel: Node3D
@@ -207,10 +208,13 @@ func _cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vector3:
 func _spawn_citadel_under_board(
 		stem: String, target_size: float, team_id: int, anchor_cell: Vector3, player_side: bool
 ) -> Node3D:
-	# Prefer ASCII mesh path — Chinese 空堡.glb often fails to resolve from Android PCK.
-	var path: String = ""
-	if ResourceLoader.exists(CITADEL_MESH_ASCII):
-		path = CITADEL_MESH_ASCII
+	# Prefer visual.json mesh (cyb01); ASCII fallback. Chinese 空堡.glb often fails on Android PCK.
+	var visual_spawn: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var path: String = str(visual_spawn.get("citadel_mesh", CITADEL_MESH_ASCII))
+	if path == "" or not ResourceLoader.exists(path):
+		path = CITADEL_MESH_ASCII if ResourceLoader.exists(CITADEL_MESH_ASCII) else ""
+	if path == "":
+		path = _find_glb(STRUCT_DIR, "cyno_beacon")
 	if path == "":
 		path = _find_glb(STRUCT_DIR, "citadel")
 	if path == "":
@@ -244,13 +248,17 @@ func _spawn_citadel_under_board(
 	var corner: Vector3 = _pick_pin_corner_world_aligned(n, aabb, player_side)
 	# basis only — never full transform (stale position would corrupt the pin).
 	n.position = anchor_cell - (n.transform.basis * corner)
-	var tex_path: String = CITADEL_TEX
+	var tex_path: String = str(visual_spawn.get("citadel_albedo", CITADEL_TEX))
+	if tex_path == "" or not ResourceLoader.exists(tex_path):
+		tex_path = CITADEL_TEX
 	var mapped: String = str(DataStore.ship_textures.get("citadel_diffuse", ""))
 	if mapped != "":
 		tex_path = mapped
-	_apply_ship_like_hull(n, tex_path, team_id)
+	var ntex_path: String = str(visual_spawn.get("citadel_normal", CITADEL_NORMAL))
+	_apply_ship_like_hull(n, tex_path, team_id, ntex_path)
 	MobileModelLoad.apply_tree(n, target_size)
 	_attach_citadel_light(n, player_side)
+	_attach_citadel_center_light(n, aabb)
 	n.position.y -= 0.02
 	var scaled_size: Vector3 = Vector3(aabb.size.x * n.scale.x, aabb.size.y * n.scale.y, aabb.size.z * n.scale.z)
 	print("[MapEnv] citadel under board team=%d pos=%s anchor=%s scaled_size=%s corner=%s" % [
@@ -416,32 +424,134 @@ func _normalize_size(root: Node3D, target: float) -> void:
 		return
 	root.scale = Vector3.ONE * (target / longest)
 
+func _citadel_inv_scale(root: Node3D) -> float:
+	## cyb01 is meters-scale; after _normalize_size, root.scale ≪ 1. Lights/flares
+	## parented to the root inherit that scale, so world range collapses unless
+	## local lengths are multiplied by 1/scale (BOARD_AND_INPUT §2.4).
+	return 1.0 / maxf(absf(root.scale.x), 0.0001)
+
+
+func _citadel_warm_color(visual: Dictionary) -> Color:
+	return Color(
+		TypedVariant.as_float(visual.get("citadel_light_color_r", 1.0), 1.0),
+		TypedVariant.as_float(visual.get("citadel_light_color_g", 0.92), 0.92),
+		TypedVariant.as_float(visual.get("citadel_light_color_b", 0.78), 0.78)
+	)
+
+
 func _attach_citadel_light(root: Node3D, player_side: bool) -> void:
 	## Dedicated citadel key light — independent of board ship fill lights.
 	var visual: Dictionary = TypedVariant.as_dict(DataStore.visual)
 	var energy: float = TypedVariant.as_float(visual.get("citadel_light_energy", 3.2), 3.2)
 	if energy <= 0.001:
 		return
+	var inv: float = _citadel_inv_scale(root)
 	var light: OmniLight3D = OmniLight3D.new()
 	light.name = "CitadelLight"
 	light.light_energy = energy
-	light.omni_range = TypedVariant.as_float(visual.get("citadel_light_range", 28.0), 28.0)
-	light.light_color = Color(
-		TypedVariant.as_float(visual.get("citadel_light_color_r", 1.0), 1.0),
-		TypedVariant.as_float(visual.get("citadel_light_color_g", 0.92), 0.92),
-		TypedVariant.as_float(visual.get("citadel_light_color_b", 0.78), 0.78)
-	)
+	light.omni_range = TypedVariant.as_float(visual.get("citadel_light_range", 28.0), 28.0) * inv
+	light.light_color = _citadel_warm_color(visual)
 	light.shadow_enabled = false
-	## Local offset above/outward so the hull catches the key without bleaching ships.
-	light.position = Vector3(4.0 if player_side else -4.0, 10.0, 3.0 if player_side else -3.0)
+	## World-wu offset above/outward; divide by scale so it survives normalize.
+	light.position = Vector3(
+		(4.0 if player_side else -4.0) * inv,
+		10.0 * inv,
+		(3.0 if player_side else -3.0) * inv
+	)
 	root.add_child(light)
 
-func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
+
+func _attach_citadel_center_light(root: Node3D, aabb: AABB) -> void:
+	## Preview hub: Omni + small additive flare. Counter-scale so range/quads
+	## stay world-sized after _normalize_size.
+	var visual: Dictionary = TypedVariant.as_dict(DataStore.visual)
+	var energy: float = TypedVariant.as_float(visual.get("citadel_center_light_energy", 6.88), 6.88)
+	if energy <= 0.001:
+		return
+	var inv: float = _citadel_inv_scale(root)
+	var hub: Node3D = Node3D.new()
+	hub.name = "CitadelHubFx"
+	hub.position = aabb.get_center()
+	hub.scale = Vector3.ONE * inv
+	root.add_child(hub)
+	var warm: Color = _citadel_warm_color(visual)
+	var light: OmniLight3D = OmniLight3D.new()
+	light.name = "CitadelCenterLight"
+	light.light_energy = energy
+	light.omni_range = TypedVariant.as_float(visual.get("citadel_center_light_range", 32.0), 32.0)
+	light.omni_attenuation = 0.85
+	light.light_color = warm
+	light.shadow_enabled = false
+	hub.add_child(light)
+	var longest_w: float = maxf(
+		aabb.size.x * absf(root.scale.x),
+		maxf(aabb.size.y * absf(root.scale.y), aabb.size.z * absf(root.scale.z))
+	)
+	var r: float = maxf(longest_w * 0.5, 1.0)
+	var e_mul: float = energy / 6.88
+	_add_citadel_hub_flare(
+		hub,
+		"FlareCenter",
+		Vector2(r * 0.18, r * 0.18),
+		Color(warm.r, warm.g * 0.98, warm.b * 0.95, 1.0),
+		"res://assets/vfx/cyno/flarex_01a.png",
+		3.4 * e_mul
+	)
+	_add_citadel_hub_flare(
+		hub,
+		"FlareCore",
+		Vector2(r * 0.055, r * 0.055),
+		Color(1.0, 1.0, 1.0, 1.0),
+		"res://assets/vfx/cyno/whitesharp.png",
+		5.5 * e_mul
+	)
+
+
+func _add_citadel_hub_flare(
+		hub: Node3D, nm: String, size: Vector2, color: Color, tex_path: String, emit_e: float
+) -> void:
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	mi.name = nm
+	var q: QuadMesh = QuadMesh.new()
+	q.size = size
+	mi.mesh = q
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.no_depth_test = true
+	mat.render_priority = 2
+	mat.albedo_color = color
+	var tex: Texture2D = null
+	if tex_path != "":
+		tex = UiAssets.tex_ship_bake(tex_path)
+		if tex != null:
+			mat.albedo_texture = tex
+	## Uniform emission lights the whole Quad (square plate). Mask with the flare tex.
+	if tex != null:
+		mat.emission_enabled = true
+		mat.emission = Color(color.r, color.g, color.b)
+		mat.emission_texture = tex
+		mat.emission_energy_multiplier = emit_e
+	mi.material_override = mat
+	hub.add_child(mi)
+
+func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int, normal_path: String = "") -> void:
 	var tex: Texture2D = UiAssets.tex_ship_bake(tex_path) if tex_path != "" else null
 	var ntex: Texture2D = null
 	var mobile: bool = UiLayout.is_mobile()
-	if not mobile and tex_path != "" and tex_path.ends_with("_d.png"):
-		ntex = UiAssets.tex_ship_bake(tex_path.replace("_d.png", "_n.png"))
+	if not mobile:
+		var npath: String = normal_path
+		if npath == "" and tex_path != "":
+			if tex_path.ends_with("_d.png"):
+				npath = tex_path.replace("_d.png", "_n.png")
+			elif tex_path.ends_with("albedo.png"):
+				npath = tex_path.replace("albedo.png", "normal.png")
+		if npath != "":
+			ntex = UiAssets.tex_ship_bake(npath)
 	# Dimmer than ships — background fortress, not competing with board units.
 	var hull: Color = Color(0.42, 0.36, 0.28)
 	var team: Color = Color(0.28, 0.34, 0.42) if team_id == ShipUnit.TEAM_PLAYER else Color(0.45, 0.28, 0.26)
@@ -449,7 +559,8 @@ func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
 	var visual: Dictionary = TypedVariant.as_dict(DataStore.visual)
 	hull = hull.darkened(TypedVariant.as_float(visual.get("citadel_darken", 0.35), 0.35))
 	for mi: MeshInstance3D in _find_meshes(root):
-		if str(mi.name) == "FitBox":
+		var mi_name: String = str(mi.name)
+		if mi_name == "FitBox" or mi_name.begins_with("Flare"):
 			continue
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
 		mat.shading_mode = (
@@ -488,6 +599,9 @@ func _apply_ship_like_hull(root: Node, tex_path: String, team_id: int) -> void:
 
 func _find_meshes(node: Node) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
+	var nm: String = str(node.name)
+	if nm == "FitBox" or nm == "CitadelHubFx" or nm.begins_with("Flare"):
+		return out
 	if node is MeshInstance3D:
 		@warning_ignore("unsafe_cast")
 		out.append(node as MeshInstance3D)

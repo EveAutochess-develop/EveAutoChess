@@ -9,6 +9,8 @@ var board: Dictionary = {}
 var combat: Dictionary = {}
 var ai: Dictionary = {}
 var visual: Dictionary = {}
+## UI_AND_SHELL §3.1.1 / CONTENT_FORMAT §3.6b — HUD panel fracs from preview snap.
+var hud_layout: Dictionary = {}
 var weapon_fx: Dictionary = {}
 var titan_pvp: Dictionary = {}
 ## MULTIPLAYER_PVP §7.1 — read-only title catalog (array of {id,name,condition}).
@@ -57,6 +59,7 @@ func reload_all() -> void:
 	combat = _load_balance("combat.json")
 	ai = _load_balance("ai.json")
 	visual = _load_balance("visual.json")
+	hud_layout = ContentRuntimeData.load_json_prefer_runtime("ui/hud_layout.json")
 	weapon_fx = _load_balance("weapon_fx.json")
 	titan_pvp = _load_balance("titan_pvp.json")
 	combat_evals = _load_combat_evals()
