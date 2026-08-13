@@ -40,11 +40,13 @@ signal lobby_notice(message: String)
 ## Lobby / transfer — is_host flipped (UI: 功能 / 加人机 / 安等).
 signal host_role_changed(is_host_now: bool)
 ## SEMI_ASYNC §4.5 — any seat finished this round → remaining battles 4× + wall-clock draw.
-signal seat_battle_finished(seat: int)
+signal seat_battle_finished(seat: int) ## Manned only — arms §4.5; AI barrier marks stay silent.
 ## All barrier humans reported battle_done — clear conditional wall draw (§4.5).
 signal battle_done_all_ready()
 ## MULTIPLAYER_PVP §7 — combined end-of-match report (settlement rows + §7.1 titles).
 signal match_report_received(report: Dictionary)
+## MULTIPLAYER_PVP §7.0 — per-round standings (result / titles / WLD) for every contestant seat.
+signal round_standings_received(standings: Dictionary)
 ## SEMI_ASYNC §4.5 — speed vote from a seat (after host validation).
 signal speed_vote_received(seat: int, speed: float)
 ## MULTIPLAYER_PVP §6 — host-authoritative doomsday play cue.
@@ -60,7 +62,11 @@ const ENET_TIMEOUT_LIMIT: int = 32
 const ENET_TIMEOUT_MIN_MS: int = 10000
 const ENET_TIMEOUT_MAX_MS: int = 45000
 const TITAN_RACE_SPECTATE: String = "spectate"
-const TITAN_RACES: Array = ["caldari", "gallente", "minmatar", "amarr"]
+const TITAN_RACES: Array = [
+	"caldari", "gallente", "minmatar", "amarr",
+	## 势力泰坦仅天使征服者（MULTIPLAYER_PVP §2）；非七族各一项。
+	"angel",
+]
 const SECURITY_NULLSEC: String = "nullsec"
 const SECURITY_LOWSEC: String = "lowsec"
 
@@ -142,6 +148,16 @@ const BARRIER_FORCE_ESCAPE_MS: int = 20000
 var _match_report_gate_open: bool = false
 var _match_report_seats: Dictionary = {}
 var _match_report_summaries: Dictionary = {}
+## Once true, late seat summaries merge+rebroadcast — never clear/shrink players.
+var _match_report_broadcast_done: bool = false
+var _last_match_report_players: Array = []
+## §7.0 per-round seat_round_summary → host stitch → rpc_round_standings.
+var _round_summary_gate_open: bool = false
+var _round_summary_seats: Dictionary = {}
+var _round_summary_by_seat: Dictionary = {}
+var _round_summary_round_id: int = -1
+## Last broadcast standings by seat (WLD/titles) — enrich end-report rows.
+var _last_standings_by_seat: Dictionary = {}
 ## Voluntary host transfer (lobby).
 var _pending_transfer_seat: int = -1
 var _kicked_local: bool = false
@@ -1305,6 +1321,7 @@ func _try_start() -> void:
 	}
 	match_started = true
 	last_match_payload = payload.duplicate(true)
+	_reset_settlement_sync_state()
 	## Ship table as UTF-8 JSON bytes (cheaper than Variant Dictionary RPC on mobile).
 	var ships_json: String = JSON.stringify(opening_host_ships)
 	var ships_bytes: PackedByteArray = ships_json.to_utf8_buffer()
@@ -1442,6 +1459,7 @@ func _payload_for_spectate_join() -> Dictionary:
 func rpc_match_start(payload: Dictionary) -> void:
 	match_started = true
 	last_match_payload = payload.duplicate(true)
+	_reset_settlement_sync_state()
 	session_secret = str(payload.get("session_secret", session_secret))
 	match_id = str(payload.get("match_id", match_id))
 	opening_host_platform = str(payload.get("opening_host_platform", opening_host_platform))
@@ -1944,9 +1962,7 @@ func close() -> void:
 	_migrating = false
 	_ticket_heartbeat_acc = 0.0
 	_prepare_fleet_cache.clear()
-	_match_report_gate_open = false
-	_match_report_seats.clear()
-	_match_report_summaries.clear()
+	_reset_settlement_sync_state()
 	DataStore.end_match_host_ships_material()
 	_init_empty_seats()
 
@@ -2642,16 +2658,21 @@ func rpc_round_battle_done(seat: int) -> void:
 
 func _mark_battle_done(seat: int) -> void:
 	_battle_done_seats[seat] = true
-	## §4.5: notify every peer so remaining tables go 4× and start 2min wall clock.
-	if multiplayer.has_multiplayer_peer() and is_host:
-		rpc("rpc_seat_battle_finished", seat)
-	else:
-		seat_battle_finished.emit(seat)
+	## §4.5: only manned seats arm auto 4× / wall-draw. AI barrier marks stay silent.
+	var seat_ai: bool = TypedVariant.as_bool(_seat_row(seat).get("is_ai", false), false)
+	if not seat_ai:
+		if multiplayer.has_multiplayer_peer() and is_host:
+			rpc("rpc_seat_battle_finished", seat)
+		else:
+			seat_battle_finished.emit(seat)
 	_check_battle_done_ready()
 
 
 @rpc("authority", "reliable", "call_local")
 func rpc_seat_battle_finished(seat: int) -> void:
+	## Defense: ignore AI seats even if a stale RPC arrives.
+	if TypedVariant.as_bool(_seat_row(seat).get("is_ai", false), false):
+		return
 	print("[mp.diag] seat_battle_finished seat=%d" % seat)
 	SessionDiagnostics.log("mp.seat_battle_finished", "seat=%d" % seat)
 	seat_battle_finished.emit(seat)
@@ -2697,7 +2718,199 @@ func rpc_battle_done_all_ready() -> void:
 	battle_done_all_ready.emit()
 
 
-## --- MULTIPLAYER_PVP §7 end-of-match report (settlement rows + §7.1 titles) ---
+## --- MULTIPLAYER_PVP §7.0 per-round standings + §7 end-of-match report ---
+
+func _reset_settlement_sync_state() -> void:
+	_match_report_gate_open = false
+	_match_report_seats.clear()
+	_match_report_summaries.clear()
+	_match_report_broadcast_done = false
+	_last_match_report_players.clear()
+	_reset_round_summary_gate()
+	_last_standings_by_seat.clear()
+
+
+func _reset_round_summary_gate() -> void:
+	_round_summary_gate_open = false
+	_round_summary_seats.clear()
+	_round_summary_by_seat.clear()
+	_round_summary_round_id = -1
+
+
+## Each seat reports result / titles / cumulative WLD after a PVP round.
+## Host stitches AI desks then broadcasts `rpc_round_standings` to all seats.
+func submit_seat_round_summary(summary: Dictionary) -> void:
+	if summary.is_empty():
+		return
+	var seat: int = TypedVariant.as_int(summary.get("seat", summary.get("seat_id", local_seat)), local_seat)
+	summary = summary.duplicate(true)
+	summary["seat"] = seat
+	summary["seat_id"] = seat
+	if not needs_stage_barrier():
+		## Solo / no live peer: apply locally as a one-seat standings pulse.
+		var solo: Dictionary = {"summaries": [summary], "round": TypedVariant.as_int(summary.get("round", -1), -1)}
+		_apply_round_standings_local(solo)
+		round_standings_received.emit(solo)
+		SessionDiagnostics.log("net.round_standings", "solo seat=%d result=%s" % [seat, str(summary.get("result", ""))])
+		return
+	if not is_host:
+		rpc_id(1, "rpc_seat_round_summary", summary)
+		SessionDiagnostics.log("net.round_summary", "guest_send seat=%d result=%s" % [seat, str(summary.get("result", ""))])
+		return
+	_host_begin_round_summary_gate(TypedVariant.as_int(summary.get("round", -1), -1))
+	_ingest_round_summary(seat, summary)
+
+
+@rpc("any_peer", "reliable")
+func rpc_seat_round_summary(summary: Dictionary) -> void:
+	if not is_host:
+		return
+	var seat: int = TypedVariant.as_int(summary.get("seat", summary.get("seat_id", -1)), -1)
+	var sender: int = multiplayer.get_remote_sender_id()
+	if seat < 0 or TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
+		print("[mp.diag] round_summary REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	_host_begin_round_summary_gate(TypedVariant.as_int(summary.get("round", -1), -1))
+	_ingest_round_summary(seat, summary)
+
+
+## Host-only: inject AI / synthesized desks so stitch does not wait on missing peers.
+func host_inject_round_summary(summary: Dictionary) -> void:
+	if not is_host or summary.is_empty():
+		return
+	var seat: int = TypedVariant.as_int(summary.get("seat", summary.get("seat_id", -1)), -1)
+	if seat < 0:
+		return
+	summary = summary.duplicate(true)
+	summary["seat"] = seat
+	summary["seat_id"] = seat
+	_host_begin_round_summary_gate(TypedVariant.as_int(summary.get("round", -1), -1))
+	_ingest_round_summary(seat, summary)
+
+
+func _host_begin_round_summary_gate(round_id: int) -> void:
+	if not is_host:
+		return
+	## New round id → restart collection; same / missing id keeps open gate.
+	if _round_summary_gate_open and round_id >= 0 and _round_summary_round_id >= 0 and round_id != _round_summary_round_id:
+		_finish_round_standings_collection()
+	if not _round_summary_gate_open:
+		_round_summary_gate_open = true
+		_round_summary_seats.clear()
+		_round_summary_by_seat.clear()
+		_round_summary_round_id = round_id
+		## Mark only seats outside the barrier cohort — AI must be host-injected, not auto-ready.
+		var need: Dictionary = {}
+		for i: int in _iter_barrier_seats():
+			need[i] = true
+		for i: int in _iter_contestant_seats():
+			if not TypedVariant.as_bool(need.get(i, false), false):
+				_round_summary_seats[i] = true
+		get_tree().create_timer(6.0).timeout.connect(_finish_round_standings_collection, CONNECT_ONE_SHOT)
+		SessionDiagnostics.log("net.round_summary", "gate_open round=%d" % round_id)
+	elif round_id >= 0 and _round_summary_round_id < 0:
+		_round_summary_round_id = round_id
+
+
+func _ingest_round_summary(seat: int, summary: Dictionary) -> void:
+	if seat < 0:
+		return
+	_round_summary_seats[seat] = true
+	_round_summary_by_seat[seat] = summary
+	_check_round_standings_ready()
+
+
+func _check_round_standings_ready() -> void:
+	if not is_host or not _round_summary_gate_open:
+		return
+	## Only humans block; AI rows come from host_inject (or timeout synthesize).
+	for i: int in _iter_barrier_seats():
+		if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			continue
+		if not TypedVariant.as_bool(_round_summary_seats.get(i, false), false):
+			return
+	_finish_round_standings_collection()
+
+
+func _finish_round_standings_collection() -> void:
+	if not is_host or not _round_summary_gate_open:
+		return
+	_round_summary_gate_open = false
+	## Stitch every contestant: live human summaries + AI injects + absent fillers.
+	var summaries: Array = []
+	var seen: Dictionary = {}
+	for i: int in _iter_contestant_seats_including_ghosts():
+		var row_v: Variant = _round_summary_by_seat.get(i, null)
+		if typeof(row_v) == TYPE_DICTIONARY:
+			var s: Dictionary = TypedVariant.as_dict(row_v).duplicate(true)
+			s["seat"] = i
+			s["seat_id"] = i
+			summaries.append(s)
+			seen[i] = true
+			continue
+		summaries.append(_synthesize_round_summary(i))
+		seen[i] = true
+	for seat_v: Variant in _round_summary_by_seat.keys():
+		var sid: int = TypedVariant.as_int(seat_v, -1)
+		if sid < 0 or TypedVariant.as_bool(seen.get(sid, false), false):
+			continue
+		summaries.append(_round_summary_by_seat[seat_v])
+	var payload: Dictionary = {
+		"round": _round_summary_round_id,
+		"summaries": summaries,
+	}
+	print("[mp.diag] round_standings_ready n=%d round=%d" % [summaries.size(), _round_summary_round_id])
+	SessionDiagnostics.log("net.round_standings", "broadcast n=%d round=%d" % [summaries.size(), _round_summary_round_id])
+	_round_summary_by_seat.clear()
+	_round_summary_seats.clear()
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_round_standings", payload)
+	else:
+		_apply_round_standings_local(payload)
+		round_standings_received.emit(payload)
+
+
+func _synthesize_round_summary(seat: int) -> Dictionary:
+	var row: Dictionary = _seat_row(seat)
+	var prev: Dictionary = TypedVariant.as_dict(_last_standings_by_seat.get(seat, {}))
+	return {
+		"seat": seat,
+		"seat_id": seat,
+		"rival": TypedVariant.as_int(prev.get("rival", -1), -1),
+		"result": str(prev.get("result", "—")),
+		"titles": TypedVariant.as_array(prev.get("titles", [])).duplicate(),
+		"w": TypedVariant.as_int(prev.get("w", 0), 0),
+		"l": TypedVariant.as_int(prev.get("l", 0), 0),
+		"d": TypedVariant.as_int(prev.get("d", 0), 0),
+		"is_ai": TypedVariant.as_bool(row.get("is_ai", false), false),
+		"absent": true,
+		"nick": str(row.get("nick", "席位%d" % seat)),
+	}
+
+
+func _apply_round_standings_local(standings: Dictionary) -> void:
+	for s_v: Variant in TypedVariant.as_array(standings.get("summaries", [])):
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		var seat: int = TypedVariant.as_int(s.get("seat", s.get("seat_id", -1)), -1)
+		if seat < 0:
+			continue
+		_last_standings_by_seat[seat] = s.duplicate(true)
+
+
+@rpc("authority", "reliable", "call_local")
+func rpc_round_standings(standings: Dictionary) -> void:
+	_apply_round_standings_local(standings)
+	var n: int = TypedVariant.as_array(standings.get("summaries", [])).size()
+	SessionDiagnostics.log(
+		"net.round_standings",
+		"recv n=%d round=%d host=%d" % [
+			n,
+			TypedVariant.as_int(standings.get("round", -1), -1),
+			1 if is_host else 0,
+		]
+	)
+	round_standings_received.emit(standings)
+
 
 ## Public entry point: submit this seat's own settlement summary (host stores it directly;
 ## guest ships it to the host via RPC). Thin alias over `begin_match_report_collection` so
@@ -2711,12 +2924,23 @@ func submit_local_match_summary(summary: Dictionary) -> void:
 ## collect, so they just emit locally right away.
 func begin_match_report_collection(local_summary: Dictionary) -> void:
 	if not needs_stage_barrier():
-		match_report_received.emit(NullsecSettlement.make_match_report(match_id, local_seat, [local_summary]))
+		var solo_players: Array = [local_summary]
+		## Prefer full contestant list when standings already know every seat.
+		if not _last_standings_by_seat.is_empty():
+			solo_players = _players_from_standings_and_local(local_summary)
+		var report: Dictionary = NullsecSettlement.make_match_report(match_id, local_seat, solo_players)
+		SessionDiagnostics.log("net.match_report", "solo players=%d" % solo_players.size())
+		match_report_received.emit(report)
 		return
 	if local_seat >= 0:
 		local_summary["seat_id"] = local_seat
 	if not is_host:
 		rpc_id(1, "rpc_seat_match_summary", local_summary)
+		SessionDiagnostics.log("net.match_report", "guest_submit seat=%d" % local_seat)
+		return
+	## After a full broadcast, late summaries merge — never wipe players.
+	if _match_report_broadcast_done:
+		_merge_late_match_summary(local_seat, local_summary)
 		return
 	if not _match_report_gate_open:
 		_match_report_gate_open = true
@@ -2736,6 +2960,9 @@ func rpc_seat_match_summary(summary: Dictionary) -> void:
 	var sender: int = multiplayer.get_remote_sender_id()
 	if seat < 0 or TypedVariant.as_int(_seat_row(seat).get("peer_id", 0), 0) != sender:
 		print("[mp.diag] match_summary REJECT seat=%d sender=%d" % [seat, sender])
+		return
+	if _match_report_broadcast_done:
+		_merge_late_match_summary(seat, summary)
 		return
 	if not _match_report_gate_open:
 		_match_report_gate_open = true
@@ -2766,30 +2993,151 @@ func _check_match_report_ready() -> void:
 
 
 func _finish_match_report_collection() -> void:
-	if not _match_report_gate_open:
+	if not is_host:
+		return
+	## Allow one-shot finish even if gate already closed (timer + ready race).
+	if not _match_report_gate_open and _match_report_broadcast_done:
 		return
 	_match_report_gate_open = false
+	var players: Array = _build_full_match_report_players()
+	## Never shrink below a previously broadcast full list.
+	if not _last_match_report_players.is_empty() and players.size() < _last_match_report_players.size():
+		players = _merge_player_rows_prefer_full(_last_match_report_players, players)
+	_last_match_report_players = players.duplicate(true)
+	_match_report_broadcast_done = true
+	print("[mp.diag] match_report_ready players=%d" % players.size())
+	SessionDiagnostics.log("net.match_report", "broadcast players=%d" % players.size())
+	rpc("rpc_match_report", NullsecSettlement.make_match_report(match_id, local_seat, players))
+
+
+func _build_full_match_report_players() -> Array:
 	var players: Array = []
 	var seen: Dictionary = {}
 	## Prefer live summaries; fill every contestant seat (AI / absent / disconnected).
 	for i: int in _iter_contestant_seats_including_ghosts():
 		var summary_v: Variant = _match_report_summaries.get(i, null)
 		if typeof(summary_v) == TYPE_DICTIONARY:
-			var s: Dictionary = summary_v
+			var s: Dictionary = TypedVariant.as_dict(summary_v).duplicate(true)
 			s["seat_id"] = i
-			players.append(s)
+			players.append(_enrich_report_row_from_standings(s, i))
 			seen[i] = true
 			continue
-		players.append(_synthesize_absent_summary(i))
+		players.append(_enrich_report_row_from_standings(_synthesize_absent_summary(i), i))
 		seen[i] = true
 	## Also keep any extra summaries that somehow weren't in contestant iter.
 	for seat_v: Variant in _match_report_summaries.keys():
 		var sid: int = TypedVariant.as_int(seat_v, -1)
 		if sid < 0 or TypedVariant.as_bool(seen.get(sid, false), false):
 			continue
-		players.append(_match_report_summaries[seat_v])
-	print("[mp.diag] match_report_ready players=%d" % players.size())
+		players.append(_enrich_report_row_from_standings(TypedVariant.as_dict(_match_report_summaries[seat_v]), sid))
+	return players
+
+
+func _enrich_report_row_from_standings(row: Dictionary, seat: int) -> Dictionary:
+	var out: Dictionary = row.duplicate(true)
+	out["seat_id"] = seat
+	var st: Dictionary = TypedVariant.as_dict(_last_standings_by_seat.get(seat, {}))
+	if st.is_empty():
+		return out
+	## Fill empty WLD / titles from last round standings (never wipe richer local rows).
+	if TypedVariant.as_int(out.get("wins", 0), 0) == 0 and TypedVariant.as_int(out.get("losses", 0), 0) == 0 \
+			and TypedVariant.as_int(out.get("draws", 0), 0) == 0:
+		out["wins"] = TypedVariant.as_int(st.get("w", 0), 0)
+		out["losses"] = TypedVariant.as_int(st.get("l", 0), 0)
+		out["draws"] = TypedVariant.as_int(st.get("d", 0), 0)
+	var titles: Array = TypedVariant.as_array(out.get("titles", []))
+	if titles.is_empty():
+		out["titles"] = TypedVariant.as_array(st.get("titles", [])).duplicate()
+	return out
+
+
+func _players_from_standings_and_local(local_summary: Dictionary) -> Array:
+	var players: Array = []
+	var seen: Dictionary = {}
+	var local_sid: int = TypedVariant.as_int(local_summary.get("seat_id", local_seat), local_seat)
+	for i: int in _iter_contestant_seats_including_ghosts():
+		if i == local_sid:
+			players.append(local_summary)
+			seen[i] = true
+			continue
+		var st: Dictionary = TypedVariant.as_dict(_last_standings_by_seat.get(i, {}))
+		if not st.is_empty():
+			var row: Dictionary = _synthesize_absent_summary(i)
+			row["absent"] = false
+			row["wins"] = TypedVariant.as_int(st.get("w", 0), 0)
+			row["losses"] = TypedVariant.as_int(st.get("l", 0), 0)
+			row["draws"] = TypedVariant.as_int(st.get("d", 0), 0)
+			row["titles"] = TypedVariant.as_array(st.get("titles", [])).duplicate()
+			players.append(row)
+			seen[i] = true
+			continue
+		players.append(_synthesize_absent_summary(i))
+		seen[i] = true
+	if local_sid >= 0 and not TypedVariant.as_bool(seen.get(local_sid, false), false):
+		players.insert(0, local_summary)
+	return players
+
+
+func _merge_late_match_summary(seat: int, summary: Dictionary) -> void:
+	if seat < 0:
+		return
+	_match_report_summaries[seat] = summary
+	var players: Array = _build_full_match_report_players()
+	if not _last_match_report_players.is_empty():
+		players = _merge_player_rows_prefer_full(_last_match_report_players, players)
+	## Only rebroadcast when player count grows or a previously empty seat gained data.
+	if players.size() < _last_match_report_players.size():
+		SessionDiagnostics.log("net.match_report", "late_merge_skip shrink n=%d" % players.size())
+		return
+	_last_match_report_players = players.duplicate(true)
+	SessionDiagnostics.log("net.match_report", "late_rebroadcast players=%d" % players.size())
 	rpc("rpc_match_report", NullsecSettlement.make_match_report(match_id, local_seat, players))
+
+
+func _merge_player_rows_prefer_full(prev: Array, cur: Array) -> Array:
+	var by_seat: Dictionary = {}
+	for p_v: Variant in prev:
+		var p: Dictionary = TypedVariant.as_dict(p_v)
+		var sid: int = TypedVariant.as_int(p.get("seat_id", -1), -1)
+		if sid >= 0:
+			by_seat[sid] = p.duplicate(true)
+	for p_v2: Variant in cur:
+		var p2: Dictionary = TypedVariant.as_dict(p_v2)
+		var sid2: int = TypedVariant.as_int(p2.get("seat_id", -1), -1)
+		if sid2 < 0:
+			continue
+		if not by_seat.has(sid2):
+			by_seat[sid2] = p2.duplicate(true)
+			continue
+		var old: Dictionary = by_seat[sid2]
+		## Prefer non-absent / richer WLD / titles.
+		if TypedVariant.as_bool(old.get("absent", false), false) and not TypedVariant.as_bool(p2.get("absent", false), false):
+			by_seat[sid2] = p2.duplicate(true)
+			continue
+		var old_wld: int = TypedVariant.as_int(old.get("wins", 0), 0) + TypedVariant.as_int(old.get("losses", 0), 0) + TypedVariant.as_int(old.get("draws", 0), 0)
+		var new_wld: int = TypedVariant.as_int(p2.get("wins", 0), 0) + TypedVariant.as_int(p2.get("losses", 0), 0) + TypedVariant.as_int(p2.get("draws", 0), 0)
+		if new_wld > old_wld:
+			by_seat[sid2] = p2.duplicate(true)
+			continue
+		if TypedVariant.as_array(old.get("titles", [])).is_empty() and not TypedVariant.as_array(p2.get("titles", [])).is_empty():
+			old["titles"] = TypedVariant.as_array(p2.get("titles", [])).duplicate()
+			by_seat[sid2] = old
+	var out: Array = []
+	for i: int in _iter_contestant_seats_including_ghosts():
+		if by_seat.has(i):
+			out.append(by_seat[i])
+		else:
+			out.append(_synthesize_absent_summary(i))
+	for sid_v: Variant in by_seat.keys():
+		var sid3: int = TypedVariant.as_int(sid_v, -1)
+		var already: bool = false
+		for o_v: Variant in out:
+			if TypedVariant.as_int(TypedVariant.as_dict(o_v).get("seat_id", -1), -1) == sid3:
+				already = true
+				break
+		if not already:
+			out.append(by_seat[sid_v])
+	return out
 
 
 ## Contestants for end report — includes ghost / eliminated (still listed).
@@ -2867,6 +3215,22 @@ func rpc_doomsday_play(attacker_seat: int, loser_seat: int, logic_tick: int) -> 
 
 @rpc("authority", "reliable", "call_local")
 func rpc_match_report(report: Dictionary) -> void:
+	var n: int = TypedVariant.as_array(report.get("players", [])).size()
+	SessionDiagnostics.log(
+		"net.match_report",
+		"recv players=%d provisional=%d host=%d" % [
+			n,
+			1 if TypedVariant.as_bool(report.get("provisional", false), false) else 0,
+			1 if is_host else 0,
+		]
+	)
+	## Refuse to apply a shrunk report over a fuller one already shown this match.
+	if n > 0 and not _last_match_report_players.is_empty() and n < _last_match_report_players.size():
+		SessionDiagnostics.log("net.match_report", "reject_shrink have=%d got=%d" % [_last_match_report_players.size(), n])
+		return
+	if n > 0:
+		_last_match_report_players = TypedVariant.as_array(report.get("players", [])).duplicate(true)
+		_match_report_broadcast_done = true
 	match_report_received.emit(report)
 
 
@@ -2876,7 +3240,20 @@ func rpc_match_report(report: Dictionary) -> void:
 func host_build_and_broadcast_match_report(players: Array) -> void:
 	if not is_host:
 		return
-	var report: Dictionary = NullsecSettlement.make_match_report(match_id, local_seat, players)
+	var full: Array = players.duplicate(true)
+	if not _last_match_report_players.is_empty() and full.size() < _last_match_report_players.size():
+		full = _merge_player_rows_prefer_full(_last_match_report_players, full)
+	## Ensure every contestant seat is present.
+	var have: Dictionary = {}
+	for p_v: Variant in full:
+		have[TypedVariant.as_int(TypedVariant.as_dict(p_v).get("seat_id", -1), -1)] = true
+	for i: int in _iter_contestant_seats_including_ghosts():
+		if not TypedVariant.as_bool(have.get(i, false), false):
+			full.append(_enrich_report_row_from_standings(_synthesize_absent_summary(i), i))
+	_last_match_report_players = full.duplicate(true)
+	_match_report_broadcast_done = true
+	var report: Dictionary = NullsecSettlement.make_match_report(match_id, local_seat, full)
+	SessionDiagnostics.log("net.match_report", "host_build players=%d" % full.size())
 	if multiplayer.has_multiplayer_peer():
 		rpc("rpc_match_report", report)
 	else:

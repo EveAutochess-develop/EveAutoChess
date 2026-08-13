@@ -1,0 +1,13 @@
+{
+  "id": "soe",
+  "name": "姐妹会",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "SensorStrength",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 30
+    }
+  ]
+}

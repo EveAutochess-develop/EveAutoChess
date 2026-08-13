@@ -23,6 +23,10 @@ var _doomsday_resolver: TitanDoomsdayResolver
 var _settlement_panel: NullsecSettlementPanel
 ## Prepare fleet net sync: suppress board_changed echo + debounce identical snapshots.
 var _applying_rival_fleet: bool = false
+var _rival_fleet_queue: Array = []
+var _rival_fleet_spawned: int = 0
+var _rival_fleet_before: int = 0
+var _pending_combat_eval_finalize: Dictionary = {}
 var _fleet_push_sig: String = ""
 var _fleet_apply_sig: String = ""
 ## True after rival Prepare fleet snapshot applied this prepare (empty roster counts).
@@ -35,6 +39,8 @@ var _fleet_push_debounce_tok: int = 0
 const _FLEET_PUSH_MIN_MSEC: int = 200
 
 var _info_ship: ShipUnit = null
+## Last board/berth unit the player touched — DETAIL must restore this (UI_AND_SHELL §2.6).
+var _last_touched_ship: ShipUnit = null
 var _suppress_headup_for_preview: bool = false
 ## UI_AND_SHELL §2.5: tap / drag-release pins the detail panel for INFO_HOLD_S.
 var _info_hold_until_ms: int = 0
@@ -108,11 +114,28 @@ var _cam_orbit_dragging: bool = false
 ## Default cam: hide board slot markers only after settling on first default view.
 var _pending_hide_slot_markers: bool = false
 var _collapse_left: bool = false
+var _collapse_left_syn: bool = false
+var _collapse_left_equip: bool = false
 var _collapse_right: bool = false
 var _collapse_bottom: bool = false
-## Last time the player touched shop/side-panel chrome — Battle-enter auto-collapse
+## Live shop-card side after on-screen clamp (UI_AND_SHELL §3.1).
+var _hud_shop_card_side: float = 0.0
+var _hud_shop_card_size: Vector2 = Vector2.ZERO
+## LevelExp column width: probe-locked (15级 / 999 / 999); never follows live text or segs.
+var _hud_level_exp_fixed_w: float = 0.0
+enum RightPaneMode { DETAIL, LOG, RANK }
+var _right_pane_mode: int = RightPaneMode.DETAIL
+var _rank_sort_key: String = "dealt"
+var _rank_refresh_accum: float = 0.0
+## UI_AND_SHELL: HUD refresh ≤½ Engine FPS; 0=none 1=light 2=full.
+var _hud_refresh_since_s: float = 999.0
+var _hud_refresh_pending: int = 0
+## Last time the player touched shop/side-panel chrome — auto collapse/expand
 ## backs off for a short grace window so it doesn't yank a panel out from under a tap.
 var _hud_interact_ms: int = 0
+## Whole-match HUD auto fold: collapse once on first Battle; expand once on GAME_END.
+var _hud_auto_collapsed_once: bool = false
+var _hud_auto_expanded_once: bool = false
 ## In-match Esc/菜单 overlay (versus + endless).
 var _game_menu: Control
 var _game_menu_settings: Control
@@ -125,6 +148,9 @@ var _fps_lbl: Label
 var _bgm_check: CheckBox
 var _bgm_slider: HSlider
 var _bgm_lbl: Label
+var _sfx_check: CheckBox
+var _sfx_slider: HSlider
+var _sfx_lbl: Label
 var _dev_master_check: CheckBox
 var _dev_soften_check: CheckBox
 var _dev_economy_check: CheckBox
@@ -203,20 +229,23 @@ var _eval_prepare_rival_seat: int = -1
 var _nullsec_prepare_pending: bool = false
 ## Prepare HUD/camera held back until doomsday / kill finish.
 var _nullsec_prepare_ui_pending: bool = false
-## This PVP round fights as guest (rival skybox). Decided at prepare; teleport at battle.
+## This PVP round fights as guest (rival skybox). Decided at prepare; hop at prepare start (§4.1).
 var _nullsec_pvp_guest: bool = false
+var _nullsec_guest_hop_done: bool = false
 ## One-shot nullsec open intro (head-down + slide-in).
 var _titan_intro_done: bool = false
 var _titan_intro_t: float = -1.0
 var _titan_intro_start: Vector3 = Vector3.ZERO
 var _titan_intro_end: Vector3 = Vector3.ZERO
 var _titan_intro_pitch0: float = 0.0
+var _titan_intro_pitch_start: float = 0.0
 ## Rival berth slide — lowsec only (MULTIPLAYER_PVP §2.5).
 var _rival_titan_intro_done: bool = false
 var _rival_intro_active: bool = false
 var _rival_intro_start: Vector3 = Vector3.ZERO
 var _rival_intro_end: Vector3 = Vector3.ZERO
-const _TITAN_INTRO_DUR_S: float = 1.35
+const _TITAN_INTRO_SLIDE_DUR_S: float = 2.7
+const _TITAN_INTRO_CAM_DUR_S: float = 1.35
 const _TITAN_INTRO_SLIDE_Z: float = 28.0
 ## Shared read-only spectate (seat_spectate / mid_join / eliminated).
 var _nullsec_spectating: bool = false
@@ -246,10 +275,30 @@ const _CAM_YAW_SPEED: float = 45.0
 const _SHOP_META: String = "Shop/ShopCol/ShopContent/MetaRow"
 const _SHOP_LEFT: String = "Shop/ShopCol/ShopContent/MetaRow/LeftCtrl"
 const _SHOP_MID: String = "Shop/ShopCol/ShopContent/MetaRow/MetaMid"
-const _SHOP_INNER: String = "Shop/ShopCol/ShopContent/ShopInner"
-const _SHOP_SLOTS: String = "Shop/ShopCol/ShopContent/ShopInner/ShopSlots"
-const _SHOP_EQUIP_SLOTS: String = "Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/EquipmentSlots"
-const _RESERVE_GRID_PATH: String = "LeftCol/LeftInner/LeftContent/ReserveGrid"
+const _BOTTOM_CLUSTER: String = "Shop/ShopCol/ShopContent/BottomCluster"
+const _BOTTOM_GOLD_POP: String = "Shop/ShopCol/ShopContent/BottomCluster/GoldPop"
+## UI_AND_SHELL §2.1 — framed ShopBarPanel (never collapses) + fetter fade (collapsible).
+const _SHOP_BAR_PANEL: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel"
+const _SHOP_BAR: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar"
+const _SHOP_BUY_COL: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel"
+## UI_AND_SHELL §3.2 吸靠：ShopBar 绝对宿主；无互抢 stretch 的 ShopBody 链。
+const _SHOP_BODY: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar"
+const _SHOP_INNER: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol"
+const _SHOP_OFFER_HOST: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol/ShipOfferHost"
+const _SHOP_SLOTS: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol/ShipOfferHost/ShopSlots"
+const _SHOP_SELL: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShipCol/ShipOfferHost/SellZone"
+const _SHOP_META_COL: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/MetaCol"
+const _SHOP_META_MID: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/MetaCol/MetaMid"
+const _SHOP_EQUIP_SLOTS: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/MetaCol/MetaMid/EquipmentSlots"
+const _SHOP_BTNS: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ShopBtns"
+const _SHOP_SCANNER_HOST: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ScannerHost"
+const _SHOP_SCANNER: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ScannerHost/ScannerFrame/ScannerInner/ScannerBtn"
+const _SHOP_LEVEL_HOST: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/MetaCol/MetaMid/LevelExpHost"
+const _SHOP_LEVEL: String = "LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/MetaCol/MetaMid/LevelExpHost/LevelExp"
+const _RESERVE_GRID_PATH: String = "Shop/ShopCol/ShopContent/BottomCluster/ReserveGrid"
+const _EQUIP_INV_CORNER_PX: int = 3
+## UI_AND_SHELL §3.4 — collapse-arrow frame pulse (first Prepare only).
+const _ARROW_FRAME_PULSE_S: float = 1.4
 const _BONUS: String = "LeftCol/LeftInner/LeftContent/BonusScroll/BonusContainer"
 const _BONUS_FALLBACK: String = "LeftCol/LeftInner/LeftContent/BonusContainer"
 const _EQUIP_INVENTORY_SIZE: int = 16
@@ -331,7 +380,8 @@ func _ready() -> void:
 	pointer.drag_end.connect(_on_drag_end)
 	pointer.tap_ship.connect(_on_tap_ship)
 	pointer.hover_ship.connect(_on_hover_ship)
-	match_ctrl.hud_refresh.connect(_refresh_hud)
+	match_ctrl.hud_refresh.connect(_on_hud_refresh_full)
+	match_ctrl.hud_tick.connect(_on_hud_tick)
 	match_ctrl.notice.connect(show_notice)
 	match_ctrl.match_over.connect(_on_match_over)
 	match_ctrl.stage_changed.connect(_on_stage_changed_ui)
@@ -659,7 +709,8 @@ func _apply_nullsec_spectate_hud() -> void:
 		var left: Control = root.get_node_or_null("LeftCol") as Control
 		if left:
 			left.modulate.a = 1.0
-			left.mouse_filter = Control.MOUSE_FILTER_STOP
+			## Keep host IGNORE so fetter fade never eats board picks; ShopBarPanel stays STOP.
+			left.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _speed_dropdown:
 		_speed_dropdown.visible = true
 	_ensure_spectate_leave_btn()
@@ -887,6 +938,8 @@ func _wire_nullsec_prepare_sync() -> void:
 		net.battle_done_all_ready.connect(_on_battle_done_all_ready_clear_speed)
 	if not net.round_matchups_received.is_connected(_on_net_round_matchups):
 		net.round_matchups_received.connect(_on_net_round_matchups)
+	if not net.round_standings_received.is_connected(_on_net_round_standings):
+		net.round_standings_received.connect(_on_net_round_standings)
 	_apply_nullsec_prepare_stage_gates()
 
 
@@ -1583,6 +1636,8 @@ func _on_net_battle_report(report: Dictionary) -> void:
 	_append_battle_log(line)
 	if str(report.get("kind", "")) == "pvp_ai_instant" and str(report.get("result", "")) == "dual_win":
 		_apply_ai_vs_ai_instant_settle(report)
+	elif str(report.get("kind", "")) == "pve_ai_instant" and str(report.get("result", "")) == "win":
+		_apply_ai_pve_instant_settle(report)
 
 
 func _net_manned_field_count_for_seat(seat_id: int) -> int:
@@ -1631,6 +1686,18 @@ func _apply_ai_vs_ai_instant_settle(report: Dictionary) -> void:
 	_append_battle_log("人机↔人机略过 · 席%02d/+%d · 席%02d/+%d · 双胜无扣血" % [
 		seat_a + 1, gold_a, seat_b + 1, gold_b
 	])
+
+
+func _apply_ai_pve_instant_settle(report: Dictionary) -> void:
+	## MATCH_FLOW §5.0 — AI PVE instant win + kill gold; no titan / creeps.
+	var seat: int = TypedVariant.as_int(report.get("seat", -1), -1)
+	var gold: int = TypedVariant.as_int(report.get("gold", 0), 0)
+	_record_seat_win_only(seat)
+	if ai != null and ai.has_method("add_gold") and gold > 0:
+		ai.add_gold(gold)
+		if ai.has_method("update_streaks"):
+			ai.update_streaks(true)
+	_append_battle_log("人机PVE略过 · 席%02d/+%d · 直接胜" % [seat + 1, gold])
 
 
 func _record_seat_win_only(seat: int) -> void:
@@ -1685,6 +1752,12 @@ func _on_net_spectate_stream(snap: Dictionary) -> void:
 
 func _on_net_round_jobs_complete(_reports: Array) -> void:
 	_net_jobs_ready_for_titan = true
+	## Resume settle path that was held for HostSim jobs — never leave finalize stashed forever.
+	if _nullsec_prepare_pending and not _doomsday_busy and not _titan_kill_busy \
+			and GameSession.pending_mode == "nullsec":
+		SessionDiagnostics.log("eval.resume", "reason=jobs_complete")
+		_nullsec_prepare_pending = false
+		_nullsec_after_battle_into_prepare()
 
 
 func _tick_net_battle_enrich() -> void:
@@ -1809,11 +1882,10 @@ func _run_nullsec_creep_slide(sliding: Array) -> void:
 	_nullsec_after_slide_done()
 
 func _nullsec_after_slide_done() -> void:
-	## Open shop + secondary default view (free/observe cam: shop only).
+	## Open shop; camera follows HUD default (UI_AND_SHELL §2.3).
 	_collapse_bottom = false
 	_apply_adaptive_hud_layout()
-	if not _camera_manual_pose():
-		_apply_camera_view_dict(_camera_secondary_view())
+	_sync_default_camera_to_hud()
 	show_notice("人机编队就位 · 商店已开")
 
 func _nullsec_pick_next_task() -> void:
@@ -1957,7 +2029,11 @@ func _on_doomsday_presentation_done() -> void:
 	_flush_pending_settlement_if_ready()
 	if _nullsec_prepare_pending:
 		_nullsec_prepare_pending = false
-		_nullsec_enter_next_round()
+		## Prefer after_battle so pending combat_eval finalize still runs.
+		if not _pending_combat_eval_finalize.is_empty() or _combat_eval_active:
+			_nullsec_after_battle_into_prepare()
+		else:
+			_nullsec_enter_next_round()
 
 func _seat_titan_alive(seat_id: int) -> bool:
 	if _doomsday_resolver == null:
@@ -2002,7 +2078,10 @@ func _on_titan_kill_done() -> void:
 	## Prepare was held back while the hull was exploding — run it now.
 	if _nullsec_prepare_pending:
 		_nullsec_prepare_pending = false
-		_nullsec_enter_next_round()
+		if not _pending_combat_eval_finalize.is_empty() or _combat_eval_active:
+			_nullsec_after_battle_into_prepare()
+		else:
+			_nullsec_enter_next_round()
 
 func begin_titan_kill_shake() -> void:
 	## Free / observe camera: do not overlay scripted shake (UI_AND_SHELL / plan).
@@ -2475,15 +2554,18 @@ func _nullsec_should_arm_wall_draw() -> bool:
 	return net.has_battle_done_missing_humans()
 
 
-func _on_seat_battle_finished_speed(_seat: int) -> void:
-	## SEMI_ASYNC §4.5 — any finished → max(4×, 场上); wall draw only if remaining battles.
+func _on_seat_battle_finished_speed(seat: int) -> void:
+	## SEMI_ASYNC §4.5 — manned finish → max(4×, 场上); AI seats never arm.
 	if _nullsec_speed == null:
+		return
+	if _seat_is_ai(seat):
+		SessionDiagnostics.log("mp.wall_draw", "ignore_ai_seat=%d" % seat)
 		return
 	var cur: float = TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else 1.0
 	var arm_wall: bool = _nullsec_should_arm_wall_draw()
 	_nullsec_speed.mark_seat_finished(cur, arm_wall)
 	_apply_resolved_speed()
-	SessionDiagnostics.log("mp.wall_draw", "arm=%s seat=%d" % [arm_wall, _seat])
+	SessionDiagnostics.log("mp.wall_draw", "arm=%s seat=%d" % [arm_wall, seat])
 
 
 func _on_battle_done_all_ready_clear_speed() -> void:
@@ -2833,49 +2915,64 @@ func _ensure_board_lights() -> void:
 	ShipLook.apply_match_lights(self)
 
 func _setup_camera() -> void:
-	## Two default camera views:
-	## - primary: battle / shop collapsed baseline
-	## - secondary: prepare + shop expanded
+	## HUD default camera (UI_AND_SHELL §2.3) — first default synced from match.tscn Camera3D.
 	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	var start: Dictionary = _camera_secondary_view() if not _collapse_bottom else _camera_primary_view()
-	_cam_base_pos = TypedVariant.as_vector3(start.get("pos", Vector3(-2.0, 21.464, 18.067)), Vector3(-2.0, 21.464, 18.067))
+	var start: Dictionary = _camera_hud_default_view()
+	_cam_base_pos = TypedVariant.as_vector3(start.get("pos", Vector3(-0.7521, 35.3927, 29.2707)), Vector3(-0.7521, 35.3927, 29.2707))
 	_cam_base_pitch_deg = TypedVariant.as_float(start.get("pitch_deg", -57.0), 0.0)
-	_cam_default_pitch_deg = TypedVariant.as_float(_camera_primary_view().get("pitch_deg", _cam_base_pitch_deg), 0.0)
+	_cam_default_pitch_deg = _cam_base_pitch_deg
 	_cam_base_yaw_deg = TypedVariant.as_float(start.get("yaw_deg", 0.0), 0.0)
 	camera.fov = TypedVariant.as_float(start.get("fov", 47.0), 0.0)
 	camera.position = _cam_base_pos
 	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
-func _camera_primary_view() -> Dictionary:
+func _camera_view_from_prefix(prefix: String, fb: Dictionary) -> Dictionary:
 	var v: Dictionary = DataStore.visual
+	var fb_pos: Vector3 = TypedVariant.as_vector3(fb.get("pos", Vector3(-0.7521, 35.3927, 29.2707)), Vector3(-0.7521, 35.3927, 29.2707))
+	var fb_pitch: float = TypedVariant.as_float(fb.get("pitch_deg", -57.0), 0.0)
+	var fb_yaw: float = TypedVariant.as_float(fb.get("yaw_deg", 0.0), 0.0)
+	var fb_fov: float = TypedVariant.as_float(fb.get("fov", 47.0), 0.0)
 	return {
 		"pos": Vector3(
-			TypedVariant.as_float(v.get("camera_x", 2.00856733322144), 0.0),
-			TypedVariant.as_float(v.get("camera_height", 35.0967063903809), 0.0),
-			TypedVariant.as_float(v.get("camera_distance", 28.4933738708496), 0.0)
+			TypedVariant.as_float(v.get(prefix + "_x", fb_pos.x), 0.0),
+			TypedVariant.as_float(v.get(prefix + "_height", fb_pos.y), 0.0),
+			TypedVariant.as_float(v.get(prefix + "_distance", fb_pos.z), 0.0)
 		),
-		"pitch_deg": -TypedVariant.as_float(v.get("camera_angle_deg", 55.6669960021973), 0.0),
-		"yaw_deg": TypedVariant.as_float(v.get("camera_yaw_deg", 180.0), 0.0) - 180.0,
-		"fov": TypedVariant.as_float(v.get("camera_fov", 50.0), 0.0)
+		"pitch_deg": -TypedVariant.as_float(v.get(prefix + "_angle_deg", -fb_pitch), 0.0),
+		"yaw_deg": TypedVariant.as_float(v.get(prefix + "_yaw_deg", fb_yaw + 180.0), 0.0) - 180.0,
+		"fov": TypedVariant.as_float(v.get(prefix + "_fov", fb_fov), 0.0)
 	}
+
+func _camera_primary_view() -> Dictionary:
+	## Bottom bar expanded (right column ignored).
+	return _camera_view_from_prefix("camera", {
+		"pos": Vector3(-0.7521, 35.3927, 29.2707),
+		"pitch_deg": -57.0,
+		"yaw_deg": 0.0,
+		"fov": 47.0
+	})
+
+func _camera_hud_default_view() -> Dictionary:
+	## UI_AND_SHELL §2.3 — default pose from bottom + right collapse only.
+	if not _collapse_bottom:
+		return _camera_primary_view()
+	var primary: Dictionary = _camera_primary_view()
+	if _collapse_right:
+		return _camera_view_from_prefix("camera_collapsed_bottom_right", primary)
+	return _camera_view_from_prefix("camera_collapsed_bottom", primary)
 
 func _camera_secondary_view() -> Dictionary:
-	var v: Dictionary = DataStore.visual
-	return {
-		"pos": Vector3(
-			TypedVariant.as_float(v.get("camera_second_x", 1.82857227325439), 0.0),
-			TypedVariant.as_float(v.get("camera_second_height", 27.0970573425293), 0.0),
-			TypedVariant.as_float(v.get("camera_second_distance", 33.6982917785645), 0.0)
-		),
-		"pitch_deg": -TypedVariant.as_float(v.get("camera_second_angle_deg", 55.6669960021973), 0.0),
-		"yaw_deg": TypedVariant.as_float(v.get("camera_second_yaw_deg", TypedVariant.as_float(v.get("camera_yaw_deg", 180.0), 180.0)), TypedVariant.as_float(v.get("camera_yaw_deg", 180.0), 180.0)) - 180.0,
-		"fov": TypedVariant.as_float(v.get("camera_second_fov", TypedVariant.as_float(v.get("camera_fov", 50.0), 50.0)), TypedVariant.as_float(v.get("camera_fov", 50.0), 50.0)),
-	}
+	## Legacy alias — dual default views removed; always same as first default.
+	return _camera_primary_view()
 
 func _camera_active_view() -> Dictionary:
-	if match_ctrl and match_ctrl.stage == MatchController.Stage.BATTLE:
-		return _camera_primary_view()
-	return _camera_primary_view() if _collapse_bottom else _camera_secondary_view()
+	return _camera_hud_default_view()
+
+func _sync_default_camera_to_hud(smooth: bool = true) -> void:
+	if _camera_manual_pose():
+		return
+	_apply_camera_view_dict(_camera_hud_default_view(), smooth)
+
 
 func _camera_manual_pose() -> bool:
 	## Free + observe + post-observe return delay: framing / stage must not steal the lens.
@@ -2903,10 +3000,22 @@ func _process(delta: float) -> void:
 	_update_camera_breathe()
 	SessionDiagnostics.add_usec(&"cam", Time.get_ticks_usec() - t_cam)
 	_tick_exp_hold(delta)
+	_hud_refresh_since_s += delta
+	_try_flush_hud_refresh()
+	_tick_collapse_arrow_frame_pulse()
+	if _applying_rival_fleet and not _rival_fleet_queue.is_empty():
+		_process_rival_fleet_queue()
 	_tick_titan_intro(delta)
 	_tick_info_hold()
 	_tick_equipment_detail_hover()
 	_tick_scout_departs(delta)
+	_rank_refresh_accum += delta
+	if _rank_refresh_accum >= 1.0:
+		_rank_refresh_accum = 0.0
+		if _right_pane_mode == RightPaneMode.RANK:
+			_refresh_rank_panel()
+	## Every frame: stem stays world-vertical while hull rotates / soft-follows.
+	_sync_all_tactical_stems()
 	if _combat_eval_active and _combat_eval != null and match_ctrl \
 			and match_ctrl.stage == MatchController.Stage.BATTLE \
 			and not match_ctrl.remote_watch_only:
@@ -3011,7 +3120,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _ke.keycode == KEY_V and not _gui_wants_text_input() and not UiLayout.is_mobile():
 				if _game_menu_open():
 					return
-				_toggle_camera_mode()
+				_log_camera_pose()
 				get_viewport().set_input_as_handled()
 				return
 	if not _camera_manual_pose():
@@ -3296,7 +3405,7 @@ func _set_camera_free(enabled: bool) -> void:
 		if UiLayout.is_mobile():
 			show_notice("自由视角 · 拖动屏幕绕棋盘旋转 · 点按钮切回")
 		else:
-			show_notice("自由视角 · WASD移动 QE升降 · 中键环视 · V切回")
+			show_notice("自由视角 · WASD世界轴移动 QE升降 · 中键环视 · 顶栏切回 · V记镜头")
 	else:
 		_snap_camera_to_active_default()
 		show_notice("默认视角")
@@ -3459,20 +3568,13 @@ func _refresh_observe_btn() -> void:
 		_observe_btn.text = "观察单位"
 
 func _snap_camera_to_active_default() -> void:
-	var view: Dictionary
-	if match_ctrl and match_ctrl.stage == MatchController.Stage.BATTLE:
-		view = _camera_primary_view()
-	elif _collapse_bottom:
-		view = _camera_primary_view()
-	else:
-		view = _camera_secondary_view()
-	_apply_camera_view_dict(view, true)
+	_sync_default_camera_to_hud(true)
 
 func _apply_camera_view_dict(view: Dictionary, smooth: bool = true) -> void:
 	## Free / observe own their pose; stage / shop / framing must not rewrite it.
 	if _camera_manual_pose():
 		return
-	_cam_default_pitch_deg = TypedVariant.as_float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg), 0.0)
+	_cam_default_pitch_deg = TypedVariant.as_float(view.get("pitch_deg", _cam_default_pitch_deg), 0.0)
 	_cam_headup_phase = 0
 	_cam_headup_t = 0.0
 	_cam_headup_offset_deg = 0.0
@@ -3517,20 +3619,32 @@ func _restore_cam_pose(pose: Dictionary) -> void:
 	camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
 
 func _on_shop_expanded_camera() -> void:
-	if _camera_manual_pose():
-		return
-	_cam_pose_before_shop = _capture_cam_pose()
-	_cam_pose_before_shop_valid = true
-	_apply_camera_view_dict(_camera_secondary_view())
+	## Bottom-bar expand: blend to HUD default (UI_AND_SHELL §2.3).
+	_sync_default_camera_to_hud()
+
 
 func _on_shop_collapsed_camera() -> void:
-	if _camera_manual_pose():
-		_cam_pose_before_shop_valid = false
-		_cam_pose_before_shop.clear()
-		return
 	_cam_pose_before_shop_valid = false
 	_cam_pose_before_shop.clear()
-	_apply_camera_view_dict(_camera_primary_view())
+	_sync_default_camera_to_hud()
+
+
+func _log_camera_pose() -> void:
+	if camera == null:
+		return
+	## Logical pose only: `_cam_base_*` excludes breathe figure-8, framing pull, headup, titan shake.
+	var mode: String = "observe" if _camera_observe else ("free" if _camera_free else "default")
+	var pos: Vector3 = _cam_base_pos
+	var pitch: float = _cam_base_pitch_deg
+	var yaw: float = _cam_base_yaw_deg
+	var fov: float = camera.fov
+	var line: String = (
+		"mode=%s pos=%.4f,%.4f,%.4f pitch=%.4f yaw=%.4f fov=%.4f"
+		% [mode, pos.x, pos.y, pos.z, pitch, yaw, fov]
+	)
+	print("cam.pose ", line)
+	SessionDiagnostics.log("cam.pose", line)
+
 
 func _refresh_camera_mode_btn() -> void:
 	@warning_ignore("unsafe_cast")
@@ -3542,10 +3656,10 @@ func _refresh_camera_mode_btn() -> void:
 		btn.tooltip_text = "当前：观察单位 · 点此退出并回默认视角"
 	elif _camera_free:
 		btn.text = "默认视角"
-		btn.tooltip_text = "快捷键 V · 当前：自由" if not UiLayout.is_mobile() else "当前：自由（触控绕心）"
+		btn.tooltip_text = "点此回默认 · V 记镜头" if not UiLayout.is_mobile() else "当前：自由（触控绕心）"
 	else:
 		btn.text = "自由视角"
-		btn.tooltip_text = "快捷键 V · 当前：默认" if not UiLayout.is_mobile() else "当前：默认"
+		btn.tooltip_text = "点此进自由 · V 记镜头" if not UiLayout.is_mobile() else "当前：默认"
 
 func _update_camera_free(delta: float) -> void:
 	if UiLayout.is_mobile():
@@ -3553,26 +3667,22 @@ func _update_camera_free(delta: float) -> void:
 		camera.position = _cam_base_pos
 		camera.rotation_degrees = Vector3(_cam_base_pitch_deg, _cam_base_yaw_deg, 0.0)
 		return
-	## PC free fly: move relative to look; no framing pull-back.
+	## PC free fly: WASD on world XZ (not camera-relative); QE world up; no framing pull-back.
 	var v: Dictionary = DataStore.visual
 	var speed: float = TypedVariant.as_float(v.get("camera_free_move_speed", _CAM_MOVE_SPEED), 0.0)
-	var cam_basis: Basis = camera.global_transform.basis
-	var forward: Vector3 = -cam_basis.z
-	var right: Vector3 = cam_basis.x
-	var up: Vector3 = Vector3.UP
 	var move: Vector3 = Vector3.ZERO
 	if Input.is_physical_key_pressed(KEY_W):
-		move += forward
+		move += Vector3(0.0, 0.0, -1.0)
 	if Input.is_physical_key_pressed(KEY_S):
-		move -= forward
+		move += Vector3(0.0, 0.0, 1.0)
 	if Input.is_physical_key_pressed(KEY_A):
-		move -= right
+		move += Vector3(-1.0, 0.0, 0.0)
 	if Input.is_physical_key_pressed(KEY_D):
-		move += right
+		move += Vector3(1.0, 0.0, 0.0)
 	if Input.is_physical_key_pressed(KEY_Q):
-		move -= up
+		move += Vector3(0.0, -1.0, 0.0)
 	if Input.is_physical_key_pressed(KEY_E):
-		move += up
+		move += Vector3(0.0, 1.0, 0.0)
 	if move != Vector3.ZERO:
 		_cam_base_pos += move.normalized() * speed * delta
 	var pitch_delta: float = 0.0
@@ -3666,12 +3776,12 @@ func _update_camera_framing(delta: float) -> void:
 	## While a one-shot view blend runs (exit observe / shop), let it own the pose.
 	if _cam_view_blend_active:
 		return
-	## Prepare: shop open/close events own the pose. Only Battle continuously locks view 1.
+	## Prepare: collapse events own the pose. Battle continuously locks the HUD default.
 	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
 		return
 	var framing: Dictionary = DataStore.visual.get("camera_framing", {})
 	var spd: float = TypedVariant.as_float(framing.get("lerp_speed", 4.0), 0.0)
-	var view: Dictionary = _camera_primary_view()
+	var view: Dictionary = _camera_hud_default_view()
 	var k: float = clampf(spd * delta, 0.0, 1.0)
 	var target_pos: Vector3 = TypedVariant.as_vector3(view.get("pos", _cam_base_pos), _cam_base_pos)
 	_cam_base_pos = _cam_base_pos.lerp(target_pos, k)
@@ -3684,7 +3794,7 @@ func _update_camera_framing(delta: float) -> void:
 	camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
 func _camera_near_primary_view() -> bool:
-	var view: Dictionary = _camera_primary_view()
+	var view: Dictionary = _camera_hud_default_view()
 	var pos: Vector3 = TypedVariant.as_vector3(view.get("pos", _cam_base_pos), _cam_base_pos)
 	if _cam_base_pos.distance_to(pos) > 0.08:
 		return false
@@ -3743,7 +3853,7 @@ func _update_camera_breathe() -> void:
 	var breathe_on: bool = true
 	if not shaking:
 		if GameSession != null:
-			breathe_on = GameSession.camera_breathe_enabled
+			breathe_on = (PlayerSettings.instance() as PlayerSettings).camera_breathe_enabled
 		elif not TypedVariant.as_bool(v.get("camera_breathe_enabled", true), false):
 			breathe_on = false
 	if not breathe_on and not shaking:
@@ -3775,6 +3885,7 @@ func _update_camera_breathe() -> void:
 		camera.rotation_degrees = Vector3(_camera_pitch_now(), _cam_base_yaw_deg, 0)
 
 func _build_hud() -> void:
+	_ensure_left_shop_layout()
 	_ensure_side_panel_scrolls()
 	_ensure_reserve_grid()
 	_ensure_observe_btn()
@@ -3885,14 +3996,21 @@ func _on_hud_resized() -> void:
 	_refresh_equipment_inventory_ui()
 
 func _ensure_side_panel_scrolls() -> void:
-	## Fetters scroll above a pinned equipment bag; InfoPanel body scrolls (UI_AND_SHELL).
+	## LeftCol = ShopBuyCol | BonusScroll (plan J); InfoPanel body scrolls.
+	_ensure_left_shop_layout()
 	@warning_ignore("unsafe_cast")
-	var left_content: VBoxContainer = hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent") as VBoxContainer
+	var left_content: Control = hud.get_node_or_null("Root/LeftCol/LeftInner/LeftContent") as Control
 	if left_content:
+		@warning_ignore("unsafe_cast")
+		var fade_host: Control = left_content.get_node_or_null("BonusFadeHost") as Control
 		@warning_ignore("unsafe_cast")
 		var bonus: VBoxContainer = left_content.get_node_or_null("BonusContainer") as VBoxContainer
 		@warning_ignore("unsafe_cast")
 		var scroll: ScrollContainer = left_content.get_node_or_null("BonusScroll") as ScrollContainer
+		if scroll == null and fade_host != null:
+			scroll = fade_host.get_node_or_null("BonusScroll") as ScrollContainer
+		if bonus == null and scroll != null:
+			bonus = scroll.get_node_or_null("BonusContainer") as VBoxContainer
 		if scroll == null and bonus != null:
 			scroll = ScrollContainer.new()
 			scroll.name = "BonusScroll"
@@ -3900,7 +4018,7 @@ func _ensure_side_panel_scrolls() -> void:
 			scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 			scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+			scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			var idx: int = bonus.get_index()
 			left_content.remove_child(bonus)
 			left_content.add_child(scroll)
@@ -3911,20 +4029,18 @@ func _ensure_side_panel_scrolls() -> void:
 			bonus = scroll.get_node_or_null("BonusContainer") as VBoxContainer
 		if scroll:
 			scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			scroll.size_flags_stretch_ratio = 0.42
 			scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 			scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-			scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+			## Fade strip is display-only; IGNORE so board ships stay clickable (UI_AND_SHELL §3.3).
+			scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			scroll.scroll_deadzone = 8 if UiLayout.is_mobile() else 0
+			_apply_bonus_hfade(scroll)
 		if bonus:
 			bonus.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 			bonus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var grid: GridContainer = left_content.get_node_or_null("ReserveGrid") as GridContainer
-		if grid:
-			## Width fills left column; height follows 4× square cells (not stretch).
-			grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			grid.size_flags_vertical = Control.SIZE_SHRINK_END
-			if grid.get_parent() == left_content:
-				left_content.move_child(grid, left_content.get_child_count() - 1)
+			bonus.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	@warning_ignore("unsafe_cast")
 	var info: PanelContainer = hud.get_node_or_null("Root/%s" % _INFO_PANEL) as PanelContainer
 	if info:
@@ -3955,6 +4071,1287 @@ func _ensure_side_panel_scrolls() -> void:
 			body.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 
 
+func _apply_bonus_hfade(scroll: Control) -> void:
+	## Fetter strip only: diagonal TL→BR fade + rounded cyan hairline (UI_AND_SHELL §2.1 / §3.3).
+	if scroll == null:
+		return
+	var host: Control = scroll
+	var parent: Node = scroll.get_parent()
+	if parent != null and str(parent.name) == "BonusFadeHost":
+		host = parent as Control
+	elif parent != null and parent.get_node_or_null("BonusFadeHost") == null:
+		var fade_host: Control = Control.new()
+		fade_host.name = "BonusFadeHost"
+		fade_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fade_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		fade_host.size_flags_stretch_ratio = 0.42
+		fade_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var idx: int = scroll.get_index()
+		parent.remove_child(scroll)
+		parent.add_child(fade_host)
+		parent.move_child(fade_host, idx)
+		fade_host.add_child(scroll)
+		scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		host = fade_host
+	elif parent != null:
+		var existing: Control = parent.get_node_or_null("BonusFadeHost") as Control
+		if existing != null:
+			host = existing
+			if scroll.get_parent() != host:
+				_reparent_keep_signals(scroll, host)
+				scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var old_overlay: Node = host.get_node_or_null("FetterFadeOverlay")
+	if old_overlay:
+		old_overlay.name = "FetterFadeOverlay_old"
+		host.remove_child(old_overlay)
+		old_overlay.free()
+	scroll.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## UI_AND_SHELL §2.1: fetter icons+text inset from cyan left border (not flush).
+	var fade_root: Control = null
+	if hud != null:
+		@warning_ignore("unsafe_cast")
+		fade_root = hud.get_node_or_null("Root") as Control
+	var inset_l: float = float(UiLayout.margin_px(10, fade_root if fade_root else host))
+	scroll.offset_left = inset_l
+	var bg: HudFadePanel = _ensure_fade_panel(host, "FetterFadeBg")
+	if bg:
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		host.move_child(bg, 0)
+	_configure_fade_panel(bg, HudFadePanel.AXIS_DIAGONAL_TL_BR, 0.0, fade_root)
+
+
+func _ensure_fade_panel(host: Control, node_name: String) -> HudFadePanel:
+	if host == null:
+		return null
+	var old: Node = host.get_node_or_null(node_name)
+	if old is HudFadePanel:
+		return old as HudFadePanel
+	if old != null:
+		old.name = "%s_old" % node_name
+		host.remove_child(old)
+		old.free()
+	var bg: HudFadePanel = HudFadePanel.new()
+	bg.name = node_name
+	host.add_child(bg)
+	host.move_child(bg, 0)
+	return bg
+
+
+func _configure_fade_panel(bg: HudFadePanel, fade_axis: int, fade_start: float, root: Control) -> void:
+	if bg == null:
+		return
+	var bw: float = 1.0
+	var cr: float = 4.0
+	if root != null:
+		bw = float(maxi(1, UiLayout.margin_px(1, root)))
+		cr = float(UiLayout.margin_px(4, root))
+	bg.configure(fade_axis, fade_start, bw, cr)
+
+
+func _apply_left_col_shell(root: Control) -> void:
+	## LeftCol is a transparent layout host; shop frame lives on ShopBarPanel (UI_AND_SHELL §3.3).
+	## Hard-bound: clip so children cannot paint outside the viewport strip.
+	## Hosts IGNORE so fetter fade voids click-through to the board; ShopBarPanel stays STOP.
+	if root == null:
+		return
+	var left_col: Control = root.get_node_or_null("LeftCol") as Control
+	if left_col == null:
+		return
+	left_col.clip_contents = true
+	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var left_inner: Control = left_col.get_node_or_null("LeftInner") as Control
+	if left_inner:
+		left_inner.clip_contents = true
+		left_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		left_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		left_inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var left_content: Control = left_col.get_node_or_null("LeftInner/LeftContent") as Control
+	if left_content:
+		left_content.clip_contents = true
+		left_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		left_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		left_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var bar_panel: Control = root.get_node_or_null(_SHOP_BAR_PANEL) as Control
+	if bar_panel:
+		bar_panel.clip_contents = true
+		bar_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+		bar_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var shop_bar: Control = root.get_node_or_null(_SHOP_BAR) as Control
+	if shop_bar:
+		shop_bar.clip_contents = true
+		shop_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if left_col is PanelContainer:
+		var left_sb: StyleBoxFlat = StyleBoxFlat.new()
+		left_sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+		left_sb.border_color = Color(0.0, 0.0, 0.0, 0.0)
+		left_sb.set_border_width_all(0)
+		left_sb.set_content_margin_all(0)
+		(left_col as PanelContainer).add_theme_stylebox_override("panel", left_sb)
+		left_col.set_meta("_left_fade_sb", true)
+	var old_bg: Node = left_col.get_node_or_null("LeftFadeBg")
+	if old_bg != null:
+		left_col.remove_child(old_bg)
+		old_bg.free()
+	var bonus_scroll: Control = _bonus_scroll_of(root)
+	if bonus_scroll:
+		_apply_bonus_hfade(bonus_scroll)
+
+
+func _apply_bottom_vfade(bar: Control) -> void:
+	## UI_AND_SHELL §2.1 / §3.3: original panel fill+border, opaque lower half, fade up.
+	if bar == null:
+		return
+	if bar is PanelContainer:
+		var shop_sb: StyleBoxFlat = StyleBoxFlat.new()
+		shop_sb.bg_color = Color(0.07, 0.09, 0.11, 0.0)
+		shop_sb.border_color = Color(0.35, 0.72, 0.85, 0.0)
+		shop_sb.set_border_width_all(0)
+		shop_sb.set_corner_radius_all(0)
+		var side_m: int = UiLayout.margin_px(6, bar)
+		var bot_m: int = maxi(1, side_m / 2)
+		shop_sb.content_margin_left = side_m
+		shop_sb.content_margin_right = side_m
+		shop_sb.content_margin_top = side_m
+		shop_sb.content_margin_bottom = bot_m
+		(bar as PanelContainer).add_theme_stylebox_override("panel", shop_sb)
+		bar.set_meta("_bottom_vfade_sb", true)
+	var bg: HudFadePanel = _ensure_fade_panel(bar, "BottomFadeBg")
+	if bg:
+		bar.move_child(bg, 0)
+	_configure_fade_panel(bg, HudFadePanel.AXIS_BOTTOM_UP, 0.5, bar)
+
+
+func _bonus_scroll_of(root: Control) -> Control:
+	if root == null:
+		return null
+	var s: Control = root.get_node_or_null(_BONUS_SCROLL) as Control
+	if s:
+		return s
+	return root.get_node_or_null("LeftCol/LeftInner/LeftContent/BonusFadeHost/BonusScroll") as Control
+
+
+func _bonus_container_of(root: Control) -> VBoxContainer:
+	if root == null:
+		return null
+	var b: VBoxContainer = root.get_node_or_null(_BONUS) as VBoxContainer
+	if b:
+		return b
+	b = root.get_node_or_null("LeftCol/LeftInner/LeftContent/BonusFadeHost/BonusScroll/BonusContainer") as VBoxContainer
+	if b:
+		return b
+	return root.get_node_or_null(_BONUS_FALLBACK) as VBoxContainer
+
+
+## Keep children/signals; swap HBox↔VBox (UI_AND_SHELL §3.2: rotate strip 90°).
+func _rebox_as_axis(old: Control, vertical: bool) -> BoxContainer:
+	if old == null:
+		return null
+	if vertical and old is VBoxContainer:
+		return old as VBoxContainer
+	if (not vertical) and old is HBoxContainer:
+		return old as HBoxContainer
+	var nb: BoxContainer
+	if vertical:
+		nb = VBoxContainer.new()
+	else:
+		nb = HBoxContainer.new()
+	nb.name = old.name
+	nb.size_flags_horizontal = old.size_flags_horizontal
+	nb.size_flags_vertical = old.size_flags_vertical
+	nb.size_flags_stretch_ratio = old.size_flags_stretch_ratio
+	if old is BoxContainer:
+		nb.add_theme_constant_override("separation", (old as BoxContainer).get_theme_constant("separation"))
+	var kids: Array[Node] = []
+	for c: Node in old.get_children():
+		kids.append(c)
+	for c2: Node in kids:
+		old.remove_child(c2)
+	var p: Node = old.get_parent()
+	if p == null:
+		for c3: Node in kids:
+			nb.add_child(c3)
+		old.queue_free()
+		return nb
+	var idx: int = old.get_index()
+	p.remove_child(old)
+	old.queue_free()
+	p.add_child(nb)
+	p.move_child(nb, idx)
+	for c4: Node in kids:
+		nb.add_child(c4)
+	return nb
+
+
+func _ensure_left_shop_layout(root: Control = null) -> void:
+	## UI_AND_SHELL §2.1: framed ShopBar (6 squares + meta + exp/refresh) never collapses;
+	## fetter fade to the right can fully collapse.
+	if root == null and hud != null:
+		@warning_ignore("unsafe_cast")
+		root = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	var left_inner: Control = root.get_node_or_null("LeftCol/LeftInner") as Control
+	if left_inner == null:
+		return
+	## Do not inherit old left-strip collapse chrome (top btn + vertical padding).
+	left_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if left_inner is BoxContainer:
+		(left_inner as BoxContainer).add_theme_constant_override("separation", 0)
+	var leftover_cl: Control = left_inner.get_node_or_null("CollapseLeftBtn") as Control
+	if leftover_cl != null and leftover_cl.get_parent() == left_inner:
+		var chrome_cl: Node = root.get_node_or_null("LeftEdgeChrome/CollapseLeftBtn")
+		if chrome_cl != null and chrome_cl != leftover_cl:
+			left_inner.remove_child(leftover_cl)
+			leftover_cl.queue_free()
+			leftover_cl = null
+		elif leftover_cl != null:
+			leftover_cl.visible = false
+			leftover_cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			leftover_cl.custom_minimum_size = Vector2.ZERO
+	var left_content: Control = left_inner.get_node_or_null("LeftContent") as Control
+	if left_content != null and left_content is VBoxContainer and not (left_content is HBoxContainer):
+		left_content = _rebox_as_axis(left_content, false)
+	elif left_content == null:
+		left_content = HBoxContainer.new()
+		left_content.name = "LeftContent"
+		left_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		left_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		left_inner.add_child(left_content)
+	left_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if left_content is HBoxContainer:
+		(left_content as HBoxContainer).add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+	var shop_bar_raw: Control = null
+	var wrap_existing: Control = left_content.get_node_or_null("ShopBarPanel") as Control
+	if wrap_existing != null:
+		shop_bar_raw = wrap_existing.get_node_or_null("ShopBar") as Control
+	if shop_bar_raw == null:
+		shop_bar_raw = left_content.get_node_or_null("ShopBar") as Control
+	if shop_bar_raw == null:
+		shop_bar_raw = left_content.get_node_or_null("ShopBuyCol") as Control
+		if shop_bar_raw != null:
+			shop_bar_raw.name = "ShopBar"
+	if shop_bar_raw == null:
+		shop_bar_raw = VBoxContainer.new()
+		shop_bar_raw.name = "ShopBar"
+		left_content.add_child(shop_bar_raw)
+		left_content.move_child(shop_bar_raw, 0)
+	## Absolute snap host (UI_AND_SHELL §3.2) — not a VBox stretch fight.
+	var shop_bar: Control = _ensure_shop_bar_abs_host(shop_bar_raw, left_content, root)
+	shop_bar = _ensure_shop_bar_frame(left_content, shop_bar, root)
+	var panel_now: Node = shop_bar.get_parent()
+	if panel_now != null and panel_now.get_parent() == left_content:
+		left_content.move_child(panel_now, 0)
+	shop_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shop_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	shop_bar.clip_contents = true
+	## Flatten legacy ShopBody children onto ShopBar.
+	var legacy_body: Control = shop_bar.get_node_or_null("ShopBody") as Control
+	if legacy_body != null:
+		for ch: Node in legacy_body.get_children():
+			_reparent_keep_signals(ch, shop_bar)
+		legacy_body.queue_free()
+	## 1) Bottom buttons first (geometry applied in snap pass).
+	var btns_raw: Control = shop_bar.get_node_or_null("ShopBtns") as Control
+	if btns_raw == null:
+		btns_raw = HBoxContainer.new()
+		btns_raw.name = "ShopBtns"
+		shop_bar.add_child(btns_raw)
+	var shop_btns: BoxContainer = _rebox_as_axis(btns_raw, false)
+	shop_btns.clip_contents = true
+	shop_btns.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+	var btn_strip_h: float = UiLayout.hud_height("ExpBtn", 0.078) * UiLayout.viewport_size(root).y
+	btn_strip_h = clampf(btn_strip_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	shop_btns.custom_minimum_size = Vector2(0.0, btn_strip_h)
+	var exp_btn: Button = root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button
+	if exp_btn == null:
+		exp_btn = shop_btns.get_node_or_null("ExpBtn") as Button
+	if exp_btn:
+		_reparent_keep_signals(exp_btn, shop_btns)
+		shop_btns.move_child(exp_btn, 0)
+		exp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		exp_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var refresh_btn: Button = root.get_node_or_null("%s/LeftBtns/RefreshBtn" % _SHOP_LEFT) as Button
+	if refresh_btn == null:
+		refresh_btn = shop_btns.get_node_or_null("RefreshBtn") as Button
+	if refresh_btn:
+		_reparent_keep_signals(refresh_btn, shop_btns)
+		shop_btns.move_child(refresh_btn, mini(1, shop_btns.get_child_count() - 1))
+		refresh_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		refresh_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_style_shop_action_buttons(root, shop_bar, shop_btns, exp_btn, refresh_btn)
+	## 2) Left ship column (6 squares).
+	var ship_raw: Control = shop_bar.get_node_or_null("ShipCol") as Control
+	if ship_raw == null:
+		ship_raw = shop_bar.get_node_or_null("ShopInner") as Control
+	if ship_raw == null:
+		ship_raw = root.get_node_or_null("Shop/ShopCol/ShopContent/ShopInner") as Control
+		if ship_raw != null:
+			_reparent_keep_signals(ship_raw, shop_bar)
+	if ship_raw == null:
+		ship_raw = VBoxContainer.new()
+		ship_raw.name = "ShipCol"
+		shop_bar.add_child(ship_raw)
+	else:
+		ship_raw.name = "ShipCol"
+	var ship_col: BoxContainer = _rebox_as_axis(ship_raw, true)
+	ship_col.clip_contents = true
+	ship_col.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+	_ensure_ship_offer_host(ship_col, root)
+	## 3) Advanced refresh square — direct ShopBar child for right/bottom snaps.
+	var scan_w: int = UiLayout.px(56, root)
+	if _hud_shop_card_side >= 8.0:
+		scan_w = clampi(int(_hud_shop_card_side * 0.9), UiLayout.px(48, root), UiLayout.px(120, root))
+	_ensure_ship_scanner_btn(root, scan_w, shop_bar)
+	## 4) Meta rectangle above scanner: LevelExp | 5 equip (equip bottom-snaps to scanner).
+	var meta_raw: Control = shop_bar.get_node_or_null("MetaCol") as Control
+	if meta_raw == null:
+		meta_raw = Control.new()
+		meta_raw.name = "MetaCol"
+		shop_bar.add_child(meta_raw)
+	meta_raw = _ensure_plain_layout_host(meta_raw, "MetaCol", shop_bar)
+	meta_raw.clip_contents = true
+	var meta_mid: Control = _ensure_meta_mid(meta_raw, root)
+	_ensure_rotated_level_exp(meta_mid, root)
+	_ensure_equipment_slots_grid(meta_mid, shop_bar, root)
+	## Drop legacy EquipScanCol — scanner is on ShopBar; equip stays in MetaMid.
+	var legacy_esc: Control = null
+	if meta_mid:
+		legacy_esc = meta_mid.get_node_or_null("EquipScanCol") as Control
+	if legacy_esc != null:
+		var esc_equip: Control = legacy_esc.get_node_or_null("EquipmentSlots") as Control
+		if esc_equip != null:
+			_reparent_keep_signals(esc_equip, meta_mid)
+		var esc_scan: Control = legacy_esc.get_node_or_null("ScannerHost") as Control
+		if esc_scan != null:
+			_reparent_keep_signals(esc_scan, shop_bar)
+		legacy_esc.queue_free()
+	if meta_mid:
+		var le_host: Control = meta_mid.get_node_or_null("LevelExpHost") as Control
+		if le_host:
+			meta_mid.move_child(le_host, 0)
+			le_host.size_flags_horizontal = 0
+			le_host.size_flags_vertical = 0
+		var equip_slots: Control = meta_mid.get_node_or_null("EquipmentSlots") as Control
+		if equip_slots:
+			meta_mid.move_child(equip_slots, mini(1, meta_mid.get_child_count() - 1))
+			equip_slots.size_flags_horizontal = 0
+			equip_slots.size_flags_vertical = 0
+			if equip_slots is VBoxContainer:
+				(equip_slots as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+	_apply_left_shop_snap_layout(root)
+	call_deferred("_deferred_apply_left_shop_snap")
+	## Fetter fade to the right of shop (collapsible).
+	var bonus_scroll: Control = left_content.get_node_or_null("BonusScroll") as Control
+	if bonus_scroll == null:
+		var fh: Control = left_content.get_node_or_null("BonusFadeHost") as Control
+		if fh != null:
+			bonus_scroll = fh.get_node_or_null("BonusScroll") as Control
+			left_content.move_child(fh, left_content.get_child_count() - 1)
+	if bonus_scroll != null:
+		if bonus_scroll.get_parent() == left_content:
+			left_content.move_child(bonus_scroll, left_content.get_child_count() - 1)
+		_apply_bonus_hfade(bonus_scroll)
+	_ensure_bottom_gold_pop(root)
+	_ensure_bottom_cluster(root)
+	var shop_content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	var meta_row: Control = root.get_node_or_null(_SHOP_META) as Control
+	var cluster: Control = root.get_node_or_null(_BOTTOM_CLUSTER) as Control
+	if cluster == null:
+		cluster = shop_content
+	if cluster != null:
+		var grid: GridContainer = cluster.get_node_or_null("ReserveGrid") as GridContainer
+		if grid == null and shop_content != null:
+			grid = shop_content.get_node_or_null("ReserveGrid") as GridContainer
+		if grid == null and meta_row != null:
+			grid = meta_row.get_node_or_null("ReserveGrid") as GridContainer
+		if grid == null:
+			grid = root.get_node_or_null("EquipCol/EquipInner/ReserveGrid") as GridContainer
+			if grid == null:
+				grid = left_content.get_node_or_null("ReserveGrid") as GridContainer
+		if grid == null:
+			grid = GridContainer.new()
+			grid.name = "ReserveGrid"
+			cluster.add_child(grid)
+		elif grid.get_parent() != cluster:
+			_reparent_keep_signals(grid, cluster)
+		grid.columns = 16
+		grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		grid.size_flags_vertical = Control.SIZE_SHRINK_END
+		grid.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		grid.anchor_right = 0.0
+		grid.anchor_bottom = 0.0
+		if cluster is VBoxContainer:
+			(cluster as VBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+			cluster.move_child(grid, cluster.get_child_count() - 1)
+	if meta_row != null:
+		meta_row.visible = false
+	if shop_content != null:
+		var leftover_inner: Control = shop_content.get_node_or_null("ShopInner") as Control
+		if leftover_inner:
+			leftover_inner.visible = false
+			leftover_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var left_ctrl: Control = root.get_node_or_null(_SHOP_LEFT) as Control
+	if left_ctrl:
+		left_ctrl.visible = false
+	var shop_mid: Control = root.get_node_or_null(_SHOP_MID) as Control
+	if shop_mid:
+		shop_mid.visible = false
+	var equip_col: Control = root.get_node_or_null("EquipCol") as Control
+	if equip_col:
+		equip_col.visible = false
+		equip_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var equip_chrome: Control = root.get_node_or_null("EquipEdgeChrome") as Control
+	if equip_chrome:
+		equip_chrome.visible = false
+		equip_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_collapse_left_syn = _collapse_left
+	_collapse_left_equip = _collapse_left
+
+
+func _ensure_shop_bar_frame(left_content: Control, shop_bar: Control, _root: Control) -> Control:
+	## Complete original side-panel StyleBox on ShopBarPanel (UI_AND_SHELL §2.1 / §3.3).
+	if left_content == null or shop_bar == null:
+		return shop_bar
+	var bar_panel: PanelContainer = null
+	var parent_n: Node = shop_bar.get_parent()
+	if parent_n is PanelContainer and str(parent_n.name) == "ShopBarPanel":
+		@warning_ignore("unsafe_cast")
+		bar_panel = parent_n as PanelContainer
+	else:
+		bar_panel = PanelContainer.new()
+		bar_panel.name = "ShopBarPanel"
+		if parent_n != null:
+			var idx: int = shop_bar.get_index()
+			parent_n.remove_child(shop_bar)
+			parent_n.add_child(bar_panel)
+			parent_n.move_child(bar_panel, idx)
+		else:
+			left_content.add_child(bar_panel)
+			left_content.move_child(bar_panel, 0)
+		bar_panel.add_child(shop_bar)
+	bar_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	bar_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	bar_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	bar_panel.clip_contents = true
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.09, 0.11, 0.88)
+	sb.border_color = Color(0.35, 0.72, 0.85, 0.55)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(4)
+	## No inner black pad — content flush to cyan hairline (UI_AND_SHELL §3.2 / §3.3).
+	sb.content_margin_left = 0
+	sb.content_margin_right = 0
+	sb.content_margin_top = 0
+	sb.content_margin_bottom = 0
+	bar_panel.add_theme_stylebox_override("panel", sb)
+	shop_bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shop_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shop_bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	return shop_bar
+
+
+func _ensure_shop_bar_abs_host(shop_bar_raw: Control, left_content: Control, _root: Control) -> Control:
+	## Convert legacy VBox ShopBar into plain Control absolute host.
+	if shop_bar_raw == null:
+		var created: Control = Control.new()
+		created.name = "ShopBar"
+		left_content.add_child(created)
+		left_content.move_child(created, 0)
+		return created
+	if not (shop_bar_raw is BoxContainer):
+		return shop_bar_raw
+	return _ensure_plain_layout_host(shop_bar_raw, "ShopBar", shop_bar_raw.get_parent())
+
+
+func _ensure_plain_layout_host(node: Control, host_name: String, parent: Node) -> Control:
+	## Replace BoxContainer with Control keeping children (absolute snap parent).
+	if node == null:
+		return null
+	if not (node is BoxContainer):
+		node.name = host_name
+		return node
+	var host: Control = Control.new()
+	host.name = host_name
+	var idx: int = node.get_index()
+	var kids: Array[Node] = []
+	for c: Node in node.get_children():
+		kids.append(c)
+	for c2: Node in kids:
+		node.remove_child(c2)
+	var p: Node = parent if parent != null else node.get_parent()
+	if p != null:
+		p.remove_child(node)
+		p.add_child(host)
+		p.move_child(host, idx)
+	node.queue_free()
+	for c3: Node in kids:
+		host.add_child(c3)
+	return host
+
+
+func _snap_control_rect(c: Control, x: float, y: float, w: float, h: float) -> void:
+	## Absolute place. Do NOT zero custom_minimum_size — wiping LevelExpHost min made the
+	## next snap fall back to ~36px and let EquipmentSlots eat the exp column (pause/HUD).
+	if c == null:
+		return
+	c.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	c.anchor_right = 0.0
+	c.anchor_bottom = 0.0
+	c.position = Vector2(x, y)
+	c.size = Vector2(maxf(0.0, w), maxf(0.0, h))
+
+
+func _deferred_apply_left_shop_snap() -> void:
+	if hud == null:
+		return
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root != null:
+		_apply_left_shop_snap_layout(root)
+
+
+func _shop_bar_frame_gutter(_root: Control) -> float:
+	## ShopBarPanel has no inner content_margin (no fixed black pad). Keep 1px so
+	## Meta/equip card borders sit just inside the cyan hairline, not on it.
+	return 1.0
+
+
+func _apply_left_shop_snap_layout(root: Control) -> void:
+	## UI_AND_SHELL §3.2 吸靠：底钮 → 左 6 舰方 → 高级刷新方 → Meta 长方形(经验|5装).
+	if root == null:
+		return
+	var bar: Control = root.get_node_or_null(_SHOP_BAR) as Control
+	if bar == null or bar.size.x < 8.0 or bar.size.y < 8.0:
+		return
+	var gap: float = float(UiLayout.margin_px(4, root))
+	var sep: float = float(UiLayout.margin_px(2, root))
+	var gutter: float = _shop_bar_frame_gutter(root)
+	var btns: Control = root.get_node_or_null(_SHOP_BTNS) as Control
+	var btn_h: float = UiLayout.hud_height("ExpBtn", 0.078) * UiLayout.viewport_size(root).y
+	btn_h = clampf(btn_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	if btns != null and btns.custom_minimum_size.y >= 8.0:
+		btn_h = btns.custom_minimum_size.y
+	var W: float = bar.size.x
+	var H: float = bar.size.y
+	## Shared right edge for Meta / equip / scanner — inset so card borders never sit on cyan frame.
+	var inner_right: float = maxf(8.0, W - gutter)
+	btn_h = minf(btn_h, maxf(8.0, H * 0.22))
+	## 1) Bottom buttons full width of content (still under panel margins).
+	if btns != null:
+		_snap_control_rect(btns, 0.0, H - btn_h, W, btn_h)
+		btns.size_flags_horizontal = 0
+		btns.size_flags_vertical = 0
+	var body_h: float = maxf(8.0, H - btn_h)
+	var nslots: int = 6
+	if shop != null and shop.slots.size() > 0:
+		nslots = maxi(1, shop.slots.size())
+	## 2) Left ship squares: side = body_h / n.
+	var side: float = (body_h - sep * float(maxi(0, nslots - 1))) / float(nslots)
+	side = clampf(side, float(UiLayout.px(28, root)), float(UiLayout.px(160, root)))
+	side = minf(side, inner_right * 0.72)
+	_hud_shop_card_side = side
+	_hud_shop_card_size = Vector2(side, side)
+	var ship_col: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if ship_col != null:
+		_snap_control_rect(ship_col, 0.0, 0.0, side, body_h)
+		ship_col.size_flags_horizontal = 0
+		ship_col.size_flags_vertical = 0
+		var offer: Control = root.get_node_or_null(_SHOP_OFFER_HOST) as Control
+		if offer != null:
+			offer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			offer.custom_minimum_size = Vector2(side, 0.0)
+		var slots: Control = root.get_node_or_null(_SHOP_SLOTS) as Control
+		if slots != null:
+			slots.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			slots.custom_minimum_size = Vector2(side, 0.0)
+			if slots is VBoxContainer:
+				(slots as VBoxContainer).add_theme_constant_override("separation", int(sep))
+	## 3) Scanner square: left→ship, bottom→btns, right→inner_right (not raw W).
+	var rem_w: float = maxf(8.0, inner_right - side - gap)
+	var scan_side: float = minf(rem_w, body_h)
+	var scan_x: float = inner_right - scan_side
+	if rem_w <= body_h + 0.5:
+		scan_side = rem_w
+		scan_x = side + gap
+	var scan_y: float = body_h - scan_side
+	var scanner: Control = root.get_node_or_null(_SHOP_SCANNER_HOST) as Control
+	if scanner != null:
+		_snap_control_rect(scanner, scan_x, scan_y, scan_side, scan_side)
+		scanner.size_flags_horizontal = 0
+		scanner.size_flags_vertical = 0
+		scanner.custom_minimum_size = Vector2(scan_side, scan_side)
+		var frame: Control = scanner.get_node_or_null("ScannerFrame") as Control
+		if frame != null:
+			frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			frame.custom_minimum_size = Vector2.ZERO
+	## 4) Meta: left→ship, top→bar top, bottom→scanner, right→inner_right.
+	var meta: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+	var meta_h: float = maxf(8.0, scan_y)
+	var meta_x: float = side + gap
+	var meta_w: float = maxf(8.0, inner_right - meta_x)
+	if meta != null:
+		meta.custom_minimum_size = Vector2.ZERO
+		_snap_control_rect(meta, meta_x, 0.0, meta_w, meta_h)
+		meta.size_flags_horizontal = 0
+		meta.size_flags_vertical = 0
+		meta.clip_contents = true
+	var meta_mid_raw: Control = root.get_node_or_null(_SHOP_META_MID) as Control
+	if meta_mid_raw != null and meta != null:
+		if meta_mid_raw is BoxContainer:
+			meta_mid_raw = _ensure_plain_layout_host(meta_mid_raw, "MetaMid", meta)
+		## Absolute only — never FULL_RECT (that re-expands past snapped Meta).
+		_clear_control_abs_layout(meta_mid_raw)
+		meta_mid_raw.custom_minimum_size = Vector2.ZERO
+		_snap_control_rect(meta_mid_raw, 0.0, 0.0, meta_w, meta_h)
+		meta_mid_raw.size_flags_horizontal = 0
+		meta_mid_raw.size_flags_vertical = 0
+		meta_mid_raw.clip_contents = true
+		meta_mid_raw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var le_host: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	var equip: Control = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as Control
+	## Probe-locked width only — never le_host.size.x (that ratcheted wider with live text/segs).
+	var le_w: float = _level_exp_fixed_width(root)
+	var mid_gap: float = float(UiLayout.margin_px(4, root))
+	## Keep LevelExp from eating the whole Meta.
+	le_w = minf(le_w, maxf(8.0, meta_w - mid_gap - float(UiLayout.px(24, root))))
+	if le_host != null and meta_mid_raw != null:
+		le_host.size_flags_horizontal = 0
+		le_host.size_flags_vertical = 0
+		_snap_control_rect(le_host, 0.0, 0.0, le_w, meta_h)
+		le_host.custom_minimum_size = Vector2(le_w, maxf(le_host.custom_minimum_size.y, float(UiLayout.px(96, root))))
+		le_host.clip_contents = true
+	if equip != null and meta_mid_raw != null:
+		var eq_x: float = le_w + mid_gap
+		var eq_w: float = maxf(8.0, meta_w - eq_x)
+		equip.size_flags_horizontal = 0
+		equip.size_flags_vertical = 0
+		equip.clip_contents = true
+		equip.custom_minimum_size = Vector2.ZERO
+		_snap_control_rect(equip, eq_x, 0.0, eq_w, meta_h)
+		if equip is VBoxContainer:
+			(equip as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+		_sync_equipment_shop_card_widths(equip)
+	if meta_mid_raw != null:
+		meta_mid_raw.clip_contents = true
+	## Restyle scanner art to the snapped square — do NOT re-run ensure with a
+	## different side (that used to set min-size > snapped rect and spill past cyan).
+	if scanner != null:
+		_restyle_scanner_host_to_side(scanner, scan_side, root)
+		_refresh_scanner_cost_caption(root)
+
+
+func _clear_control_abs_layout(c: Control) -> void:
+	## Force BoxContainer-friendly layout: no leftover anchors/offsets that overlap siblings.
+	if c == null:
+		return
+	c.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	c.anchor_left = 0.0
+	c.anchor_top = 0.0
+	c.anchor_right = 0.0
+	c.anchor_bottom = 0.0
+	c.offset_left = 0.0
+	c.offset_top = 0.0
+	c.offset_right = 0.0
+	c.offset_bottom = 0.0
+	c.position = Vector2.ZERO
+	c.rotation = 0.0
+	c.scale = Vector2.ONE
+
+
+func _ensure_ship_offer_host(ship_col: Node, root: Control) -> void:
+	## UI_AND_SHELL §3.2: host fills ShopBody height (clipped by LeftCol); cards sized to fit.
+	## Never set min-height = 6×side — that overflows the viewport when + ShopBtns + margins.
+	if ship_col == null or root == null:
+		return
+	var host: Control = ship_col.get_node_or_null("ShipOfferHost") as Control
+	if host == null:
+		host = Control.new()
+		host.name = "ShipOfferHost"
+		ship_col.add_child(host)
+		ship_col.move_child(host, 0)
+	_clear_control_abs_layout(host)
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.clip_contents = true
+	host.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var sep: float = float(UiLayout.margin_px(2, root))
+	var side: float = _hud_shop_card_side if _hud_shop_card_side >= 8.0 else float(UiLayout.px(48, root))
+	## Width only — height comes from ShopBody EXPAND inside clipped LeftCol.
+	host.custom_minimum_size = Vector2(side, 0.0)
+	var slots_raw: Control = host.get_node_or_null("ShopSlots") as Control
+	if slots_raw == null:
+		slots_raw = ship_col.get_node_or_null("ShopSlots") as Control
+		if slots_raw != null:
+			_reparent_keep_signals(slots_raw, host)
+	if slots_raw == null:
+		slots_raw = VBoxContainer.new()
+		slots_raw.name = "ShopSlots"
+		host.add_child(slots_raw)
+	var slots: BoxContainer = _rebox_as_axis(slots_raw, true)
+	_clear_control_abs_layout(slots)
+	slots.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	slots.custom_minimum_size = Vector2(side, 0.0)
+	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slots.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	slots.add_theme_constant_override("separation", int(sep))
+	slots.mouse_filter = Control.MOUSE_FILTER_PASS
+	slots.z_index = 0
+	var sell: PanelContainer = host.get_node_or_null("SellZone") as PanelContainer
+	if sell == null:
+		sell = ship_col.get_node_or_null("SellZone") as PanelContainer
+		if sell != null:
+			_reparent_keep_signals(sell, host)
+	if sell == null:
+		sell = root.get_node_or_null("Shop/ShopCol/ShopContent/ShopInner/SellZone") as PanelContainer
+		if sell != null:
+			_reparent_keep_signals(sell, host)
+	if sell == null:
+		sell = PanelContainer.new()
+		sell.name = "SellZone"
+		host.add_child(sell)
+		var lab: Label = Label.new()
+		lab.name = "SellLabel"
+		lab.text = "售价"
+		lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lab.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sell.add_child(lab)
+	_clear_control_abs_layout(sell)
+	sell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sell.custom_minimum_size = Vector2.ZERO
+	sell.z_index = 2
+	if not _dragging_sell_ui:
+		sell.visible = false
+		sell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	else:
+		sell.visible = true
+		sell.mouse_filter = Control.MOUSE_FILTER_STOP
+	host.move_child(slots, 0)
+	host.move_child(sell, host.get_child_count() - 1)
+	if ship_col is Control:
+		var sc: Control = ship_col as Control
+		sc.custom_minimum_size = Vector2(side, 0.0)
+		sc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sc.clip_contents = true
+
+
+func _resolve_sell_zone() -> PanelContainer:
+	if hud == null:
+		return null
+	var sell: PanelContainer = hud.get_node_or_null("Root/%s" % _SHOP_SELL) as PanelContainer
+	if sell == null:
+		sell = hud.get_node_or_null("Root/%s/SellZone" % _SHOP_INNER) as PanelContainer
+	if sell == null:
+		sell = hud.get_node_or_null("Root/%s/ShipOfferHost/SellZone" % _SHOP_INNER) as PanelContainer
+	return sell
+
+
+func _ensure_meta_mid(meta_col: Control, _root: Control) -> Control:
+	## Absolute host for LevelExp (left) + EquipmentSlots (fill to Meta right).
+	## Size comes only from _apply_left_shop_snap_layout — never FULL_RECT.
+	if meta_col == null:
+		return null
+	var mid_raw: Control = meta_col.get_node_or_null("MetaMid") as Control
+	if mid_raw == null:
+		mid_raw = Control.new()
+		mid_raw.name = "MetaMid"
+		meta_col.add_child(mid_raw)
+	elif mid_raw is BoxContainer:
+		mid_raw = _ensure_plain_layout_host(mid_raw, "MetaMid", meta_col)
+	_clear_control_abs_layout(mid_raw)
+	mid_raw.custom_minimum_size = Vector2.ZERO
+	mid_raw.size_flags_horizontal = 0
+	mid_raw.size_flags_vertical = 0
+	mid_raw.clip_contents = true
+	mid_raw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	meta_col.move_child(mid_raw, 0)
+	return mid_raw
+
+
+func _ensure_equip_scan_col(meta_mid: Control, root: Control) -> VBoxContainer:
+	## Right of LevelExp: equipment shop (top) → ship scanner (under cards). Both top-stick.
+	if meta_mid == null:
+		return null
+	var col: VBoxContainer = meta_mid.get_node_or_null("EquipScanCol") as VBoxContainer
+	if col == null:
+		col = VBoxContainer.new()
+		col.name = "EquipScanCol"
+		meta_mid.add_child(col)
+	_clear_control_abs_layout(col)
+	col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.size_flags_stretch_ratio = 0.0
+	col.alignment = BoxContainer.ALIGNMENT_BEGIN
+	col.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.clip_contents = true
+	## Migrate legacy direct children of MetaMid / MetaCol.
+	var meta_col: Node = meta_mid.get_parent()
+	for nm: String in ["EquipmentSlots", "ScannerHost"]:
+		var n: Node = meta_mid.get_node_or_null(nm)
+		if n == null and meta_col != null:
+			n = meta_col.get_node_or_null(nm)
+		if n != null and n.get_parent() != col:
+			_reparent_keep_signals(n, col)
+	meta_mid.move_child(col, mini(1, meta_mid.get_child_count() - 1))
+	return col
+
+
+func _ensure_rotated_level_exp(meta_mid: Node, root: Control) -> void:
+	## UI_AND_SHELL §3.2: vertical stack n级 → segs → n/n inside MetaMid (left of equip).
+	## Host width = probe-locked fixed (_level_exp_fixed_width); height expands in MetaMid.
+	if meta_mid == null or root == null:
+		return
+	var host: Control = meta_mid.get_node_or_null("LevelExpHost") as Control
+	if host == null:
+		## Migrate from old MetaCol direct child.
+		var meta_col: Node = meta_mid.get_parent()
+		if meta_col:
+			host = meta_col.get_node_or_null("LevelExpHost") as Control
+			if host != null:
+				_reparent_keep_signals(host, meta_mid)
+	if host == null:
+		host = Control.new()
+		host.name = "LevelExpHost"
+		meta_mid.add_child(host)
+	_clear_control_abs_layout(host)
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.clip_contents = true
+	host.visible = true
+	host.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	host.size_flags_stretch_ratio = 0.0
+	## Floor only — width later locked by _level_exp_fixed_width (pause/HUD).
+	var le_floor_x: float = float(UiLayout.px(36, root))
+	var le_floor_y: float = float(UiLayout.px(96, root))
+	if host.custom_minimum_size.x < le_floor_x:
+		host.custom_minimum_size.x = le_floor_x
+	if host.custom_minimum_size.y < le_floor_y:
+		host.custom_minimum_size.y = le_floor_y
+	meta_mid.move_child(host, 0)
+	var le: Control = host.get_node_or_null("LevelExp") as Control
+	if le == null:
+		le = meta_mid.get_node_or_null("LevelExp") as Control
+		if le != null:
+			_reparent_keep_signals(le, host)
+	if le == null:
+		var meta_parent: Node = meta_mid.get_parent()
+		if meta_parent:
+			le = meta_parent.get_node_or_null("LevelExp") as Control
+			if le != null:
+				_reparent_keep_signals(le, host)
+	if le == null:
+		le = root.get_node_or_null("%s/LevelExp" % _SHOP_LEFT) as Control
+		if le != null:
+			_reparent_keep_signals(le, host)
+	if le == null:
+		le = PanelContainer.new()
+		le.name = "LevelExp"
+		host.add_child(le)
+	_clear_control_abs_layout(le)
+	le.visible = true
+	le.rotation = 0.0
+	le.pivot_offset = Vector2.ZERO
+	le.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	le.custom_minimum_size = Vector2.ZERO
+	le.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Tear down old HBox/LETextCol layout — rebuild as single VBox.
+	var inner_raw: Control = le.get_node_or_null("LEInner") as Control
+	var level_lbl: Label = null
+	var exp_lbl: Label = null
+	var seg: Control = null
+	if inner_raw != null:
+		level_lbl = inner_raw.find_child("Level", true, false) as Label
+		exp_lbl = inner_raw.find_child("Exp", true, false) as Label
+		seg = inner_raw.find_child("ExpSegRow", true, false) as Control
+		if not (inner_raw is VBoxContainer) or inner_raw.get_node_or_null("LETextCol") != null:
+			var keep_nodes: Array[Node] = []
+			if level_lbl:
+				keep_nodes.append(level_lbl)
+			if exp_lbl:
+				keep_nodes.append(exp_lbl)
+			if seg:
+				keep_nodes.append(seg)
+			for kn: Node in keep_nodes:
+				if kn.get_parent() != null:
+					kn.get_parent().remove_child(kn)
+			le.remove_child(inner_raw)
+			inner_raw.queue_free()
+			inner_raw = null
+			var nv: VBoxContainer = VBoxContainer.new()
+			nv.name = "LEInner"
+			le.add_child(nv)
+			for kn2: Node in keep_nodes:
+				nv.add_child(kn2)
+			inner_raw = nv
+	if inner_raw == null:
+		inner_raw = VBoxContainer.new()
+		inner_raw.name = "LEInner"
+		le.add_child(inner_raw)
+	var inner: VBoxContainer = inner_raw as VBoxContainer
+	_clear_control_abs_layout(inner)
+	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inner.custom_minimum_size = Vector2.ZERO
+	inner.alignment = BoxContainer.ALIGNMENT_BEGIN
+	inner.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Drop obsolete text-col / labels box if still present.
+	var text_col: Node = inner.get_node_or_null("LETextCol")
+	if text_col != null:
+		if level_lbl == null:
+			level_lbl = text_col.get_node_or_null("Level") as Label
+		if exp_lbl == null:
+			exp_lbl = text_col.get_node_or_null("Exp") as Label
+		if level_lbl and level_lbl.get_parent() == text_col:
+			_reparent_keep_signals(level_lbl, inner)
+		if exp_lbl and exp_lbl.get_parent() == text_col:
+			_reparent_keep_signals(exp_lbl, inner)
+		inner.remove_child(text_col)
+		text_col.queue_free()
+	var labs: Control = inner.get_node_or_null("LELabels") as Control
+	if labs != null:
+		if level_lbl == null:
+			level_lbl = labs.get_node_or_null("Level") as Label
+		if exp_lbl == null:
+			exp_lbl = labs.get_node_or_null("Exp") as Label
+		if level_lbl and level_lbl.get_parent() == labs:
+			_reparent_keep_signals(level_lbl, inner)
+		if exp_lbl and exp_lbl.get_parent() == labs:
+			_reparent_keep_signals(exp_lbl, inner)
+		inner.remove_child(labs)
+		labs.queue_free()
+	if level_lbl == null:
+		level_lbl = inner.get_node_or_null("Level") as Label
+	if exp_lbl == null:
+		exp_lbl = inner.get_node_or_null("Exp") as Label
+	if level_lbl == null:
+		level_lbl = Label.new()
+		level_lbl.name = "Level"
+		inner.add_child(level_lbl)
+	elif level_lbl.get_parent() != inner:
+		_reparent_keep_signals(level_lbl, inner)
+	if exp_lbl == null:
+		exp_lbl = Label.new()
+		exp_lbl.name = "Exp"
+		inner.add_child(exp_lbl)
+	elif exp_lbl.get_parent() != inner:
+		_reparent_keep_signals(exp_lbl, inner)
+	level_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	level_lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	level_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	level_lbl.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	level_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Head/tail keep glyph height — segs absorb squeeze (UI_AND_SHELL §3.2).
+	level_lbl.custom_minimum_size = Vector2(0.0, _label_line_height(level_lbl, "15级"))
+	level_lbl.clip_text = true
+	level_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	exp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	exp_lbl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	exp_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	exp_lbl.size_flags_vertical = Control.SIZE_SHRINK_END
+	exp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	exp_lbl.custom_minimum_size = Vector2(0.0, _label_line_height(exp_lbl, "999 / 999"))
+	exp_lbl.clip_text = true
+	exp_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	if seg == null:
+		seg = inner.get_node_or_null("ExpSegRow") as Control
+	if seg is HBoxContainer:
+		seg = _rebox_as_axis(seg, true)
+	elif seg == null:
+		seg = VBoxContainer.new()
+		seg.name = "ExpSegRow"
+		inner.add_child(seg)
+	if seg.get_parent() != inner:
+		_reparent_keep_signals(seg, inner)
+	_clear_control_abs_layout(seg)
+	seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seg.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## Seg min height 0 so VBox never pushes head/tail out of LevelExp frame.
+	## Min width 0 — cells are capped inside fixed LevelExp; do not widen host.
+	seg.custom_minimum_size = Vector2(0.0, 0.0)
+	seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	seg.clip_contents = true
+	if seg is BoxContainer:
+		(seg as BoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	le.clip_contents = true
+	inner.clip_contents = true
+	## Order: Level → segs → Exp (same column).
+	inner.move_child(level_lbl, 0)
+	inner.move_child(seg, 1)
+	inner.move_child(exp_lbl, inner.get_child_count() - 1)
+	var bar: ProgressBar = inner.get_node_or_null("ExpBar") as ProgressBar
+	if bar:
+		bar.visible = false
+
+
+func _label_line_height(lbl: Label, probe: String = "字") -> float:
+	if lbl == null:
+		return float(UiLayout.px(12))
+	var font: Font = lbl.get_theme_font("font")
+	if font == null:
+		font = ThemeDB.fallback_font
+	var fs: int = lbl.get_theme_font_size("font_size")
+	if fs <= 0:
+		fs = UiLayout.font_size(12, lbl)
+	return maxf(float(UiLayout.px(10, lbl)), font.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).y)
+
+
+func _label_content_width(lbl: Label) -> float:
+	if lbl == null or lbl.text.is_empty():
+		return 0.0
+	var font: Font = lbl.get_theme_font("font")
+	var fs: int = lbl.get_theme_font_size("font_size")
+	if font == null:
+		return lbl.get_minimum_size().x
+	return font.get_string_size(lbl.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+
+
+func _level_exp_fixed_width(root: Control) -> float:
+	## Authority: max("15级", "999 / 999") + LevelExp panel L/R margins.
+	## Never live level/exp strings, never segment cell width (UI_AND_SHELL §3.2).
+	if root == null:
+		return float(UiLayout.px(36))
+	var level_lbl: Label = root.get_node_or_null("%s/LEInner/Level" % _SHOP_LEVEL) as Label
+	var exp_lbl: Label = root.get_node_or_null("%s/LEInner/Exp" % _SHOP_LEVEL) as Label
+	var le: Control = root.get_node_or_null(_SHOP_LEVEL) as Control
+	var need: float = float(UiLayout.px(28, root))
+	var fs_lv: int = UiLayout.font_size(12, root)
+	var font_lv: Font = ThemeDB.fallback_font
+	if level_lbl != null:
+		fs_lv = level_lbl.get_theme_font_size("font_size")
+		var lf: Font = level_lbl.get_theme_font("font")
+		if lf != null:
+			font_lv = lf
+	need = maxf(need, font_lv.get_string_size("15级", HORIZONTAL_ALIGNMENT_LEFT, -1, fs_lv).x)
+	var fs_ex: int = UiLayout.font_size(12, root)
+	var font_ex: Font = ThemeDB.fallback_font
+	if exp_lbl != null:
+		fs_ex = exp_lbl.get_theme_font_size("font_size")
+		var ef: Font = exp_lbl.get_theme_font("font")
+		if ef != null:
+			font_ex = ef
+	need = maxf(need, font_ex.get_string_size("999 / 999", HORIZONTAL_ALIGNMENT_LEFT, -1, fs_ex).x)
+	var pad: float = float(UiLayout.margin_px(3, root)) * 2.0
+	if le is PanelContainer:
+		var sb: StyleBox = (le as PanelContainer).get_theme_stylebox("panel")
+		if sb != null:
+			pad = sb.get_margin(SIDE_LEFT) + sb.get_margin(SIDE_RIGHT)
+	## +1px border each side drawn inside panel rect.
+	need += pad
+	need = maxf(need, float(UiLayout.px(36, root)))
+	_hud_level_exp_fixed_w = need
+	return need
+
+
+func _fit_level_exp_width(root: Control) -> void:
+	## Fixed LevelExp width — probe strings only; live text / segs never change column width.
+	if root == null:
+		return
+	var host: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	var le: Control = root.get_node_or_null(_SHOP_LEVEL) as Control
+	if host == null:
+		return
+	host.visible = true
+	host.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	host.size_flags_stretch_ratio = 0.0
+	if host.custom_minimum_size.y < float(UiLayout.px(72, root)):
+		host.custom_minimum_size.y = float(UiLayout.px(96, root))
+	var need: float = _level_exp_fixed_width(root)
+	host.custom_minimum_size = Vector2(need, maxf(host.custom_minimum_size.y, float(UiLayout.px(96, root))))
+	var equip: Control = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as Control
+	var meta_mid: Control = root.get_node_or_null(_SHOP_META_MID) as Control
+	if le:
+		le.visible = true
+		le.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		le.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		## Host owns width. Panel min-x must stay 0 or Panel chrome double-counts past host.
+		le.custom_minimum_size = Vector2(0.0, 0.0)
+		le.clip_contents = true
+	var level_lbl: Label = root.get_node_or_null("%s/LEInner/Level" % _SHOP_LEVEL) as Label
+	var exp_lbl: Label = root.get_node_or_null("%s/LEInner/Exp" % _SHOP_LEVEL) as Label
+	if level_lbl:
+		level_lbl.clip_text = true
+		level_lbl.custom_minimum_size.x = 0.0
+	if exp_lbl:
+		exp_lbl.clip_text = true
+		exp_lbl.custom_minimum_size.x = 0.0
+	var mw: float = 0.0
+	var mh: float = 0.0
+	if meta_mid != null:
+		mw = meta_mid.size.x
+		mh = meta_mid.size.y
+		if mw < 8.0 or mh < 8.0:
+			var meta_col: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+			if meta_col != null:
+				mw = maxf(mw, meta_col.size.x)
+				mh = maxf(mh, meta_col.size.y)
+	if meta_mid != null and mw >= 8.0 and mh >= 8.0:
+		var mid_gap: float = float(UiLayout.margin_px(4, root))
+		_snap_control_rect(host, 0.0, 0.0, need, mh)
+		host.custom_minimum_size = Vector2(need, maxf(host.custom_minimum_size.y, float(UiLayout.px(96, root))))
+		host.clip_contents = true
+		if equip != null:
+			var eq_x: float = need + mid_gap
+			_snap_control_rect(equip, eq_x, 0.0, maxf(8.0, mw - eq_x), mh)
+			equip.clip_contents = true
+			equip.custom_minimum_size = Vector2.ZERO
+			if equip is VBoxContainer:
+				(equip as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+			_sync_equipment_shop_card_widths(equip)
+		_adapt_level_exp_vertical(root)
+
+
+func _adapt_level_exp_vertical(root: Control) -> void:
+	## Reserve Level (head) + Exp (tail) inside LevelExp frame; segs take leftover only.
+	if root == null:
+		return
+	var host: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	var le: Control = root.get_node_or_null(_SHOP_LEVEL) as Control
+	var level_lbl: Label = root.get_node_or_null("%s/LEInner/Level" % _SHOP_LEVEL) as Label
+	var exp_lbl: Label = root.get_node_or_null("%s/LEInner/Exp" % _SHOP_LEVEL) as Label
+	var row: Control = root.get_node_or_null("%s/LEInner/ExpSegRow" % _SHOP_LEVEL) as Control
+	var inner: Control = root.get_node_or_null("%s/LEInner" % _SHOP_LEVEL) as Control
+	if host == null or le == null or level_lbl == null or exp_lbl == null or row == null:
+		return
+	le.clip_contents = true
+	if inner:
+		inner.clip_contents = true
+	row.clip_contents = true
+	var head_h: float = _label_line_height(level_lbl, "15级")
+	var tail_h: float = _label_line_height(exp_lbl, "999 / 999")
+	level_lbl.custom_minimum_size = Vector2(0.0, head_h)
+	exp_lbl.custom_minimum_size = Vector2(0.0, tail_h)
+	level_lbl.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	exp_lbl.size_flags_vertical = Control.SIZE_SHRINK_END
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.custom_minimum_size.y = 0.0
+	var pad_y: float = float(UiLayout.margin_px(6, root))
+	if le is PanelContainer:
+		var sb: StyleBox = (le as PanelContainer).get_theme_stylebox("panel")
+		if sb:
+			pad_y = sb.get_margin(SIDE_TOP) + sb.get_margin(SIDE_BOTTOM)
+	var sep: float = float(UiLayout.margin_px(2, root))
+	if inner is BoxContainer:
+		sep = float((inner as BoxContainer).get_theme_constant("separation"))
+	var host_h: float = host.size.y if host.size.y >= 8.0 else host.custom_minimum_size.y
+	var reserved: float = head_h + tail_h + pad_y + sep * 2.0
+	var seg_budget: float = maxf(0.0, host_h - reserved)
+	## Rebuild / resize segment cells into leftover only (never steal head/tail).
+	_layout_exp_segment_cells(root, row, seg_budget)
+
+
+func _ensure_bottom_gold_pop(root: Control) -> void:
+	## New bottom bar: Gold + field-limit row above 1×16 reserve (UI_AND_SHELL §2.1).
+	if root == null:
+		return
+	var content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	if content == null:
+		return
+	var cluster: Control = content.get_node_or_null("BottomCluster") as Control
+	var gold_pop: HBoxContainer = null
+	if cluster:
+		gold_pop = cluster.get_node_or_null("GoldPop") as HBoxContainer
+	if gold_pop == null:
+		gold_pop = content.get_node_or_null("GoldPop") as HBoxContainer
+	if gold_pop == null:
+		gold_pop = root.get_node_or_null("%s/GoldPop" % _SHOP_META) as HBoxContainer
+		if gold_pop != null:
+			_reparent_keep_signals(gold_pop, content)
+		else:
+			gold_pop = HBoxContainer.new()
+			gold_pop.name = "GoldPop"
+			content.add_child(gold_pop)
+	gold_pop.visible = true
+	gold_pop.mouse_filter = Control.MOUSE_FILTER_STOP
+	gold_pop.add_theme_constant_override("separation", UiLayout.margin_px(16, root))
+	gold_pop.alignment = BoxContainer.ALIGNMENT_CENTER
+	gold_pop.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gold_pop.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	gold_pop.custom_minimum_size = Vector2(0, UiLayout.px(22, root))
+	var gold_box: Control = gold_pop.get_node_or_null("GoldBox") as Control
+	if gold_box == null:
+		gold_box = root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as Control
+		if gold_box != null:
+			_reparent_keep_signals(gold_box, gold_pop)
+	var pop_box: Control = gold_pop.get_node_or_null("PopBox") as Control
+	if pop_box == null:
+		pop_box = root.get_node_or_null("%s/StatsRow/PopBox" % _SHOP_MID) as Control
+		if pop_box != null:
+			_reparent_keep_signals(pop_box, gold_pop)
+	if gold_box:
+		gold_pop.move_child(gold_box, 0)
+		gold_box.visible = true
+		gold_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		gold_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if gold_box is HBoxContainer:
+			(gold_box as HBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	if pop_box:
+		gold_pop.move_child(pop_box, mini(1, gold_pop.get_child_count() - 1))
+		pop_box.visible = true
+		pop_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		pop_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if pop_box is HBoxContainer:
+			(pop_box as HBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	var meta_mid: Control = root.get_node_or_null(_SHOP_MID) as Control
+	if meta_mid:
+		meta_mid.visible = false
+	var left_ctrl: Control = root.get_node_or_null(_SHOP_LEFT) as Control
+	if left_ctrl:
+		left_ctrl.visible = false
+
+
+func _ensure_bottom_cluster(root: Control) -> void:
+	## Gold+pop and 16-equip share one centered cluster (UI_AND_SHELL §2.1).
+	if root == null:
+		return
+	var content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
+	if content == null:
+		return
+	if content is VBoxContainer:
+		(content as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+		content.add_theme_constant_override("separation", 0)
+	var cluster: VBoxContainer = content.get_node_or_null("BottomCluster") as VBoxContainer
+	if cluster == null:
+		cluster = VBoxContainer.new()
+		cluster.name = "BottomCluster"
+		content.add_child(cluster)
+	cluster.alignment = BoxContainer.ALIGNMENT_CENTER
+	cluster.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+	cluster.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cluster.size_flags_vertical = Control.SIZE_SHRINK_END
+	cluster.mouse_filter = Control.MOUSE_FILTER_STOP
+	var gold_pop: Control = content.get_node_or_null("GoldPop") as Control
+	if gold_pop == null:
+		gold_pop = cluster.get_node_or_null("GoldPop") as Control
+	if gold_pop != null and gold_pop.get_parent() != cluster:
+		_reparent_keep_signals(gold_pop, cluster)
+	if gold_pop:
+		cluster.move_child(gold_pop, 0)
+		gold_pop.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		gold_pop.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var grid: Control = content.get_node_or_null("ReserveGrid") as Control
+	if grid == null:
+		grid = cluster.get_node_or_null("ReserveGrid") as Control
+	if grid != null and grid.get_parent() != cluster:
+		_reparent_keep_signals(grid, cluster)
+	if grid:
+		cluster.move_child(grid, cluster.get_child_count() - 1)
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.size_flags_vertical = Control.SIZE_SHRINK_END
+	content.move_child(cluster, content.get_child_count() - 1)
+
+
 func _info_body(panel: Control = null) -> VBoxContainer:
 	if panel == null:
 		@warning_ignore("unsafe_cast")
@@ -3977,25 +5374,251 @@ func _info_child(rel: String, panel: Control = null) -> Node:
 
 
 func _ensure_reserve_grid() -> void:
+	_ensure_left_shop_layout()
 	var grid: GridContainer = hud.get_node_or_null("Root/%s" % _RESERVE_GRID_PATH) as GridContainer
 	if grid == null:
+		grid = hud.get_node_or_null("Root/Shop/ShopCol/ShopContent/MetaRow/ReserveGrid") as GridContainer
+	if grid == null:
 		return
-	grid.columns = 4
+	grid.columns = 16
 	while grid.get_child_count() < _EQUIP_INVENTORY_SIZE:
 		var cell: PanelContainer = PanelContainer.new()
 		cell.name = "Cell%d" % grid.get_child_count()
-		var sb: StyleBoxFlat = StyleBoxFlat.new()
-		sb.bg_color = Color(0.15, 0.45, 0.22, 0.55)
-		sb.set_corner_radius_all(2)
-		cell.add_theme_stylebox_override("panel", sb)
 		grid.add_child(cell)
 	while grid.get_child_count() > _EQUIP_INVENTORY_SIZE:
 		var tail: Node = grid.get_child(grid.get_child_count() - 1)
 		grid.remove_child(tail)
 		tail.queue_free()
+	for c: Node in grid.get_children():
+		if not (c is PanelContainer):
+			continue
+		var cell_pc: PanelContainer = c as PanelContainer
+		var sb: StyleBoxFlat = StyleBoxFlat.new()
+		sb.bg_color = Color(0.15, 0.45, 0.22, 0.55)
+		sb.set_corner_radius_all(_EQUIP_INV_CORNER_PX)
+		cell_pc.add_theme_stylebox_override("panel", sb)
 	_layout_reserve_grid_cells(grid)
 
-func _apply_adaptive_hud_layout() -> void:
+func _apply_hud_layout_inner_sizes(root: Control, vp_now: Vector2, shop_w_frac: float, _meta_w_px: float) -> void:
+	## Drive shop/fetter/meta/bottom widgets from data/ui/hud_layout.json (UI_AND_SHELL §3.1.1).
+	if root == null or vp_now.x < 8.0:
+		return
+	var bar_panel: Control = root.get_node_or_null(_SHOP_BAR_PANEL) as Control
+	if bar_panel:
+		bar_panel.custom_minimum_size = Vector2(shop_w_frac * vp_now.x, 0.0)
+		bar_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		bar_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var ship_col: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if ship_col:
+		ship_col.custom_minimum_size = Vector2(_hud_shop_card_size.x, 0.0)
+		ship_col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var meta_col: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+	if meta_col:
+		## Width owned by absolute snap (inner_right), not hud MetaCol frac min.
+		meta_col.custom_minimum_size = Vector2.ZERO
+		meta_col.size_flags_horizontal = 0
+	var shop_btns: Control = root.get_node_or_null(_SHOP_BTNS) as Control
+	if shop_btns:
+		var btn_h: float = UiLayout.hud_height("ExpBtn", 0.078) * vp_now.y
+		btn_h = clampf(btn_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+		shop_btns.custom_minimum_size = Vector2(0.0, btn_h)
+		shop_btns.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_btns.size_flags_vertical = Control.SIZE_SHRINK_END
+		shop_btns.clip_contents = true
+	var le_host: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	if le_host:
+		le_host.custom_minimum_size.y = float(UiLayout.px(96, root))
+		if le_host.custom_minimum_size.x < float(UiLayout.px(32, root)):
+			le_host.custom_minimum_size.x = float(UiLayout.px(32, root))
+		le_host.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		le_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		le_host.size_flags_stretch_ratio = 0.0
+		le_host.visible = true
+	var scanner_host: Control = root.get_node_or_null(_SHOP_SCANNER_HOST) as Control
+	if scanner_host == null:
+		scanner_host = root.get_node_or_null(_SHOP_SCANNER) as Control
+	if scanner_host:
+		scanner_host.size_flags_horizontal = 0
+		scanner_host.size_flags_vertical = 0
+		scanner_host.custom_minimum_size.y = 0.0
+	var equip_slots: Control = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as Control
+	if equip_slots:
+		## Geometry from MetaMid absolute snap — not HBox stretch.
+		equip_slots.size_flags_horizontal = 0
+		equip_slots.size_flags_vertical = 0
+		equip_slots.custom_minimum_size.y = 0.0
+		if equip_slots is VBoxContainer:
+			(equip_slots as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+	var meta_mid: Control = root.get_node_or_null(_SHOP_META_MID) as Control
+	if meta_mid:
+		meta_mid.size_flags_horizontal = 0
+		meta_mid.size_flags_vertical = 0
+	var meta_col2: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+	if meta_col2:
+		meta_col2.size_flags_horizontal = 0
+		meta_col2.size_flags_vertical = 0
+		meta_col2.custom_minimum_size.y = 0.0
+		meta_col2.clip_contents = true
+	## Absolute snap overrides Box stretch leftovers.
+	_apply_left_shop_snap_layout(root)
+	_fit_level_exp_width(root)
+	var ship_col_v: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if ship_col_v:
+		ship_col_v.clip_contents = true
+	var offer_v: Control = root.get_node_or_null(_SHOP_OFFER_HOST) as Control
+	if offer_v:
+		offer_v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		offer_v.clip_contents = true
+	var fade_host: Control = root.get_node_or_null("LeftCol/LeftInner/LeftContent/BonusFadeHost") as Control
+	## Always reserve fetter strip width so ShopBarPanel never reflows on collapse.
+	## Keep host visible (HBox drops invisible children); only hide scroll content.
+	if fade_host:
+		var fetter_host_w: float = maxf(8.0, (UiLayout.left_col_width_frac() - shop_w_frac) * vp_now.x)
+		fade_host.custom_minimum_size = Vector2(fetter_host_w, 0.0)
+		fade_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fade_host.size_flags_stretch_ratio = 0.55
+		fade_host.visible = true
+		fade_host.modulate = Color(1, 1, 1, 0.0) if _collapse_left else Color(1, 1, 1, 1.0)
+		fade_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var gold_pop: Control = root.get_node_or_null(_BOTTOM_GOLD_POP) as Control
+	if gold_pop:
+		gold_pop.custom_minimum_size.y = UiLayout.hud_height("GoldPop", 0.04) * vp_now.y
+	var reserve: Control = root.get_node_or_null(_RESERVE_GRID_PATH) as Control
+	if reserve:
+		reserve.custom_minimum_size.y = UiLayout.hud_height("ReserveGrid", 0.06) * vp_now.y
+
+
+func _shop_layout_metrics(root: Control, vp: Vector2, body_h: float, nslots: int) -> Dictionary:
+	## Prefer height fill so bottom ship kisses ShopBtns; hard-clamp so 6×side + btns ≤ viewport.
+	var shop_w_frac: float = UiLayout.left_shop_width_frac()
+	var shop_w_px: float = shop_w_frac * vp.x
+	var meta_w_px: float = UiLayout.hud_width("MetaCol", 0.062) * vp.x
+	if meta_w_px < 8.0:
+		meta_w_px = maxf(float(UiLayout.px(40, root)), float(UiLayout.px(56, root)))
+	var gap_px: float = float(UiLayout.margin_px(4, root))
+	var sep_px: float = float(UiLayout.margin_px(2, root))
+	var btn_h: float = UiLayout.hud_height("ExpBtn", 0.078) * vp.y
+	btn_h = clampf(btn_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	var panel_pad: float = float(UiLayout.margin_px(2, root)) * 2.0 + 4.0
+	## Total budget = LeftCol height (viewport strip). Body = total − btns − pad − bar sep.
+	var total_h: float = vp.y
+	var left_col: Control = root.get_node_or_null("LeftCol") as Control
+	if left_col != null and left_col.size.y >= 32.0:
+		total_h = left_col.size.y
+	var bar_panel: Control = root.get_node_or_null(_SHOP_BAR_PANEL) as Control
+	if bar_panel != null and bar_panel.size.y >= 32.0:
+		total_h = minf(total_h, bar_panel.size.y)
+	var max_body: float = maxf(8.0, total_h - btn_h - sep_px - panel_pad)
+	if body_h < 8.0 or body_h > max_body:
+		body_h = max_body
+	else:
+		body_h = minf(body_h, max_body)
+	var side: float = (body_h - sep_px * float(maxi(0, nslots - 1))) / float(maxi(1, nslots))
+	side = clampf(side, UiLayout.px(28.0, root), UiLayout.px(160.0, root))
+	## Prefer height-kiss: keep side from body_h; shrink MetaCol only down to LevelExp+equip floor.
+	var meta_floor: float = float(UiLayout.px(72, root))
+	var le_host_m: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	var equip_m: Control = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as Control
+	if le_host_m != null:
+		meta_floor = maxf(meta_floor, le_host_m.custom_minimum_size.x)
+	if equip_m != null:
+		meta_floor += gap_px + maxf(float(UiLayout.px(36, root)), equip_m.custom_minimum_size.x)
+	else:
+		meta_floor += gap_px + float(UiLayout.px(40, root))
+	if side + meta_w_px + gap_px > shop_w_px + 0.5:
+		meta_w_px = maxf(meta_floor, shop_w_px - side - gap_px)
+	if side + meta_w_px + gap_px > shop_w_px + 0.5:
+		## Only then shrink side — cards still EXPAND_FILL vertically to kiss ShopBtns.
+		side = maxf(float(UiLayout.px(28, root)), shop_w_px - meta_w_px - gap_px)
+		## If still impossible, keep meta_floor and accept narrower ship cards.
+		if side + meta_w_px + gap_px > shop_w_px + 0.5:
+			meta_w_px = maxf(meta_floor, float(UiLayout.px(72, root)))
+			side = maxf(float(UiLayout.px(28, root)), shop_w_px - meta_w_px - gap_px)
+	## Re-clamp so 6 squares still fit max_body after width shrink.
+	var host_h: float = side * float(maxi(1, nslots)) + sep_px * float(maxi(0, nslots - 1))
+	if host_h > max_body + 0.5:
+		side = (max_body - sep_px * float(maxi(0, nslots - 1))) / float(maxi(1, nslots))
+		side = clampf(side, UiLayout.px(28.0, root), UiLayout.px(160.0, root))
+		host_h = side * float(maxi(1, nslots)) + sep_px * float(maxi(0, nslots - 1))
+	return {
+		"side": side,
+		"meta_w": meta_w_px,
+		"shop_w_frac": shop_w_frac,
+		"shop_w_px": shop_w_px,
+		"host_h": host_h,
+		"btn_h": btn_h,
+		"body_h": body_h,
+	}
+
+
+func _deferred_refine_shop_fill() -> void:
+	## After first layout pass: square side from real ShopBody height. Width mins only — never min-y = 6×side.
+	if hud == null:
+		return
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	var bar: Control = root.get_node_or_null(_SHOP_BAR) as Control
+	var btns: Control = root.get_node_or_null(_SHOP_BTNS) as Control
+	var body: Control = root.get_node_or_null(_SHOP_BODY) as Control
+	if bar == null or bar.size.y < 32.0:
+		return
+	var sep: float = float(UiLayout.margin_px(2, root))
+	var btn_h: float = btns.size.y if btns != null and btns.size.y >= 8.0 else UiLayout.hud_height("ExpBtn", 0.078) * UiLayout.viewport_size(root).y
+	btn_h = clampf(btn_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	if btns != null:
+		btns.custom_minimum_size.y = btn_h
+	var n: int = 6
+	if shop != null and shop.slots.size() > 0:
+		n = maxi(1, shop.slots.size())
+	var body_h: float = body.size.y if body != null and body.size.y >= 8.0 else maxf(8.0, bar.size.y - btn_h - sep)
+	var metrics: Dictionary = _shop_layout_metrics(root, UiLayout.viewport_size(root), body_h, n)
+	var side: float = TypedVariant.as_float(metrics.get("side", _hud_shop_card_side), _hud_shop_card_side)
+	## Prefer laid-out host/body height so cards kiss ShopBtns without forcing parent taller.
+	var host: Control = root.get_node_or_null(_SHOP_OFFER_HOST) as Control
+	if host != null and host.size.y >= 8.0:
+		var sep_h: float = float(UiLayout.margin_px(2, root))
+		var side_from_host: float = (host.size.y - sep_h * float(maxi(0, n - 1))) / float(maxi(1, n))
+		side = clampf(side_from_host, UiLayout.px(28.0, root), UiLayout.px(160.0, root))
+	var meta_col: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+	var need_apply: bool = absf(side - _hud_shop_card_side) >= 1.0
+	if not need_apply:
+		return
+	_hud_shop_card_size = Vector2(side, side)
+	_hud_shop_card_side = side
+	var ship_col: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if ship_col:
+		ship_col.custom_minimum_size = Vector2(side, 0.0)
+		ship_col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		ship_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ship_col.clip_contents = true
+	if host:
+		host.custom_minimum_size = Vector2(side, 0.0)
+		host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		host.clip_contents = true
+	if meta_col:
+		meta_col.custom_minimum_size = Vector2.ZERO
+		meta_col.size_flags_horizontal = 0
+		meta_col.size_flags_vertical = 0
+	_ensure_ship_offer_host(ship_col, root)
+	_refresh_shop_ui()
+	_refresh_equipment_shop_ui()
+	_style_shop_action_buttons(
+		root,
+		bar,
+		btns,
+		root.get_node_or_null("%s/ExpBtn" % _SHOP_BTNS) as Button,
+		root.get_node_or_null("%s/RefreshBtn" % _SHOP_BTNS) as Button
+	)
+	## Snap owns scanner/Meta geometry; only restyle + LevelExp lock.
+	_apply_left_shop_snap_layout(root)
+	_fit_level_exp_width(root)
+	_apply_left_shop_snap_layout(root)
+	_refresh_exp_segments(root)
+	_refresh_scanner_cost_caption(root)
+
+
+func _apply_adaptive_hud_layout(skip_left_shop: bool = false) -> void:
 	@warning_ignore("unsafe_cast")
 	var root: Control = hud.get_node_or_null("Root") as Control
 	if root == null:
@@ -4054,33 +5677,150 @@ func _apply_adaptive_hud_layout() -> void:
 		rb_right = minf(max_rb_right, rb_left + rb_w)
 	if round_bar:
 		UiLayout.set_rect_frac(round_bar, rb_left, 0.008, rb_right, top_h)
-	var left_w: float = UiLayout.collapse_strip_frac() if _collapse_left else UiLayout.left_col_width_frac()
-	var right_w: float = UiLayout.collapse_strip_frac() if _collapse_right else UiLayout.right_col_width_frac()
-	## Expanded: panel = ShopContent (bottom-bar height) + CollapseBottomBtn on top.
-	var bottom_h: float = (
-		UiLayout.collapse_strip_frac() if _collapse_bottom else UiLayout.bottom_shop_panel_frac(root)
-	)
+	## Fetter collapse only; shop bar always visible (UI_AND_SHELL §2.1 / §3.4).
+	_collapse_left_syn = _collapse_left
+	_collapse_left_equip = _collapse_left
+	## Do NOT rebuild left shop tree every HUD tick — that hitch is the refresh/exp stutter.
+	## Geometry refresh only (snap) after chrome fractions are set.
+	_ensure_hud_edge_chrome(root)
+	var right_w: float = 0.0 if _collapse_right else UiLayout.right_col_width_frac()
+	## Bottom bar = Meta + 1×16 equip; collapse btn lives in BottomEdgeChrome above it.
+	var bottom_content_h: float = 0.0 if _collapse_bottom else UiLayout.bottom_shop_height_frac(root)
+	## Chrome strip = unified edge icon side (flush to panel frame).
+	var edge_icon_px: float = UiLayout.hud_edge_icon_px(root)
+	var edge_btn_h: float = clampf(edge_icon_px / maxf(vp.y, 1.0), 0.04, 0.12)
+	## Always reserve chrome strip above the shop (expanded or collapsed).
+	var bottom_h: float = bottom_content_h + edge_btn_h
+	var band_top: float = top_h + 0.01
+	var band_bot: float = 1.0 - bottom_h - 0.02
+	var edge_m: float = UiLayout.hud_edge_margin_frac()
+	var vp_now: Vector2 = UiLayout.viewport_size(root)
+	var shop_w_frac: float = UiLayout.left_shop_width_frac()
+	## UI_AND_SHELL §3.4: LeftCol always full (shop+fetter) width — collapsing fetters only hides
+	## BonusFadeHost; shop bar geometry and mid playfield must not jump.
+	var left_w: float = UiLayout.left_col_width_frac()
+	var min_mid_frac: float = 0.18
+	var max_left_frac: float = clampf(1.0 - edge_m - right_w - min_mid_frac, 0.16, 0.40)
+	if left_w > max_left_frac:
+		left_w = max_left_frac
+	var ship_w_px: float = UiLayout.hud_width("Ship0", 0.083) * vp_now.x
+	var ship_h_px: float = UiLayout.hud_height("Ship0", 0.144) * vp_now.y
+	## Fill: square side from ShopBody height / n, clamped to hud_layout ShipCol width + LeftShop budget.
+	var nslots_fill: int = 6
+	if shop != null and shop.slots.size() > 0:
+		nslots_fill = maxi(1, shop.slots.size())
+	var btn_h_fill: float = UiLayout.hud_height("ExpBtn", 0.078) * vp_now.y
+	var sep_fill: float = float(UiLayout.margin_px(2, root))
+	var panel_pad_fill: float = float(UiLayout.margin_px(8, root))
+	var body_h_fill: float = maxf(8.0, vp_now.y - btn_h_fill - sep_fill - panel_pad_fill)
+	var layout_m: Dictionary = _shop_layout_metrics(root, vp_now, body_h_fill, nslots_fill)
+	var side_fill: float = TypedVariant.as_float(layout_m.get("side", ship_w_px), ship_w_px)
+	var meta_w_px: float = TypedVariant.as_float(layout_m.get("meta_w", 0.0), 0.0)
+	if meta_w_px < 8.0:
+		meta_w_px = UiLayout.hud_width("MetaCol", 0.062) * vp_now.x
+	## Bottom collapse must not rewrite ship side — that shifts Meta/LevelExp on X
+	## (UI_AND_SHELL §3.1).
+	if not skip_left_shop:
+		ship_w_px = side_fill
+		ship_h_px = side_fill
+		_hud_shop_card_size = Vector2(ship_w_px, ship_h_px)
+		_hud_shop_card_side = side_fill
+	var left_top: float = 0.0
+	var left_bot: float = 1.0
 	@warning_ignore("unsafe_cast")
 	var left_col: Control = root.get_node_or_null("LeftCol") as Control
-	if left_col:
-		UiLayout.set_rect_frac(left_col, 0.006, top_h + 0.01, 0.006 + left_w, 1.0 - bottom_h - 0.02)
+	if left_col and not skip_left_shop:
+		left_col.visible = true
+		UiLayout.set_rect_frac(left_col, 0.0, left_top, left_w, left_bot)
+	@warning_ignore("unsafe_cast")
+	var equip_col: Control = root.get_node_or_null("EquipCol") as Control
+	if equip_col:
+		## Legacy dual-left bag panel — hidden under plan J (inventory is bottom 1×16).
+		equip_col.visible = false
+		equip_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	@warning_ignore("unsafe_cast")
 	var right_col: Control = root.get_node_or_null("RightCol") as Control
 	if right_col:
-		UiLayout.set_rect_frac(right_col, 1.0 - 0.006 - right_w, top_h + 0.01, 0.994, 1.0 - bottom_h - 0.02)
+		## Keep RightCol in tree when collapsed (0-width at right edge) so chrome can
+		## pin to its live left edge on every width/visibility change.
+		right_col.visible = true
+		right_col.clip_contents = false
+		@warning_ignore("unsafe_cast")
+		var right_inner: Control = right_col.get_node_or_null("RightInner") as Control
+		if _collapse_right:
+			if right_inner:
+				right_inner.visible = false
+			right_col.custom_minimum_size = Vector2.ZERO
+			right_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			right_col.modulate = Color(1, 1, 1, 0)
+			UiLayout.set_rect_frac(right_col, 1.0 - edge_m, band_top, 1.0 - edge_m, band_bot)
+		else:
+			if right_inner:
+				right_inner.visible = true
+			right_col.mouse_filter = Control.MOUSE_FILTER_STOP
+			right_col.modulate = Color(1, 1, 1, 1)
+			UiLayout.set_rect_frac(
+				right_col,
+				UiLayout.hud_frac("RightCol", "l", 1.0 - edge_m - right_w),
+				UiLayout.hud_frac("RightCol", "t", band_top),
+				UiLayout.hud_frac("RightCol", "r", 1.0 - edge_m),
+				UiLayout.hud_frac("RightCol", "b", band_bot)
+			)
+		if not right_col.resized.is_connected(_on_right_col_resized_for_chrome):
+			right_col.resized.connect(_on_right_col_resized_for_chrome)
 	@warning_ignore("unsafe_cast")
 	var shop_panel: Control = root.get_node_or_null("Shop") as Control
+	## Viewport-centered bottom bar (UI_AND_SHELL §3.1 · hud_layout.json).
+	var shop_w: float = UiLayout.bottom_shop_width_frac()
+	var shop_l: float = UiLayout.hud_frac("BottomBar", "l", (1.0 - shop_w) * 0.5)
+	var shop_r: float = UiLayout.hud_frac("BottomBar", "r", shop_l + shop_w)
+	if not skip_left_shop:
+		_apply_hud_layout_inner_sizes(root, vp_now, shop_w_frac, meta_w_px)
+		_apply_left_col_shell(root)
+		call_deferred("_deferred_refine_shop_fill")
 	if shop_panel:
-		UiLayout.set_bottom_strip(shop_panel, bottom_h, 0.01, 0.01, 0.008)
+		shop_panel.visible = not _collapse_bottom
+		if not _collapse_bottom:
+			var shop_top: float = UiLayout.hud_frac("BottomBar", "t", 1.0 - bottom_content_h)
+			UiLayout.set_rect_frac(shop_panel, shop_l, shop_top, shop_r, 1.0)
+			_apply_bottom_vfade(shop_panel)
 	@warning_ignore("unsafe_cast")
 	var shop_col: Control = root.get_node_or_null("Shop/ShopCol") as Control
 	if shop_col:
 		shop_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		shop_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_col.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		## CollapseBottomBtn lives in BottomEdgeChrome; never hide chrome-owned arrow.
 	@warning_ignore("unsafe_cast")
 	var left_content: Control = root.get_node_or_null("LeftCol/LeftInner/LeftContent") as Control
 	if left_content:
-		left_content.visible = not _collapse_left
+		left_content.visible = true
+	@warning_ignore("unsafe_cast")
+	var bonus_scroll: Control = _bonus_scroll_of(root)
+	if bonus_scroll:
+		## Collapse hides scroll only — BonusFadeHost stays laid out (§3.4).
+		bonus_scroll.visible = not _collapse_left
+		bonus_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		bonus_scroll.size_flags_stretch_ratio = 0.55
+	var fade_host: Control = root.get_node_or_null("LeftCol/LeftInner/LeftContent/BonusFadeHost") as Control
+	if fade_host:
+		fade_host.visible = true
+		fade_host.size_flags_stretch_ratio = 0.55
+		fade_host.modulate = Color(1, 1, 1, 0.0) if _collapse_left else Color(1, 1, 1, 1.0)
+		fade_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	@warning_ignore("unsafe_cast")
+	var buy_col: Control = root.get_node_or_null(_SHOP_BUY_COL) as Control
+	if buy_col:
+		buy_col.visible = true
+		## Shop frame width locked — never EXPAND into fetter strip on collapse.
+		buy_col.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	@warning_ignore("unsafe_cast")
+	var reserve_grid: Control = root.get_node_or_null(_RESERVE_GRID_PATH) as Control
+	if reserve_grid == null:
+		reserve_grid = root.get_node_or_null("EquipCol/EquipInner/ReserveGrid") as Control
+	if reserve_grid:
+		reserve_grid.visible = not _collapse_bottom
+		reserve_grid.size_flags_stretch_ratio = 1.0
 	@warning_ignore("unsafe_cast")
 	var right_content: Control = root.get_node_or_null("RightCol/RightInner/RightContent") as Control
 	if right_content:
@@ -4091,22 +5831,47 @@ func _apply_adaptive_hud_layout() -> void:
 		shop_content.visible = not _collapse_bottom
 		shop_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		shop_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_content.add_theme_constant_override("separation", 0)
+		if shop_content is VBoxContainer:
+			(shop_content as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+		_ensure_bottom_cluster(root)
+	## Single left chrome — pin to screen top, outside left-column right edge.
+	var chrome_w: float = clampf(edge_icon_px / maxf(vp.x, 1.0), 0.03, 0.08)
+	var chrome_h: float = clampf(edge_icon_px / maxf(vp.y, 1.0), 0.04, 0.12)
+	## Collapse arrow: shop right when fetters hidden; full LeftCol right when shown (§3.4).
+	## Vertical: pin to screen top (no longer vertically centered).
+	var left_panel_r: float = shop_w_frac if _collapse_left else left_w
 	@warning_ignore("unsafe_cast")
-	var cl: Button = root.get_node_or_null("LeftCol/LeftInner/CollapseLeftBtn") as Button
-	if cl:
-		cl.text = "▶" if _collapse_left else "◀"
+	var left_chrome: Control = root.get_node_or_null("LeftEdgeChrome") as Control
+	if left_chrome:
+		UiLayout.set_rect_frac(
+			left_chrome,
+			left_panel_r,
+			0.0,
+			left_panel_r + chrome_w,
+			chrome_h
+		)
 	@warning_ignore("unsafe_cast")
-	var cr: Button = root.get_node_or_null("RightCol/RightInner/CollapseRightBtn") as Button
-	if cr:
-		cr.text = "◀" if _collapse_right else "▶"
+	var equip_chrome: Control = root.get_node_or_null("EquipEdgeChrome") as Control
+	if equip_chrome:
+		equip_chrome.visible = false
+		equip_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	## Right chrome: flush to RightCol left edge; deferred snap after layout flush.
+	_place_right_edge_chrome(root, chrome_w, chrome_h, band_top, band_bot, edge_m)
+	call_deferred("_deferred_snap_right_edge_chrome")
 	@warning_ignore("unsafe_cast")
-	var cb: Button = root.get_node_or_null("Shop/ShopCol/CollapseBottomBtn") as Button
-	if cb:
-		cb.text = "▲" if _collapse_bottom else "▼"
-		cb.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		cb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var btn_h: float = UiLayout.bottom_collapse_btn_frac(root) * maxf(vp.y, 1.0)
-		cb.custom_minimum_size = Vector2(0, maxf(22.0, btn_h * 0.85))
+	var bottom_chrome: Control = root.get_node_or_null("BottomEdgeChrome") as Control
+	if bottom_chrome:
+		bottom_chrome.visible = true
+		bottom_chrome.z_index = 40
+		var shop_top2: float = 1.0 - bottom_content_h
+		var bc_l: float = shop_l
+		var bc_r: float = shop_r
+		if _collapse_bottom:
+			bc_l = 0.5 - shop_w * 0.25
+			bc_r = 0.5 + shop_w * 0.25
+			shop_top2 = 1.0
+		UiLayout.set_rect_frac(bottom_chrome, bc_l, shop_top2 - edge_btn_h, bc_r, shop_top2)
 	@warning_ignore("unsafe_cast")
 	var notice: Control = root.get_node_or_null("Notice") as Control
 	if notice:
@@ -4114,7 +5879,85 @@ func _apply_adaptive_hud_layout() -> void:
 		notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_info_panel_adaptive_layout(root)
 	## After strip sizes land, re-scale Meta (¼) vs ship row (¾).
-	_wire_shop_chrome()
+	## Bottom-only collapse must not re-snap left shop (LevelExp X).
+	if not skip_left_shop:
+		_wire_shop_chrome()
+	_ensure_rank_panel(root)
+	_style_collapse_arrow_buttons(root)
+	_apply_right_pane_mode(root)
+
+
+func _place_right_edge_chrome(
+	root: Control,
+	chrome_w: float,
+	chrome_h: float,
+	band_top: float,
+	band_bot: float,
+	edge_m: float
+) -> void:
+	@warning_ignore("unsafe_cast")
+	var right_chrome: Control = root.get_node_or_null("RightEdgeChrome") as Control
+	if right_chrome == null:
+		return
+	@warning_ignore("unsafe_cast")
+	var right_col: Control = root.get_node_or_null("RightCol") as Control
+	if right_col == null:
+		## Fallback if RightCol missing.
+		UiLayout.set_rect_frac(
+			right_chrome,
+			1.0 - edge_m - chrome_w,
+			band_top,
+			1.0 - edge_m,
+			band_bot if not _collapse_right else (band_top + band_bot) * 0.5 + chrome_h * 0.5
+		)
+		return
+	## Pixel-pin to live RightCol left edge (tracks width expand/collapse).
+	_snap_right_edge_chrome_to_col(root)
+
+
+func _on_right_col_resized_for_chrome() -> void:
+	if hud == null or not is_instance_valid(hud):
+		return
+	@warning_ignore("unsafe_cast")
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root != null:
+		_snap_right_edge_chrome_to_col(root)
+
+
+func _deferred_snap_right_edge_chrome() -> void:
+	if hud == null or not is_instance_valid(hud):
+		return
+	@warning_ignore("unsafe_cast")
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root != null:
+		_snap_right_edge_chrome_to_col(root)
+
+
+func _snap_right_edge_chrome_to_col(root: Control) -> void:
+	## Pin chrome's right edge to RightCol's left edge in Root-local pixels.
+	@warning_ignore("unsafe_cast")
+	var right_chrome: Control = root.get_node_or_null("RightEdgeChrome") as Control
+	@warning_ignore("unsafe_cast")
+	var right_col: Control = root.get_node_or_null("RightCol") as Control
+	if right_chrome == null or right_col == null:
+		return
+	var chrome_px: float = UiLayout.hud_edge_icon_px(root)
+	var col_r: Rect2 = right_col.get_rect()
+	var panel_left_px: float = col_r.position.x
+	var top_px: float = col_r.position.y
+	var h_px: float = maxf(col_r.size.y, chrome_px)
+	if _collapse_right:
+		top_px = col_r.position.y + (h_px - chrome_px) * 0.5
+		h_px = chrome_px
+	right_chrome.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	right_chrome.anchor_left = 0.0
+	right_chrome.anchor_top = 0.0
+	right_chrome.anchor_right = 0.0
+	right_chrome.anchor_bottom = 0.0
+	right_chrome.position = Vector2(panel_left_px - chrome_px, top_px)
+	right_chrome.size = Vector2(chrome_px, h_px)
+	right_chrome.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	right_chrome.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 
 func _apply_info_panel_adaptive_layout(root: Control) -> void:
@@ -4127,7 +5970,7 @@ func _apply_info_panel_adaptive_layout(root: Control) -> void:
 	var mobile: bool = UiLayout.is_mobile()
 	if info:
 		info.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		info.size_flags_stretch_ratio = 2.6 if mobile else 2.0
+		info.size_flags_stretch_ratio = 1.0
 		@warning_ignore("unsafe_cast")
 		var icon: TextureRect = _info_child("InfoTop/InfoIcon", info) as TextureRect
 		if icon:
@@ -4140,18 +5983,12 @@ func _apply_info_panel_adaptive_layout(root: Control) -> void:
 		if weapon_col == null and body:
 			@warning_ignore("unsafe_cast")
 			weapon_col = body.get_node_or_null("InfoWeaponColumn") as VBoxContainer
-		if mobile and info_top and body and weapon_col != null and weapon_col.get_parent() == info_top:
-			## Stack: [icon|title] then weapon/drone column full width — avoids HBox overflow.
+		## Always stack weapon/drone under title (UI_AND_SHELL §2.5 vertical list).
+		if info_top and body and weapon_col != null and weapon_col.get_parent() == info_top:
 			info_top.remove_child(weapon_col)
 			var insert_at: int = info_top.get_index() + 1
 			body.add_child(weapon_col)
 			body.move_child(weapon_col, insert_at)
-		elif (not mobile) and body and info_top:
-			@warning_ignore("unsafe_cast")
-			var under_body: VBoxContainer = body.get_node_or_null("InfoWeaponColumn") as VBoxContainer
-			if under_body != null and under_body.get_parent() == body:
-				body.remove_child(under_body)
-				info_top.add_child(under_body)
 		var w_parent: Control = null
 		if weapon_col:
 			w_parent = weapon_col
@@ -4181,7 +6018,7 @@ func _apply_info_panel_adaptive_layout(root: Control) -> void:
 	@warning_ignore("unsafe_cast")
 	var cr: Button = root.get_node_or_null("RightCol/RightInner/CollapseRightBtn") as Button
 	if cr:
-		cr.custom_minimum_size = Vector2(0, UiLayout.px(28, root))
+		cr.custom_minimum_size = Vector2(0, UiLayout.px(28, root) * 0.90)
 
 
 func _resize_info_stat_square(parent: Control, square_name: String, min_size: Vector2, icon_sz: float, lbl_w: float, lbl_h: float) -> void:
@@ -4212,9 +6049,17 @@ func _style_hud_chrome() -> void:
 			"%s/Hp" % _ROUND, "%s/Phase" % _ROUND, "%s/Region" % _ROUND,
 			"%s/Placement/TimerCol/Timer" % _ROUND, "%s/Placement/TimerCol/StageHint" % _ROUND,
 			"Notice",
+			"%s/LevelExp/LEInner/Level" % _SHOP_LEFT,
+			"%s/LevelExp/LEInner/Exp" % _SHOP_LEFT,
+			"%s/LEInner/LETextCol/Level" % _SHOP_LEVEL,
+			"%s/LEInner/LETextCol/Exp" % _SHOP_LEVEL,
+			"%s/LEInner/Level" % _SHOP_LEVEL,
+			"%s/LEInner/Exp" % _SHOP_LEVEL,
 			"%s/LevelExp/LEInner/LELabels/Level" % _SHOP_LEFT,
 			"%s/LevelExp/LEInner/LELabels/Exp" % _SHOP_LEFT,
-			"%s/StatsRow/PopBox/Pop" % _SHOP_MID, "%s/StatsRow/GoldBox/Gold" % _SHOP_MID,
+			"%s/LEInner/LELabels/Level" % _SHOP_LEVEL,
+			"%s/LEInner/LELabels/Exp" % _SHOP_LEVEL,
+			"%s/PopBox/Pop" % _BOTTOM_GOLD_POP, "%s/GoldBox/Gold" % _BOTTOM_GOLD_POP,
 			"TopRight/Version",
 			"RightCol/RightInner/RightContent/BattleLog/BattleLogInner/BattleLogTitle"]:
 		@warning_ignore("unsafe_cast")
@@ -4228,7 +6073,7 @@ func _style_hud_chrome() -> void:
 			l.add_theme_color_override("font_color", Color(1.0, 0.88, 0.2) if "Gold" in lbl_path else Color(0.95, 0.95, 0.9))
 			l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 			l.add_theme_constant_override("outline_size", UiLayout.margin_px(3, root))
-	for panel_path: String in ["RoundBar", "LeftCol", "RightCol", "Shop"]:
+	for panel_path: String in ["RoundBar", "EquipCol", "RightCol"]:
 		@warning_ignore("unsafe_cast")
 		var panel: PanelContainer = root.get_node_or_null(panel_path) as PanelContainer
 		if panel:
@@ -4240,6 +6085,11 @@ func _style_hud_chrome() -> void:
 			sb.set_content_margin_all(UiLayout.margin_px(6, root))
 			panel.add_theme_stylebox_override("panel", sb)
 			panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_apply_left_col_shell(root)
+	@warning_ignore("unsafe_cast")
+	var shop_fade: Control = root.get_node_or_null("Shop") as Control
+	if shop_fade:
+		_apply_bottom_vfade(shop_fade)
 	@warning_ignore("unsafe_cast")
 	var info: PanelContainer = root.get_node_or_null(_INFO_PANEL) as PanelContainer
 	if info:
@@ -4264,17 +6114,16 @@ func _style_hud_chrome() -> void:
 		UiAssets.apply_button_font(skip, UiLayout.font_size(14, root))
 		skip.custom_minimum_size = Vector2(UiLayout.px(72, root), UiLayout.px(36, root))
 	for btn_name: String in ["TopRight/PauseBtn", "TopRight/ExitBtn", "TopRight/SpeedBtn",
-			"TopRight/CamModeBtn", "TopRight/ScoutIntelBtn", "TopRight/ConcedeRoundBtn",
-			"LeftCol/LeftInner/CollapseLeftBtn", "RightCol/RightInner/CollapseRightBtn",
-			"Shop/ShopCol/CollapseBottomBtn"]:
+			"TopRight/CamModeBtn", "TopRight/ScoutIntelBtn", "TopRight/ConcedeRoundBtn"]:
 		@warning_ignore("unsafe_cast")
-		var b: Button = root.get_node_or_null(btn_name) as Button
-		if b:
-			UiAssets.apply_button_font(b, UiLayout.font_size(13, root))
+		var b: BaseButton = root.get_node_or_null(btn_name) as BaseButton
+		if b is Button:
+			var bb: Button = b as Button
+			UiAssets.apply_button_font(bb, UiLayout.font_size(13, root))
 			var bw: float = 88.0 if ("CamMode" in btn_name or "ScoutIntel" in btn_name) else 56.0
 			if "ConcedeRound" in btn_name:
 				bw = 108.0
-			b.custom_minimum_size = Vector2(UiLayout.px(bw, root), UiLayout.px(28, root))
+			bb.custom_minimum_size = Vector2(UiLayout.px(bw, root), UiLayout.px(28, root))
 	_ensure_speed_button(root)
 	## Re-fit top chrome after button mins / fonts change.
 	_apply_adaptive_hud_layout()
@@ -4302,9 +6151,15 @@ func _wire_shop_chrome() -> void:
 	var root: Control = hud.get_node_or_null("Root")
 	if root == null:
 		return
+	## Layout tree is built once via `_ensure_left_shop_layout` on enter/resize.
+	## Per-HUD ticks only re-snap + restyle — full ensure was the refresh/exp hitch.
+	var bar: Control = root.get_node_or_null(_SHOP_BAR) as Control
+	if bar == null or bar.get_node_or_null("ShipCol") == null:
+		_ensure_left_shop_layout(root)
+	else:
+		_apply_left_shop_snap_layout(root)
 	_ensure_equipment_shop_slots()
-	## UI_AND_SHELL §2.1: MetaRow:ShipInner stretch 1:3 of ShopContent height.
-	## Button/icon size tracks Meta band (¼ of content), not a fixed tall strip.
+	## Plan J: bottom Shop = Meta + 1×16 equip; buy zones sized from LeftCol.
 	var content_h: float = 0.0
 	@warning_ignore("unsafe_cast")
 	var shop_content_probe: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
@@ -4312,47 +6167,72 @@ func _wire_shop_chrome() -> void:
 		content_h = shop_content_probe.size.y
 	else:
 		content_h = UiLayout.bottom_shop_height_frac(root) * maxf(UiLayout.viewport_size(root).y, 1.0)
-	var meta_band: float = content_h * 0.25
+	var meta_band: float = content_h * 0.72
 	var meta_h: int = clampi(int(meta_band * 0.82), UiLayout.px(28, root), UiLayout.px(52, root))
 	var btn_w: int = clampi(int(float(meta_h) * 2.2), UiLayout.px(72, root), UiLayout.px(120, root))
 	var btn_h: float = float(meta_h)
-	_style_image_button(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button,
-			UiAssets.shop_exp_path(), "购买经验", TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 0), btn_w)
-	_wire_exp_hold(root.get_node_or_null("%s/LeftBtns/ExpBtn" % _SHOP_LEFT) as Button)
-	_style_image_button(root.get_node_or_null("%s/LeftBtns/RefreshBtn" % _SHOP_LEFT) as Button,
-			UiAssets.shop_refresh_path(), "刷新商店", TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 0), btn_w)
+	var shop_bar_w: Control = root.get_node_or_null(_SHOP_BAR) as Control
+	var shop_btns_w: Control = root.get_node_or_null(_SHOP_BTNS) as Control
+	_style_shop_action_buttons(
+		root,
+		shop_bar_w,
+		shop_btns_w,
+		root.get_node_or_null("%s/ExpBtn" % _SHOP_BTNS) as Button,
+		root.get_node_or_null("%s/RefreshBtn" % _SHOP_BTNS) as Button
+	)
+	## After ShopBtns gets real size, fill again so icons match the reserved strip.
+	call_deferred("_deferred_style_shop_action_buttons")
+	var scan_w: int = UiLayout.px(56, root)
+	if _hud_shop_card_side >= 8.0:
+		scan_w = clampi(int(_hud_shop_card_side * 0.85), UiLayout.px(48, root), UiLayout.px(120, root))
+	_ensure_ship_scanner_btn(root, scan_w)
 	@warning_ignore("unsafe_cast")
 	var lock: Button = root.get_node_or_null("%s/StatsRow/LockBtn" % _SHOP_MID) as Button
 	if lock:
 		lock.visible = false
 		lock.disabled = true
-	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, mini(28, meta_h))
-	_ensure_meta_icon(root.get_node_or_null("%s/StatsRow/PopBox" % _SHOP_MID) as HBoxContainer, "Pop", UiAssets.ICON_POP, mini(28, meta_h))
+	_ensure_meta_icon(root.get_node_or_null("%s/GoldBox" % _BOTTOM_GOLD_POP) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, mini(28, meta_h))
+	_ensure_meta_icon(root.get_node_or_null("%s/PopBox" % _BOTTOM_GOLD_POP) as HBoxContainer, "Pop", UiAssets.ICON_POP, mini(28, meta_h))
 	@warning_ignore("unsafe_cast")
-	var le: PanelContainer = root.get_node_or_null("%s/LevelExp" % _SHOP_LEFT) as PanelContainer
+	var le: PanelContainer = root.get_node_or_null(_SHOP_LEVEL) as PanelContainer
+	if le == null:
+		le = root.get_node_or_null("%s/LevelExp" % _SHOP_LEFT) as PanelContainer
 	if le:
-		le.custom_minimum_size = Vector2(UiLayout.px(160, root), 0)
-		le.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		le.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		le.visible = true
 		@warning_ignore("unsafe_cast")
-		var le_inner: VBoxContainer = le.get_node_or_null("LEInner") as VBoxContainer
+		var le_inner: Control = le.get_node_or_null("LEInner") as Control
 		if le_inner:
-			le_inner.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			le_inner.add_theme_constant_override("separation", UiLayout.margin_px(1, root))
+			le_inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			le_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			le_inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			le_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var le_sb: StyleBoxFlat = StyleBoxFlat.new()
-		le_sb.bg_color = Color(0.05, 0.08, 0.1, 0.75)
-		le_sb.border_color = Color(0.25, 0.55, 0.7, 0.55)
+		le_sb.bg_color = Color(0.07, 0.09, 0.11, 0.88)
+		le_sb.border_color = Color(0.35, 0.72, 0.85, 0.55)
 		le_sb.set_border_width_all(1)
 		le_sb.set_corner_radius_all(4)
-		le_sb.content_margin_left = UiLayout.margin_px(6, root)
-		le_sb.content_margin_right = UiLayout.margin_px(6, root)
-		le_sb.content_margin_top = UiLayout.margin_px(2, root)
-		le_sb.content_margin_bottom = UiLayout.margin_px(2, root)
+		## Tight pad — frame hugs text/segs (UI_AND_SHELL §3.2).
+		le_sb.content_margin_left = UiLayout.margin_px(3, root)
+		le_sb.content_margin_right = UiLayout.margin_px(3, root)
+		le_sb.content_margin_top = UiLayout.margin_px(3, root)
+		le_sb.content_margin_bottom = UiLayout.margin_px(3, root)
 		le.add_theme_stylebox_override("panel", le_sb)
+		var meta_mid_le: Node = root.get_node_or_null(_SHOP_META_MID)
+		if meta_mid_le == null:
+			var meta_col_le: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+			if meta_col_le:
+				meta_mid_le = _ensure_meta_mid(meta_col_le, root)
+		if meta_mid_le:
+			_ensure_rotated_level_exp(meta_mid_le, root)
+		_refresh_exp_segments(root)
+		_fit_level_exp_width(root)
 	@warning_ignore("unsafe_cast")
 	var left_ctrl: Control = root.get_node_or_null(_SHOP_LEFT) as Control
 	if left_ctrl:
-		## Width hint only — vertical min must stay low so VBox 1:3 stretch can win.
-		left_ctrl.custom_minimum_size = Vector2(UiLayout.px(480, root), 0)
+		## Meta controls only — equip buy moved to LeftCol; keep compact.
+		left_ctrl.custom_minimum_size = Vector2(UiLayout.px(360, root), 0)
 		left_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		if left_ctrl is BoxContainer:
 			(left_ctrl as BoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4363,11 +6243,17 @@ func _wire_shop_chrome() -> void:
 		for c: Node in left_btns.get_children():
 			if c is Button:
 				(c as Button).custom_minimum_size = Vector2(btn_w, btn_h)
-	var seg_row: HBoxContainer = root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as HBoxContainer
+	var seg_row: Control = root.get_node_or_null("%s/LEInner/ExpSegRow" % _SHOP_LEVEL) as Control
+	if seg_row == null:
+		seg_row = root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as Control
+	if seg_row is HBoxContainer:
+		seg_row = _rebox_as_axis(seg_row, true)
 	if seg_row:
-		seg_row.custom_minimum_size = Vector2(0, maxi(6, meta_h / 4))
-		seg_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		seg_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		seg_row.custom_minimum_size = Vector2(0, 0)
+		seg_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		seg_row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		if seg_row is BoxContainer:
+			(seg_row as BoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
 	var meta_row: HBoxContainer = root.get_node_or_null(_SHOP_META) as HBoxContainer
 	if meta_row:
 		meta_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -4376,59 +6262,93 @@ func _wire_shop_chrome() -> void:
 		meta_row.add_theme_constant_override("separation", UiLayout.margin_px(8, root))
 		## Soft ceiling so Meta cannot steal ship-row space via child mins.
 		meta_row.custom_minimum_size = Vector2(0, 0)
+	## ShipCol (was legacy ShopInner path): keep json-driven min width — never zero it.
 	@warning_ignore("unsafe_cast")
-	var shop_inner: Control = root.get_node_or_null(_SHOP_INNER) as Control
-	if shop_inner:
-		shop_inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		shop_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		shop_inner.size_flags_stretch_ratio = 3.0
-		shop_inner.custom_minimum_size = Vector2(0, 0)
+	var ship_col_lane: Control = root.get_node_or_null(_SHOP_INNER) as Control
+	if ship_col_lane:
+		ship_col_lane.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ship_col_lane.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		ship_col_lane.custom_minimum_size.y = 0.0
+		ship_col_lane.clip_contents = true
+		if _hud_shop_card_side >= 8.0:
+			ship_col_lane.custom_minimum_size.x = _hud_shop_card_side
+		var offer_host: Control = root.get_node_or_null(_SHOP_OFFER_HOST) as Control
+		if offer_host:
+			offer_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			offer_host.custom_minimum_size.y = 0.0
+			offer_host.clip_contents = true
+			if _hud_shop_card_side >= 8.0:
+				offer_host.custom_minimum_size.x = _hud_shop_card_side
 	@warning_ignore("unsafe_cast")
 	var shop_slots: Control = root.get_node_or_null(_SHOP_SLOTS) as Control
 	if shop_slots:
 		shop_slots.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		shop_slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		shop_slots.custom_minimum_size.y = 0.0
 	@warning_ignore("unsafe_cast")
 	var shop_content: VBoxContainer = root.get_node_or_null("Shop/ShopCol/ShopContent") as VBoxContainer
 	if shop_content:
-		shop_content.add_theme_constant_override("separation", UiLayout.margin_px(4, root))
+		shop_content.add_theme_constant_override("separation", 0)
 		shop_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		shop_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		shop_content.alignment = BoxContainer.ALIGNMENT_BEGIN
-	## Equip shop cards: width is name-adaptive in _refresh_equipment_shop_ui (EQUIPMENT §1).
-	## Do not force square mins here — that clipped long names into the backpack column.
+		shop_content.alignment = BoxContainer.ALIGNMENT_END
+		_ensure_bottom_cluster(root)
+	## Equip shop cards: vertical name + horizontal price (EQUIPMENT §1).
 	@warning_ignore("unsafe_cast")
 	var shop_col: Control = root.get_node_or_null("Shop/ShopCol") as Control
 	if shop_col and shop_col is VBoxContainer:
 		(shop_col as VBoxContainer).add_theme_constant_override("separation", UiLayout.margin_px(2, root))
 		shop_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		shop_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var stats: HBoxContainer = root.get_node_or_null("%s/StatsRow" % _SHOP_MID) as HBoxContainer
-	if stats:
-		stats.alignment = BoxContainer.ALIGNMENT_CENTER
-		stats.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	@warning_ignore("unsafe_cast")
-	var gold_lbl: Label = root.get_node_or_null("%s/StatsRow/GoldBox/Gold" % _SHOP_MID) as Label
+	var gold_pop_row: HBoxContainer = root.get_node_or_null(_BOTTOM_GOLD_POP) as HBoxContainer
+	if gold_pop_row:
+		gold_pop_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		gold_pop_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		gold_pop_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	@warning_ignore("unsafe_cast")
+	var gold_lbl: Label = root.get_node_or_null("%s/GoldBox/Gold" % _BOTTOM_GOLD_POP) as Label
 	if gold_lbl:
 		UiAssets.apply_label_font(gold_lbl, true, UiLayout.font_size(22, root))
 	@warning_ignore("unsafe_cast")
-	var pop_lbl: Label = root.get_node_or_null("%s/StatsRow/PopBox/Pop" % _SHOP_MID) as Label
+	var pop_lbl: Label = root.get_node_or_null("%s/PopBox/Pop" % _BOTTOM_GOLD_POP) as Label
 	if pop_lbl:
 		UiAssets.apply_label_font(pop_lbl, true, UiLayout.font_size(18, root))
 	@warning_ignore("unsafe_cast")
-	var sell: PanelContainer = root.get_node_or_null("%s/SellZone" % _SHOP_INNER) as PanelContainer
+	var leftover_inner: Control = root.get_node_or_null("Shop/ShopCol/ShopContent/ShopInner") as Control
+	if leftover_inner:
+		leftover_inner.visible = false
+		leftover_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	@warning_ignore("unsafe_cast")
+	var sell: PanelContainer = _resolve_sell_zone()
 	if sell:
-		sell.custom_minimum_size = Vector2(UiLayout.px(120, root), 0)
+		## Overlay fills ShipOfferHost (= 6 ship slots); never take Box layout space.
+		sell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		sell.custom_minimum_size = Vector2.ZERO
+		sell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sell.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sell.z_index = 2
 		var sb: StyleBoxFlat = StyleBoxFlat.new()
 		sb.bg_color = Color(0.2, 0.22, 0.25, 0.92)
 		sb.border_color = Color(0.4, 0.75, 0.9, 0.7)
 		sb.set_border_width_all(2)
 		sb.set_corner_radius_all(4)
 		sell.add_theme_stylebox_override("panel", sb)
+		@warning_ignore("unsafe_cast")
+		var lab: Label = sell.get_node_or_null("SellLabel") as Label
+		if lab:
+			lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lab.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String, design_px: int = 20) -> void:
 	if box == null:
 		return
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	for lab_n: Node in box.get_children():
+		if lab_n is Label:
+			(lab_n as Label).vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for c: Node in box.get_children():
 		if c is TextureRect and c.has_meta("meta_icon_for") and str(c.get_meta("meta_icon_for")) == for_name:
 			var existing_icon_sz: float = UiLayout.px(float(design_px), box)
@@ -4447,25 +6367,145 @@ func _ensure_meta_icon(box: HBoxContainer, for_name: String, tex_path: String, d
 	box.move_child(icon, 0)
 
 func _refresh_exp_segments(root: Node) -> void:
-	var row: HBoxContainer = root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as HBoxContainer
+	## One segment = one buy-exp press toward next level (ECONOMY_AND_SHOP / UI_AND_SHELL).
+	## slots = ceil(demand / buy_exp_amount); filled = floor(exp / buy_exp_amount).
+	var row_c: Control = root.get_node_or_null("%s/LEInner/ExpSegRow" % _SHOP_LEVEL) as Control
+	if row_c == null:
+		row_c = root.get_node_or_null("%s/LevelExp/LEInner/ExpSegRow" % _SHOP_LEFT) as Control
+	if row_c == null:
+		return
+	if row_c is HBoxContainer:
+		row_c = _rebox_as_axis(row_c, true)
+	var row: BoxContainer = row_c as BoxContainer
 	if row == null:
 		return
-	for c: Node in row.get_children():
-		row.remove_child(c)
-		c.free()
 	var demand: int = maxi(1, match_ctrl.up_level_demand)
 	var exp_now: int = clampi(match_ctrl.player_exp, 0, demand)
-	var seg_h: float = UiLayout.px(10, row)
-	## Cap visual segments so high-level demands (e.g. 124 at Lv16) stay readable.
-	var slots: int = demand if demand <= 16 else 16
-	var filled: int = exp_now if demand <= 16 else roundi(float(exp_now) / float(demand) * float(slots))
-	row.add_theme_constant_override("separation", UiLayout.margin_px(4, row))
-	row.custom_minimum_size = Vector2(0, seg_h)
-	for i: int in range(slots):
+	var buy_amt: int = TypedVariant.as_int(DataStore.economy.get("buy_exp_amount", 4), 4)
+	buy_amt = maxi(1, buy_amt)
+	var slots: int = maxi(1, (demand + buy_amt - 1) / buy_amt)
+	var filled: int = clampi(exp_now / buy_amt, 0, slots)
+	## Hold path: only recolor when count matches.
+	if row.get_child_count() == slots:
+		_recolor_exp_segment_cells(row, filled)
+		var legacy0: ProgressBar = root.get_node_or_null("%s/LEInner/ExpBar" % _SHOP_LEVEL) as ProgressBar
+		if legacy0 == null:
+			legacy0 = root.get_node_or_null("%s/LevelExp/LEInner/ExpBar" % _SHOP_LEFT) as ProgressBar
+		if legacy0:
+			legacy0.visible = false
+		return
+	## Full rebuild — height budget from LevelExp leftover (head/tail reserved).
+	var le_host: Control = root.get_node_or_null(_SHOP_LEVEL_HOST) as Control
+	var level_lbl: Label = root.get_node_or_null("%s/LEInner/Level" % _SHOP_LEVEL) as Label
+	var exp_lbl: Label = root.get_node_or_null("%s/LEInner/Exp" % _SHOP_LEVEL) as Label
+	var head_h: float = _label_line_height(level_lbl, "15级") if level_lbl else float(UiLayout.px(14, row))
+	var tail_h: float = _label_line_height(exp_lbl, "999 / 999") if exp_lbl else float(UiLayout.px(14, row))
+	var pad_y: float = float(UiLayout.margin_px(6, row))
+	var le_panel: Control = root.get_node_or_null(_SHOP_LEVEL) as Control
+	if le_panel is PanelContainer:
+		var sb: StyleBox = (le_panel as PanelContainer).get_theme_stylebox("panel")
+		if sb:
+			pad_y = sb.get_margin(SIDE_TOP) + sb.get_margin(SIDE_BOTTOM)
+	var host_h: float = float(UiLayout.px(96, row))
+	if le_host != null and le_host.size.y >= 40.0:
+		host_h = le_host.size.y
+	elif le_host != null and le_host.custom_minimum_size.y >= 8.0:
+		host_h = le_host.custom_minimum_size.y
+	elif le_panel != null and le_panel.size.y >= 8.0:
+		host_h = le_panel.size.y
+	var sep_inner: float = float(UiLayout.margin_px(2, row))
+	var seg_budget: float = maxf(0.0, host_h - head_h - tail_h - pad_y - sep_inner * 2.0)
+	_layout_exp_segment_cells(root, row, seg_budget, slots, filled)
+	var legacy: ProgressBar = root.get_node_or_null("%s/LEInner/ExpBar" % _SHOP_LEVEL) as ProgressBar
+	if legacy == null:
+		legacy = root.get_node_or_null("%s/LevelExp/LEInner/ExpBar" % _SHOP_LEFT) as ProgressBar
+	if legacy:
+		legacy.visible = false
+
+
+func _recolor_exp_segment_cells(row: BoxContainer, filled: int) -> void:
+	if row == null:
+		return
+	for i: int in range(row.get_child_count()):
+		var cell0: PanelContainer = row.get_child(i) as PanelContainer
+		if cell0 == null:
+			continue
+		var sb0: StyleBoxFlat = StyleBoxFlat.new()
+		sb0.set_border_width_all(1)
+		sb0.set_corner_radius_all(2)
+		sb0.set_content_margin_all(0)
+		if i < filled:
+			sb0.bg_color = Color(0.0, 0.78, 1.0, 1.0)
+			sb0.border_color = Color(0.55, 0.92, 1.0, 0.95)
+		else:
+			sb0.bg_color = Color(0.04, 0.16, 0.24, 0.92)
+			sb0.border_color = Color(0.22, 0.48, 0.62, 0.9)
+		cell0.add_theme_stylebox_override("panel", sb0)
+
+
+func _layout_exp_segment_cells(
+	root: Node,
+	row: Control,
+	seg_budget: float,
+	slots_override: int = -1,
+	filled_override: int = -1
+) -> void:
+	## Fill ExpSegRow into seg_budget only — never inflate past leftover under head/tail.
+	if root == null or row == null:
+		return
+	if row is HBoxContainer:
+		row = _rebox_as_axis(row, true)
+	var box: BoxContainer = row as BoxContainer
+	if box == null:
+		return
+	var demand: int = maxi(1, match_ctrl.up_level_demand)
+	var exp_now: int = clampi(match_ctrl.player_exp, 0, demand)
+	var buy_amt: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("buy_exp_amount", 4), 4))
+	var slots: int = slots_override if slots_override > 0 else maxi(1, (demand + buy_amt - 1) / buy_amt)
+	var filled: int = filled_override if filled_override >= 0 else clampi(exp_now / buy_amt, 0, slots)
+	var sep: float = float(UiLayout.margin_px(2, box))
+	box.add_theme_constant_override("separation", int(sep))
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.clip_contents = true
+	box.custom_minimum_size.y = 0.0
+	if box is VBoxContainer:
+		(box as VBoxContainer).alignment = BoxContainer.ALIGNMENT_CENTER
+	## Rebuild if count mismatch.
+	if box.get_child_count() != slots:
+		for c: Node in box.get_children():
+			box.remove_child(c)
+			c.free()
+	## Cap to LevelExp inner width — segs fill the locked column (not square-from-height,
+	## which shifted the stack on X when leftover height changed).
+	var le_w: float = _level_exp_fixed_width(root as Control) if root is Control else float(UiLayout.px(36, box))
+	var pad_x: float = float(UiLayout.margin_px(3, box)) * 2.0
+	var le_panel: Control = root.get_node_or_null(_SHOP_LEVEL) as Control
+	if le_panel is PanelContainer:
+		var sb_le: StyleBox = (le_panel as PanelContainer).get_theme_stylebox("panel")
+		if sb_le != null:
+			pad_x = sb_le.get_margin(SIDE_LEFT) + sb_le.get_margin(SIDE_RIGHT)
+	var inner_cap: float = maxf(float(UiLayout.px(8, box)), le_w - pad_x)
+	var cell_h: float = 0.0
+	if slots > 0 and seg_budget > 0.5:
+		cell_h = maxf(0.0, (seg_budget - sep * float(maxi(0, slots - 1))) / float(slots))
+	box.custom_minimum_size.x = 0.0
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	while box.get_child_count() < slots:
 		var cell: PanelContainer = PanelContainer.new()
-		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		cell.custom_minimum_size = Vector2(UiLayout.px(10, row), seg_h)
+		box.add_child(cell)
+	while box.get_child_count() > slots:
+		var last: Node = box.get_child(box.get_child_count() - 1)
+		box.remove_child(last)
+		last.free()
+	for i: int in range(slots):
+		var cell2: PanelContainer = box.get_child(i) as PanelContainer
+		if cell2 == null:
+			continue
+		cell2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell2.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		## Width = LevelExp inner (no square-from-height). Height from leftover budget.
+		cell2.custom_minimum_size = Vector2(inner_cap, cell_h)
 		var sb: StyleBoxFlat = StyleBoxFlat.new()
 		if i < filled:
 			sb.bg_color = Color(0.0, 0.78, 1.0, 1.0)
@@ -4474,13 +6514,104 @@ func _refresh_exp_segments(root: Node) -> void:
 			sb.bg_color = Color(0.04, 0.16, 0.24, 0.92)
 			sb.border_color = Color(0.22, 0.48, 0.62, 0.9)
 		sb.set_border_width_all(1)
-		sb.set_corner_radius_all(3)
+		sb.set_corner_radius_all(2)
 		sb.set_content_margin_all(0)
-		cell.add_theme_stylebox_override("panel", sb)
-		row.add_child(cell)
-	var legacy: ProgressBar = root.get_node_or_null("%s/LevelExp/LEInner/ExpBar" % _SHOP_LEFT) as ProgressBar
-	if legacy:
-		legacy.visible = false
+		cell2.add_theme_stylebox_override("panel", sb)
+
+
+func _deferred_style_shop_action_buttons() -> void:
+	if hud == null:
+		return
+	var root: Control = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	_style_shop_action_buttons(
+		root,
+		root.get_node_or_null(_SHOP_BAR) as Control,
+		root.get_node_or_null(_SHOP_BTNS) as Control,
+		root.get_node_or_null("%s/ExpBtn" % _SHOP_BTNS) as Button,
+		root.get_node_or_null("%s/RefreshBtn" % _SHOP_BTNS) as Button
+	)
+
+
+func _style_shop_action_buttons(root: Control, shop_bar: Control, shop_btns: Control, exp_btn: Button, refresh_btn: Button) -> void:
+	if root == null:
+		return
+	## Fill reserved ShopBtns strip only — never use square-of-width as min height (overflows LeftCol).
+	var strip_h: float = UiLayout.hud_height("ExpBtn", 0.078) * UiLayout.viewport_size(root).y
+	strip_h = clampf(strip_h, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	if shop_btns != null:
+		shop_btns.custom_minimum_size.y = strip_h
+		if shop_btns.size.y >= 8.0:
+			strip_h = clampf(shop_btns.size.y, float(UiLayout.px(40, root)), float(UiLayout.px(72, root)))
+	var art_w: float = float(UiLayout.px(64, root))
+	var art_h: float = strip_h
+	if shop_btns != null and shop_btns.size.x >= 16.0:
+		var sep: float = float(UiLayout.margin_px(4, root))
+		art_w = maxf(8.0, (shop_btns.size.x - sep) * 0.5)
+	elif shop_bar != null and shop_bar.size.x >= 16.0:
+		art_w = clampf(shop_bar.size.x * 0.46, float(UiLayout.px(48, root)), float(UiLayout.px(200, root)))
+	elif _hud_shop_card_side >= 8.0:
+		art_w = clampf(_hud_shop_card_side + float(UiLayout.px(40, root)), float(UiLayout.px(48, root)), float(UiLayout.px(200, root)))
+	## Cap icon box to strip height so button mins cannot push ShopBtns past budget.
+	art_h = strip_h
+	art_w = minf(art_w, maxf(strip_h * 2.5, float(UiLayout.px(48, root))))
+	if exp_btn:
+		_style_image_button_fill(
+			exp_btn,
+			UiAssets.shop_exp_path(),
+			"购买经验",
+			TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 0),
+			art_w,
+			art_h
+		)
+		exp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		exp_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_wire_exp_hold(exp_btn)
+	if refresh_btn:
+		_style_image_button_fill(
+			refresh_btn,
+			UiAssets.shop_refresh_path(),
+			"刷新商店",
+			TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 0),
+			art_w,
+			art_h
+		)
+		refresh_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		refresh_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+
+func _style_image_button_fill(
+	btn: Button,
+	tex_path: String,
+	title: String,
+	cost: int,
+	width_px: float,
+	height_px: float
+) -> void:
+	if btn == null:
+		return
+	btn.text = ""
+	btn.tooltip_text = "%s  %d" % [title, cost]
+	var w: float = maxf(8.0, width_px)
+	var h: float = maxf(8.0, height_px)
+	var t: Texture2D = UiAssets.tex(tex_path)
+	## Min height must stay ≤ ShopBtns strip; width hint only — EXPAND fills strip.
+	btn.custom_minimum_size = Vector2(0.0, minf(h, float(UiLayout.px(72, btn))))
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if t:
+		btn.icon = t
+		btn.expand_icon = true
+		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+		btn.add_theme_constant_override("icon_max_width", int(maxf(w, h)))
+	var empty: StyleBoxEmpty = StyleBoxEmpty.new()
+	btn.add_theme_stylebox_override("normal", empty)
+	btn.add_theme_stylebox_override("hover", empty)
+	btn.add_theme_stylebox_override("pressed", empty)
+	btn.add_theme_stylebox_override("disabled", empty)
+
 
 func _style_image_button(btn: Button, tex_path: String, title: String, cost: int, width_px: float = -1.0) -> void:
 	if btn == null:
@@ -4549,7 +6680,64 @@ func rebuild_all_ship_health_bars() -> void:
 		if s != null and is_instance_valid(s) and s.has_method("rebuild_health_bar"):
 			s.rebuild_health_bar()
 
+
+func refresh_all_ship_health_bars() -> void:
+	if board == null:
+		return
+	for s: ShipUnit in board.all_ships():
+		if s != null and is_instance_valid(s) and s.has_method("refresh_health_bar"):
+			s.refresh_health_bar()
+
+func _on_hud_refresh_full() -> void:
+	_request_hud_refresh(true)
+
+
+func _on_hud_tick() -> void:
+	_request_hud_refresh(false)
+
+
+func _hud_refresh_min_interval_s() -> float:
+	## Hard cap: refresh Hz ≤ half of Engine FPS → period ≥ 2/fps.
+	var fps: float = maxf(Engine.get_frames_per_second(), 1.0)
+	return 2.0 / fps
+
+
+func _request_hud_refresh(full: bool) -> void:
+	_hud_refresh_pending = maxi(_hud_refresh_pending, 2 if full else 1)
+	_try_flush_hud_refresh()
+
+
+func _try_flush_hud_refresh() -> void:
+	if _hud_refresh_pending <= 0:
+		return
+	if _hud_refresh_since_s < _hud_refresh_min_interval_s():
+		return
+	_hud_refresh_since_s = 0.0
+	var full: bool = _hud_refresh_pending >= 2
+	_hud_refresh_pending = 0
+	var t0: int = Time.get_ticks_usec()
+	## Hold-upgrade always stays light (UI_AND_SHELL §2.5).
+	if _exp_hold_active or not full:
+		_refresh_hud_core(false)
+	else:
+		_refresh_hud_core(true)
+	SessionDiagnostics.add_usec(&"hud", Time.get_ticks_usec() - t0)
+
+
 func _refresh_hud() -> void:
+	## Hold-upgrade: `_grant_exp` emits hud_refresh every 0.05s — must stay light.
+	if _exp_hold_active:
+		_request_hud_refresh(false)
+		return
+	_request_hud_refresh(true)
+
+
+func _refresh_hud_economy_only() -> void:
+	## Buy-exp hold / cheap gold updates — skip fetter rebuild, adaptive layout, inventory.
+	_request_hud_refresh(false)
+
+
+func _refresh_hud_core(full: bool) -> void:
 	var root: Control = hud.get_node_or_null("Root")
 	if root == null:
 		return
@@ -4557,11 +6745,19 @@ func _refresh_hud() -> void:
 	_refresh_citadel_bar()
 	_set_label(root, "%s/Phase" % _ROUND, "阶段 %d-%d" % [match_ctrl.battle_phase_value, match_ctrl.round_phase_value])
 	_refresh_region_label()
-	_set_label(root, "%s/StatsRow/GoldBox/Gold" % _SHOP_MID, "%d" % match_ctrl.player_gold)
-	_set_label(root, "%s/StatsRow/PopBox/Pop" % _SHOP_MID, "%d/%d" % [board.count_field(ShipUnit.TEAM_PLAYER), match_ctrl.population_limit()])
-	_set_label(root, "%s/LevelExp/LEInner/LELabels/Level" % _SHOP_LEFT, "%d级" % match_ctrl.player_level)
-	_set_label(root, "%s/LevelExp/LEInner/LELabels/Exp" % _SHOP_LEFT, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
+	_set_label(root, "%s/GoldBox/Gold" % _BOTTOM_GOLD_POP, "%d" % match_ctrl.player_gold)
+	_set_label(root, "%s/PopBox/Pop" % _BOTTOM_GOLD_POP, "%d/%d" % [board.count_field(ShipUnit.TEAM_PLAYER), match_ctrl.population_limit()])
+	_set_label(root, "%s/LEInner/Level" % _SHOP_LEVEL, "%d级" % match_ctrl.player_level)
+	_set_label(root, "%s/LEInner/Exp" % _SHOP_LEVEL, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
+	_set_label(root, "%s/LEInner/LETextCol/Level" % _SHOP_LEVEL, "%d级" % match_ctrl.player_level)
+	_set_label(root, "%s/LEInner/LETextCol/Exp" % _SHOP_LEVEL, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
+	_set_label(root, "%s/LEInner/LELabels/Level" % _SHOP_LEVEL, "%d级" % match_ctrl.player_level)
+	_set_label(root, "%s/LEInner/LELabels/Exp" % _SHOP_LEVEL, "%d / %d" % [match_ctrl.player_exp, match_ctrl.up_level_demand])
 	_refresh_exp_segments(root)
+	## Fixed LevelExp width — never re-snap Meta on hold ticks.
+	if full:
+		_fit_level_exp_width(root)
+		_refresh_scanner_cost_caption(root)
 	var stage_name: String = "准备" if match_ctrl.stage == MatchController.Stage.PREPARE else ("战斗" if match_ctrl.stage == MatchController.Stage.BATTLE else "结束")
 	var ttext: String = "倒计时"
 	if match_ctrl.stage == MatchController.Stage.PREPARE:
@@ -4600,29 +6796,31 @@ func _refresh_hud() -> void:
 				and GameSession.pending_mode != "nullsec"
 		skip.visible = show_skip
 		skip.disabled = not show_skip
-	_apply_shop_interactable()
-	_refresh_fetter_ui(root)
-	_refresh_equipment_inventory_ui()
-	@warning_ignore("unsafe_cast")
-	var ver: Label = root.get_node_or_null("TopRight/Version") as Label
-	if ver:
-		## UI_AND_SHELL §2：局内版本 = 内容热更版（禁止壳号）。
-		ver.text = "游戏版本:%s" % DataStore.content_version
-
-	## RoundBar / TopRight widths track live label lengths (HP / phase / timer / ver).
-	_apply_adaptive_hud_layout()
-	_refresh_open_ship_info()
+	if full:
+		_apply_shop_interactable()
+		_refresh_fetter_ui(root)
+		_refresh_equipment_inventory_ui()
+		@warning_ignore("unsafe_cast")
+		var ver: Label = root.get_node_or_null("TopRight/Version") as Label
+		if ver:
+			## UI_AND_SHELL §2：局内版本 = 内容热更版（禁止壳号）。
+			ver.text = "游戏版本:%s" % DataStore.content_version
+		## RoundBar / TopRight widths track live label lengths (HP / phase / timer / ver).
+		_apply_adaptive_hud_layout()
+		_refresh_open_ship_info()
 
 func _refresh_open_ship_info() -> void:
 	## Keep InfoPanel in sync after star merge / equip / HUD refresh (UI_AND_SHELL §2.5).
-	## is_instance_valid first — avoid null-compare / typed assign on freed ShipUnit.
-	if not is_instance_valid(_info_ship):
-		_hide_ship_info()
+	## Prefer live `_info_ship`; else DETAIL restores `_last_touched_ship`.
+	if is_instance_valid(_info_ship) and not _info_ship.is_destroyed:
+		_show_ship_info(_info_ship)
 		return
-	if _info_ship.is_destroyed:
-		_hide_ship_info()
+	_info_ship = null
+	if _right_pane_mode == RightPaneMode.DETAIL and not _collapse_right:
+		_restore_detail_ship_panel()
 		return
-	_show_ship_info(_info_ship)
+	if is_instance_valid(_last_touched_ship) and _last_touched_ship.is_destroyed:
+		_last_touched_ship = null
 
 func _apply_shop_interactable() -> void:
 	## Shop stays interactive in Prepare and Battle (no grey-lock).
@@ -4630,8 +6828,11 @@ func _apply_shop_interactable() -> void:
 	if root == null:
 		return
 	for path: String in [
-			"%s/LeftBtns/ExpBtn" % _SHOP_LEFT,
-			"%s/LeftBtns/RefreshBtn" % _SHOP_LEFT]:
+			"%s/ExpBtn" % _SHOP_BTNS,
+			"%s/RefreshBtn" % _SHOP_BTNS,
+			_SHOP_SCANNER,
+			"%s/ScannerFrame/ScannerBtn" % _SHOP_SCANNER_HOST,
+			"%s/ScannerBtn" % _SHOP_SCANNER_HOST]:
 		@warning_ignore("unsafe_cast")
 		var b: Button = root.get_node_or_null(path) as Button
 		if b:
@@ -4655,10 +6856,7 @@ func _set_shop_card_interactable(card: Node, enabled: bool) -> void:
 func _refresh_fetter_ui(root: Node) -> void:
 	_ensure_side_panel_scrolls()
 	@warning_ignore("unsafe_cast")
-	var side: VBoxContainer = root.get_node_or_null(_BONUS) as VBoxContainer
-	if side == null:
-		@warning_ignore("unsafe_cast")
-		side = root.get_node_or_null(_BONUS_FALLBACK) as VBoxContainer
+	var side: VBoxContainer = _bonus_container_of(root as Control)
 	if side == null:
 		return
 	@warning_ignore("unsafe_cast")
@@ -4671,22 +6869,32 @@ func _refresh_fetter_ui(root: Node) -> void:
 		list = VBoxContainer.new()
 		list.name = "FetterList"
 		list.add_theme_constant_override("separation", 6)
+		list.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		side.add_child(list)
+	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for c: Node in list.get_children():
 		c.queue_free()
 	var fetters: Array = board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	## Meta titans append one active row per effect for combat muls — collapse to one UI card.
+	var shown_meta: Dictionary = {}
 	for a_v: Variant in fetters:
 		var a: Dictionary = TypedVariant.as_dict(a_v)
 		var fid: String = str(a.get("fetter_id", ""))
+		var is_meta: bool = TypedVariant.as_bool(a.get("meta", false), false)
+		if is_meta:
+			if TypedVariant.as_bool(shown_meta.get(fid, false), false):
+				continue
+			shown_meta[fid] = true
 		var fdata: Dictionary = DataStore.fetters.get(fid, {})
 		var fname: String = str(fdata.get("name", fid))
 		var count: int = TypedVariant.as_int(a.get("count", 0), 0)
 		var eff: Dictionary = a.get("effect", {})
 		var need: int = TypedVariant.as_int(eff.get("champion_count", 0), 0)
-		var is_meta: bool = TypedVariant.as_bool(a.get("meta", false), false)
 		var row: HBoxContainer = HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_theme_constant_override("separation", 8)
 		var icon: TextureRect = TextureRect.new()
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon.custom_minimum_size = Vector2(UiLayout.px(26, list), UiLayout.px(26, list))
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -4695,9 +6903,11 @@ func _refresh_fetter_ui(root: Node) -> void:
 			icon.texture = tex
 		row.add_child(icon)
 		var col: VBoxContainer = VBoxContainer.new()
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		col.add_theme_constant_override("separation", 1)
 		var lab: Label = Label.new()
+		lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		## Titan fetter is always on and has no Field count to show (MULTIPLAYER_PVP §2.3).
 		if is_meta:
 			lab.text = fname
@@ -4708,7 +6918,7 @@ func _refresh_fetter_ui(root: Node) -> void:
 		lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 		lab.add_theme_constant_override("outline_size", 3)
 		col.add_child(lab)
-		## Meta titans list every effect (combat +10% shop race); field fetters keep one tier.
+		## Meta titans list every effect once under a single card (combat + shop + ewar).
 		var effect_lines: Array = []
 		if is_meta:
 			for e: Variant in TypedVariant.as_array(fdata.get("effects", [])):
@@ -4717,10 +6927,15 @@ func _refresh_fetter_ui(root: Node) -> void:
 		else:
 			effect_lines.append(eff)
 		for e: Variant in effect_lines:
-			var eff_txt: String = UiAssets.fetter_effect_text(TypedVariant.as_dict(e))
+			var ed: Dictionary = TypedVariant.as_dict(e)
+			var eff_txt: String = UiAssets.fetter_effect_text(ed)
 			if eff_txt == "":
 				continue
+			var step_n: int = TypedVariant.as_int(a.get("step_ships", ed.get("step_ships", 0)), 0)
+			if step_n > 0 and not is_meta:
+				eff_txt = "%s（步进+%d）" % [eff_txt, step_n]
 			var elab: Label = Label.new()
+			elab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			elab.text = eff_txt
 			elab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			UiAssets.apply_label_font(elab, false, UiLayout.font_size(12, list))
@@ -4738,11 +6953,14 @@ func _set_label(root: Node, path: String, text: String) -> void:
 		l.text = text
 
 func _refresh_shop_ui() -> void:
-	var box: HBoxContainer = hud.get_node_or_null("Root/%s" % _SHOP_SLOTS) as HBoxContainer
+	var box: Control = hud.get_node_or_null("Root/%s" % _SHOP_SLOTS) as Control
+	if box == null:
+		box = hud.get_node_or_null("Root/%s/ShopSlots" % _SHOP_INNER) as Control
 	if box == null:
 		return
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.custom_minimum_size.y = 0.0
 	for c: Node in box.get_children():
 		c.queue_free()
 	var slot_count: int = maxi(1, shop.slots.size())
@@ -4766,24 +6984,61 @@ func _layout_reserve_grid_cells(grid: GridContainer) -> void:
 	if grid == null:
 		return
 	var host: Control = grid.get_parent_control()
-	var avail_w: float = grid.size.x
-	if avail_w < 8.0 and host:
-		avail_w = host.size.x
-	if avail_w < 8.0:
-		avail_w = UiLayout.px(160.0, grid)
+	var shop_content: Control = null
+	if hud:
+		shop_content = hud.get_node_or_null("Root/Shop/ShopCol/ShopContent") as Control
 	var h_sep: float = float(grid.get_theme_constant(&"h_separation"))
 	var v_sep: float = float(grid.get_theme_constant(&"v_separation"))
 	if h_sep <= 0.0:
 		h_sep = 4.0
 	if v_sep <= 0.0:
 		v_sep = 4.0
-	## Wider cells for equip name under icon (UI plan 2026-08-09).
-	var cell_w: float = (avail_w - h_sep * 3.0) / 4.0
-	cell_w = clampf(cell_w, UiLayout.px(28.0, grid), UiLayout.px(180.0, grid))
-	var cell_h: float = cell_w * 1.28
-	var grid_h: float = cell_h * 4.0 + v_sep * 3.0
-	grid.custom_minimum_size = Vector2(avail_w, grid_h)
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Square cells; 1 row × 16 columns; GoldPop shares the same width (UI_AND_SHELL §2.1).
+	var cols: int = maxi(1, grid.columns)
+	var gold_pop: Control = null
+	if host:
+		gold_pop = host.get_node_or_null("GoldPop") as Control
+	if gold_pop == null and hud:
+		gold_pop = hud.get_node_or_null("Root/%s" % _BOTTOM_GOLD_POP) as Control
+	var avail_h: float = 0.0
+	if host and host.size.y >= 8.0:
+		avail_h = host.size.y
+	elif shop_content and shop_content.size.y >= 8.0:
+		avail_h = shop_content.size.y
+	else:
+		avail_h = grid.size.y
+	if gold_pop:
+		var gh: float = gold_pop.size.y
+		if gh < 1.0:
+			gh = gold_pop.custom_minimum_size.y
+		if gh > 1.0:
+			avail_h = maxf(8.0, avail_h - gh - v_sep)
+	if avail_h < 8.0:
+		avail_h = grid.size.y if grid.size.y >= 8.0 else UiLayout.px(48.0, grid)
+	var avail_w: float = 0.0
+	if shop_content and shop_content.size.x >= 8.0:
+		avail_w = shop_content.size.x
+	elif host and host.size.x >= 8.0:
+		avail_w = host.size.x
+	if avail_w < 8.0:
+		avail_w = grid.size.x
+	if avail_w < 8.0:
+		avail_w = UiLayout.px(160.0, grid)
+	var cell_w: float = (avail_w - h_sep * float(maxi(0, cols - 1))) / float(cols)
+	cell_w = minf(cell_w, avail_h)
+	cell_w = clampf(cell_w, UiLayout.px(14.0, grid), UiLayout.px(64.0, grid))
+	var cell_h: float = cell_w
+	var grid_w: float = cell_w * float(cols) + h_sep * float(maxi(0, cols - 1))
+	grid.custom_minimum_size = Vector2(grid_w, cell_h)
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.size_flags_vertical = Control.SIZE_SHRINK_END
+	if gold_pop:
+		gold_pop.custom_minimum_size.x = grid_w
+		gold_pop.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		gold_pop.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if host and str(host.name) == "BottomCluster":
+		host.custom_minimum_size.x = grid_w
+		host.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	for c: Node in grid.get_children():
 		if c is Control:
 			var cell_ctrl: Control = c as Control
@@ -4792,20 +7047,67 @@ func _layout_reserve_grid_cells(grid: GridContainer) -> void:
 			cell_ctrl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 
+func _ensure_equipment_slots_grid(meta_mid: Control, shop_bar: Control, root: Control) -> Control:
+	## UI_AND_SHELL §3.2 — single column of 5 in MetaMid; bottom-snaps to advanced refresh via snap pass.
+	if meta_mid == null:
+		return null
+	var meta_col: Control = meta_mid.get_parent() as Control
+	var equip_raw: Control = meta_mid.get_node_or_null("EquipmentSlots") as Control
+	if equip_raw == null and meta_col != null:
+		equip_raw = meta_col.get_node_or_null("EquipmentSlots") as Control
+	if equip_raw == null and shop_bar != null:
+		equip_raw = shop_bar.get_node_or_null("EquipmentSlots") as Control
+	if equip_raw == null and root != null:
+		equip_raw = root.get_node_or_null(
+			"Shop/ShopCol/ShopContent/MetaRow/LeftCtrl/LeftBtns/EquipmentSlots"
+		) as Control
+	if equip_raw is VBoxContainer and not (equip_raw is HBoxContainer):
+		var existing: VBoxContainer = equip_raw as VBoxContainer
+		if existing.get_parent() != meta_mid:
+			_reparent_keep_signals(existing, meta_mid)
+		existing.size_flags_horizontal = 0
+		existing.size_flags_vertical = 0
+		existing.size_flags_stretch_ratio = 0.0
+		existing.alignment = BoxContainer.ALIGNMENT_END
+		existing.add_theme_constant_override("separation", UiLayout.margin_px(3, root))
+		meta_mid.move_child(existing, mini(1, meta_mid.get_child_count() - 1))
+		return existing
+	var box: VBoxContainer = VBoxContainer.new()
+	box.name = "EquipmentSlots"
+	box.size_flags_horizontal = 0
+	box.size_flags_vertical = 0
+	box.size_flags_stretch_ratio = 0.0
+	box.alignment = BoxContainer.ALIGNMENT_END
+	box.add_theme_constant_override("separation", UiLayout.margin_px(3, root))
+	if equip_raw != null:
+		var old_parent: Node = equip_raw.get_parent()
+		if old_parent != null:
+			old_parent.remove_child(equip_raw)
+		equip_raw.queue_free()
+	meta_mid.add_child(box)
+	meta_mid.move_child(box, mini(1, meta_mid.get_child_count() - 1))
+	return box
+
+
 func _ensure_equipment_shop_slots() -> void:
 	var root: Control = hud.get_node_or_null("Root")
 	if root == null:
 		return
-	var left_btns: HBoxContainer = root.get_node_or_null("%s/LeftBtns" % _SHOP_LEFT) as HBoxContainer
-	if left_btns == null:
-		return
-	var box: HBoxContainer = left_btns.get_node_or_null("EquipmentSlots") as HBoxContainer
-	if box == null:
-		box = HBoxContainer.new()
-		box.name = "EquipmentSlots"
-		box.add_theme_constant_override("separation", UiLayout.margin_px(4, left_btns))
-		left_btns.add_child(box)
-		left_btns.move_child(box, left_btns.get_child_count())
+	var meta_mid: Control = root.get_node_or_null(_SHOP_META_MID) as Control
+	if meta_mid == null:
+		_ensure_left_shop_layout(root)
+		meta_mid = root.get_node_or_null(_SHOP_META_MID) as Control
+	if meta_mid == null:
+		var meta_col: Control = root.get_node_or_null(_SHOP_META_COL) as Control
+		if meta_col == null:
+			return
+		meta_mid = _ensure_meta_mid(meta_col, root)
+	_ensure_equipment_slots_grid(meta_mid, null, root)
+
+
+func _equip_shop_card_chrome_x(pad: float) -> float:
+	## PanelContainer min width adds StyleBox border (1+1) + content margins (pad*2).
+	return pad * 2.0 + 2.0
 
 
 func _refresh_equipment_shop_ui() -> void:
@@ -4813,98 +7115,266 @@ func _refresh_equipment_shop_ui() -> void:
 	var root: Control = hud.get_node_or_null("Root")
 	if root == null or shop == null:
 		return
-	var box: HBoxContainer = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as HBoxContainer
+	var box: Control = root.get_node_or_null(_SHOP_EQUIP_SLOTS) as Control
 	if box == null:
 		return
+	## Lock LevelExp width + column snaps BEFORE measuring card target width.
+	_apply_left_shop_snap_layout(root)
+	_fit_level_exp_width(root)
+	_apply_left_shop_snap_layout(root)
+	var width_ready: bool = box.size.x >= 8.0
 	for c: Node in box.get_children():
 		c.queue_free()
 	if shop.equipment_slots.is_empty() and shop.has_method("ensure_equipment_slots"):
 		shop.ensure_equipment_slots()
-	var content_h: float = 0.0
-	@warning_ignore("unsafe_cast")
-	var shop_content: Control = root.get_node_or_null("Shop/ShopCol/ShopContent") as Control
-	if shop_content and shop_content.size.y >= 8.0:
-		content_h = shop_content.size.y
-	else:
-		content_h = UiLayout.bottom_shop_height_frac(root) * maxf(UiLayout.viewport_size(root).y, 1.0)
-	## Icon side from Meta-band height; card width grows with name (EQUIPMENT §1).
-	var icon_side: float = float(clampi(int(content_h * 0.25 * 0.9), UiLayout.px(28, box), UiLayout.px(48, box)))
+	## ① fit width inside column chrome → ② bottom-kiss advanced refresh → ③ top may stay empty.
+	var icon_side: float = float(UiLayout.px(28, box))
+	var n_cards: int = maxi(1, shop.equipment_slots.size())
+	var sep_e: float = float(UiLayout.margin_px(3, box))
+	if box is VBoxContainer:
+		(box as VBoxContainer).add_theme_constant_override("separation", int(sep_e))
+		sep_e = float((box as VBoxContainer).get_theme_constant("separation"))
+	var mid: Control = root.get_node_or_null(_SHOP_META_MID) as Control
+	var budget_h: float = 0.0
+	if box.size.y >= 40.0:
+		budget_h = box.size.y
+	elif mid != null and mid.size.y >= 40.0:
+		budget_h = mid.size.y
+	var col_w: float = box.size.x
+	if col_w < 8.0 and mid != null:
+		var mid_gap: float = float(UiLayout.margin_px(4, root))
+		var le_w: float = _level_exp_fixed_width(root)
+		col_w = maxf(8.0, mid.size.x - le_w - mid_gap)
+	if col_w < 8.0:
+		col_w = float(UiLayout.px(40, root))
+	col_w = minf(col_w, maxf(8.0, box.size.x)) if box.size.x >= 8.0 else col_w
+	var base_pad: float = float(UiLayout.margin_px(2, box))
+	## Scale against inner content budget so Panel border+margins never push past col_w.
+	var inner_budget: float = maxf(8.0, col_w - _equip_shop_card_chrome_x(base_pad))
+	var natural_inner: float = icon_side
+	var width_scale: float = inner_budget / maxf(1.0, natural_inner)
+	var stack_natural: float = sep_e * float(maxi(0, n_cards - 1))
+	for i_slot: int in range(shop.equipment_slots.size()):
+		var slot_d: Dictionary = TypedVariant.as_dict(shop.equipment_slots[i_slot])
+		var iid: String = str(slot_d.get("id", ""))
+		var mod0: Dictionary = DataStore.get_function_module(iid) if iid != "" else {}
+		var nm: String = str(mod0.get("name", mod0.get("id", "")))
+		var lines: int = maxi(1, nm.length()) if not mod0.is_empty() else 1
+		stack_natural += _equip_shop_card_natural_height(icon_side, base_pad, lines)
+	var scale_mul: float = clampf(width_scale, 0.55, 3.5)
+	if budget_h >= 40.0 and stack_natural > 1.0 and stack_natural * scale_mul > budget_h:
+		scale_mul = clampf(budget_h / stack_natural, 0.55, scale_mul)
+	## Re-cap after height shrink: scaled pad grows chrome.
+	var pad_s: float = base_pad * scale_mul
+	var inner_after: float = maxf(8.0, col_w - _equip_shop_card_chrome_x(pad_s))
+	if icon_side * scale_mul > inner_after + 0.5:
+		scale_mul = clampf(inner_after / maxf(1.0, icon_side), 0.55, scale_mul)
+	var cards: Array[Control] = []
 	for i: int in range(shop.equipment_slots.size()):
-		var slot: Dictionary = shop.equipment_slots[i]
+		var slot: Dictionary = TypedVariant.as_dict(shop.equipment_slots[i])
 		var item_id: String = str(slot.get("id", ""))
 		var purchased: bool = TypedVariant.as_bool(slot.get("purchased", false), false)
 		var mod: Dictionary = DataStore.get_function_module(item_id) if item_id != "" else {}
-		box.add_child(_make_equipment_shop_card(i, mod, purchased, icon_side))
+		## target_w = column; card expands inside it (min-x stays 0 — see _make_equipment_shop_card).
+		var card: Control = _make_equipment_shop_card(i, mod, purchased, icon_side, 0.0, col_w, scale_mul)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.size_flags_vertical = Control.SIZE_SHRINK_END
+		cards.append(card)
+	for i: int in range(cards.size() - 1, -1, -1):
+		box.add_child(cards[i])
+	box.size_flags_horizontal = 0
+	box.size_flags_vertical = 0
+	box.size_flags_stretch_ratio = 0.0
+	box.clip_contents = true
+	if box is VBoxContainer:
+		(box as VBoxContainer).alignment = BoxContainer.ALIGNMENT_END
+	_apply_left_shop_snap_layout(root)
+	_fit_level_exp_width(root)
+	_sync_equipment_shop_card_widths(box)
+	if not width_ready and box.size.x >= 8.0 and not TypedVariant.as_bool(get_meta("_equip_shop_width_retry", false), false):
+		set_meta("_equip_shop_width_retry", true)
+		call_deferred("_deferred_refresh_equipment_shop_width")
 
 
-func _make_equipment_shop_card(idx: int, mod: Dictionary, purchased: bool, icon_side: float) -> Control:
+func _sync_equipment_shop_card_widths(box: Control) -> void:
+	## Column owns width. Cards EXPAND inside; never min-x = col_w (Panel chrome overflows).
+	if box == null:
+		return
+	var w: float = box.size.x
+	if w < 8.0:
+		return
+	box.clip_contents = true
+	box.custom_minimum_size = Vector2.ZERO
+	for c: Node in box.get_children():
+		if c is Control:
+			var card: Control = c as Control
+			var h: float = card.custom_minimum_size.y
+			card.custom_minimum_size = Vector2(0.0, h)
+			card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			card.clip_contents = true
+			## Force into column — VBox can briefly assign min > parent.
+			if card.size.x > w + 0.01 or card.size.x < 1.0:
+				card.size = Vector2(w, maxf(card.size.y, h))
+
+
+func _deferred_refresh_equipment_shop_width() -> void:
+	set_meta("_equip_shop_width_retry", false)
+	_refresh_equipment_shop_ui()
+
+
+func _equip_shop_card_natural_height(icon_side: float, pad: float, name_lines: int) -> float:
+	## Unscaled content height estimate (icon + vertical name + cost + chrome).
+	## Bottom content_margin = 0 (price flush to card bottom).
+	var gap: float = float(UiLayout.margin_px(1))
+	var name_fs: int = UiLayout.font_size(10)
+	var font: Font = ThemeDB.fallback_font
+	var glyph_h: float = font.get_string_size("字", HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).y
+	var cost_fs: int = UiLayout.font_size(10)
+	var cost_h: float = font.get_string_size("99", HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs).y
+	return pad + icon_side + gap + glyph_h * float(maxi(1, name_lines)) + gap + cost_h
+
+
+func _vertical_cjk_label(s: String) -> String:
+	var t: String = s.strip_edges()
+	if t.is_empty():
+		return ""
+	var chars: PackedStringArray = PackedStringArray()
+	for i: int in range(t.length()):
+		chars.append(t.substr(i, 1))
+	return "\n".join(chars)
+
+
+func _make_equipment_shop_card(
+	idx: int,
+	mod: Dictionary,
+	purchased: bool,
+	icon_side: float,
+	max_h: float = 0.0,
+	target_w: float = 0.0,
+	scale_mul: float = 1.0
+) -> Control:
+	## Card expands to column width via SIZE_EXPAND_FILL. Do NOT set min-x = target_w:
+	## PanelContainer min = border + content_margin + child → would overflow the cyan frame.
 	var card: PanelContainer = PanelContainer.new()
-	var pad: float = float(UiLayout.margin_px(4, card))
-	var gap: float = float(UiLayout.margin_px(4, card))
+	var s: float = maxf(0.55, scale_mul)
+	var pad: float = float(UiLayout.margin_px(2, card)) * s
+	var pad_bot: float = 0.0  ## Price sits on card bottom — no bottom blank (EQUIPMENT §1).
+	var gap: float = float(UiLayout.margin_px(1, card)) * s
 	var outer: StyleBoxFlat = StyleBoxFlat.new()
 	outer.bg_color = Color(0.1, 0.12, 0.16, 0.95)
 	outer.border_color = Color(0.35, 0.62, 0.78, 0.9)
 	outer.set_border_width_all(1)
 	outer.set_corner_radius_all(4)
-	outer.set_content_margin_all(int(pad))
+	var pad_i: int = maxi(1, roundi(pad))
+	outer.content_margin_left = pad_i
+	outer.content_margin_right = pad_i
+	outer.content_margin_top = pad_i
+	outer.content_margin_bottom = 0
 	card.add_theme_stylebox_override("panel", outer)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	card.clip_contents = true
+	var name_fs: int = maxi(7, roundi(float(UiLayout.font_size(10, card)) * s))
+	var font: Font = ThemeDB.fallback_font
+	var glyph_w: float = font.get_string_size("字", HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).x
+	var glyph_h: float = font.get_string_size("字", HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).y
+	var icon_fit: float = icon_side * s
+	## Inner content must fit: col - borders - margins.
+	if target_w >= 8.0:
+		var max_inner: float = maxf(4.0, target_w - _equip_shop_card_chrome_x(pad))
+		icon_fit = minf(icon_fit, max_inner)
+		glyph_w = minf(glyph_w, max_inner)
 	if purchased or mod.is_empty():
-		card.custom_minimum_size = Vector2(icon_side + pad * 2.0, icon_side + pad * 2.0)
 		var ph: Label = Label.new()
 		ph.text = "已购" if purchased else ""
 		ph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		ph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		UiAssets.apply_label_font(ph, false, UiLayout.font_size(11, card))
+		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		UiAssets.apply_label_font(ph, false, maxi(7, roundi(float(UiLayout.font_size(11, card)) * s)))
 		card.add_child(ph)
+		var ph_h: float = maxf(icon_fit + pad + pad_bot, glyph_h + pad + pad_bot)
+		if max_h > 8.0:
+			ph_h = minf(ph_h, max_h)
+		## min-x 0 → parent column assigns width; height content-fit.
+		card.custom_minimum_size = Vector2(0.0, ph_h)
 		return card
-	var row: HBoxContainer = HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(gap))
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.add_child(row)
-	@warning_ignore("unsafe_method_access")
-	var icon: Control = _EQUIP_ICON_VIEW.make_icon_cell(Vector2(icon_side, icon_side), mod, card)
-	icon.custom_minimum_size = Vector2(icon_side, icon_side)
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(icon)
 	var name_s: String = str(mod.get("name", mod.get("id", "")))
-	var name_fs: int = UiLayout.font_size(11, card)
+	var name_lines: int = maxi(1, name_s.length())
+	var cost: int = TypedVariant.as_int(mod.get("cost", 10), 0)
+	var show_cost: bool = not TypedVariant.as_bool(mod.get("implant", false), false)
+	var cost_fs: int = maxi(7, roundi(float(UiLayout.font_size(10, card)) * s))
+	var cost_h: float = 0.0
+	if show_cost:
+		cost_h = font.get_string_size(str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs).y
+	var chrome: float = pad + pad_bot + gap + (gap if show_cost else 0.0)
+	var text_block: float = glyph_h * float(name_lines) + cost_h
+	if max_h > 8.0:
+		var room_icon: float = max_h - chrome - text_block
+		if room_icon < icon_fit:
+			icon_fit = clampf(room_icon, float(UiLayout.px(12, card)), icon_side * s)
+		if chrome + text_block > max_h:
+			var shrink: float = max_h / maxf(1.0, chrome + text_block)
+			name_fs = maxi(7, roundi(float(name_fs) * shrink))
+			cost_fs = maxi(7, roundi(float(cost_fs) * shrink))
+			glyph_h = font.get_string_size("字", HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).y
+			if show_cost:
+				cost_h = font.get_string_size(str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs).y
+			text_block = glyph_h * float(name_lines) + cost_h
+			icon_fit = clampf(max_h - chrome - text_block, float(UiLayout.px(12, card)), icon_side * s)
+	if target_w >= 8.0:
+		var max_inner2: float = maxf(4.0, target_w - _equip_shop_card_chrome_x(pad))
+		icon_fit = minf(icon_fit, max_inner2)
+	var col: VBoxContainer = VBoxContainer.new()
+	col.add_theme_constant_override("separation", maxi(0, roundi(gap)))
+	col.alignment = BoxContainer.ALIGNMENT_BEGIN
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.clip_contents = true
+	card.add_child(col)
+	@warning_ignore("unsafe_method_access")
+	var icon: Control = _EQUIP_ICON_VIEW.make_icon_cell(Vector2(icon_fit, icon_fit), mod, card)
+	icon.custom_minimum_size = Vector2(icon_fit, icon_fit)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(icon)
 	var name_l: Label = Label.new()
-	name_l.text = name_s
-	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_l.clip_text = false
+	name_l.text = _vertical_cjk_label(name_s)
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	name_l.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_l.clip_text = true
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	UiAssets.apply_label_font(name_l, false, name_fs)
 	name_l.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95))
-	name_l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(name_l)
-	var font: Font = name_l.get_theme_font("font")
-	if font == null:
-		font = ThemeDB.fallback_font
-	var name_w: float = font.get_string_size(name_s, HORIZONTAL_ALIGNMENT_LEFT, -1, name_fs).x
-	var cost_w: float = 0.0
-	var cost: int = TypedVariant.as_int(mod.get("cost", 10), 0)
-	if not TypedVariant.as_bool(mod.get("implant", false), false):
-		var cost_fs: int = UiLayout.font_size(11, card)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	col.add_child(name_l)
+	if show_cost:
 		var cost_l: Label = Label.new()
 		cost_l.text = str(cost)
-		cost_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		cost_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cost_l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		cost_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		UiAssets.apply_label_font(cost_l, false, cost_fs)
 		cost_l.add_theme_color_override("font_color", Color(1, 0.92, 0.55))
-		cost_l.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		cost_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(cost_l)
-		var cfont: Font = cost_l.get_theme_font("font")
-		if cfont == null:
-			cfont = ThemeDB.fallback_font
-		cost_w = cfont.get_string_size(str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, cost_fs).x + gap
-	card.custom_minimum_size = Vector2(
-		icon_side + gap + name_w + cost_w + pad * 2.0 + float(UiLayout.px(4, card)),
-		icon_side + pad * 2.0
-	)
+		cost_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cost_l.size_flags_vertical = Control.SIZE_SHRINK_END
+		cost_l.clip_text = true
+		## Exact glyph height — Label default line box was leaving a blank under the price.
+		cost_l.custom_minimum_size = Vector2(0.0, cost_h)
+		cost_l.add_theme_constant_override("line_spacing", 0)
+		col.add_child(cost_l)
+	var want_h: float = chrome + icon_fit + text_block
+	if max_h > 8.0:
+		card.custom_minimum_size = Vector2(0.0, minf(want_h, max_h))
+	else:
+		card.custom_minimum_size = Vector2(0.0, 0.0)
+		## Height from content; width from column EXPAND.
+		if want_h > 1.0:
+			card.custom_minimum_size.y = want_h
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var hit: Button = Button.new()
 	hit.flat = true
 	hit.focus_mode = Control.FOCUS_NONE
@@ -5209,6 +7679,22 @@ func _can_equip_ship_now(ship: ShipUnit) -> bool:
 	## Battle: hangar ships only (EQUIPMENT.md / BOARD_AND_INPUT §4).
 	if match_ctrl.stage == MatchController.Stage.BATTLE and ship.slot_type == "hangar":
 		return true
+	## Nestor battle_equip_aura: Field Nestor alive → allow equipping any own ship (EQUIPMENT §0.1).
+	if match_ctrl.stage == MatchController.Stage.BATTLE and board != null:
+		var team: int = ship.team_id
+		if _team_has_battle_equip_aura(team):
+			return true
+	return false
+
+
+func _team_has_battle_equip_aura(team: int) -> bool:
+	if board == null:
+		return false
+	for s: ShipUnit in board.field_ships(team):
+		if s == null or not is_instance_valid(s) or s.is_destroyed:
+			continue
+		if TypedVariant.as_bool(DataStore.get_ship(s.ship_id).get("battle_equip_aura", false), false):
+			return true
 	return false
 
 
@@ -5277,8 +7763,8 @@ func _update_equipment_drag(screen: Vector2) -> void:
 				return
 		_equip_drag_active = true
 		_ensure_equipment_ghost(_current_equip_drag_item_id())
-		## Inventory / fitted gear: show SellZone like ship drag (EQUIPMENT §1).
-		if _equip_drag_source == "inventory" or _equip_drag_source == "fit":
+		## Inventory / fitted gear: show SellZone only when shop is expanded.
+		if (_equip_drag_source == "inventory" or _equip_drag_source == "fit") and is_shop_sell_enabled():
 			_dragging_sell_ui = true
 			_set_sell_mode(true, DataStore.function_module_sell_price(_current_equip_drag_item_id()))
 	if _equip_drag_active:
@@ -5503,20 +7989,27 @@ func _clear_equipment_drag() -> void:
 
 
 func _equip_screen_in_sell_zone(screen: Vector2) -> bool:
-	## Align with PointerInput._in_sell_zone: SellZone when visible, else shop strip.
+	## Align with PointerInput._in_sell_zone; left shop must be expanded.
+	if not is_shop_sell_enabled():
+		return false
 	@warning_ignore("unsafe_cast")
-	var sell: Control = hud.get_node_or_null("Root/%s/SellZone" % _SHOP_INNER) as Control
+	var sell: Control = _resolve_sell_zone()
 	if sell != null and sell.visible:
+		@warning_ignore("unsafe_cast")
+		var left_vis: Control = hud.get_node_or_null("Root/LeftCol") as Control
+		if left_vis == null or not left_vis.visible:
+			return false
 		return sell.get_global_rect().has_point(screen)
 	@warning_ignore("unsafe_cast")
-	var shop_root: Control = hud.get_node_or_null("Root/Shop") as Control
-	if shop_root == null or not shop_root.visible:
+	var buy: Control = hud.get_node_or_null("Root/%s" % _SHOP_BUY_COL) as Control
+	if buy == null or not buy.visible:
 		return false
-	@warning_ignore("unsafe_cast")
-	var content: Control = hud.get_node_or_null("Root/Shop/ShopCol/ShopContent") as Control
-	if content and not content.visible:
-		return false
-	return shop_root.get_global_rect().has_point(screen)
+	return buy.get_global_rect().has_point(screen)
+
+
+func is_shop_sell_enabled() -> bool:
+	## ShopBar never collapses; fetter collapse does not disable sell (UI_AND_SHELL §2.1).
+	return true
 
 
 func _credit_equipment_sell(item_id: String) -> void:
@@ -5538,6 +8031,8 @@ func on_star_merge_stash_equipment(team: int, item_ids: Array) -> void:
 	## Materials may have been the open info / equip target — drop freed typed refs before HUD.
 	if not is_instance_valid(_info_ship):
 		_info_ship = null
+	if not is_instance_valid(_last_touched_ship):
+		_last_touched_ship = null
 	if not is_instance_valid(_drag_info_ship):
 		_drag_info_ship = null
 	if not is_instance_valid(_equip_detail_fit_ship):
@@ -5837,6 +8332,7 @@ func _local_titan_race_for_ui() -> String:
 
 ## UI_AND_SHELL §2.1.1 — COVERED scale, top-aligned (bright nebula stays in frame; Amarr fix).
 func _shop_tips_top_align(tips: TextureRect, host: Control) -> void:
+	## Left shop card: previous +90° then +180° → Godot −90° (UI_AND_SHELL §2.1.1).
 	if tips == null or host == null or tips.texture == null:
 		return
 	var hw: float = host.size.x
@@ -5847,72 +8343,74 @@ func _shop_tips_top_align(tips: TextureRect, host: Control) -> void:
 	var th: float = float(tips.texture.get_height())
 	if tw < 1.0 or th < 1.0:
 		return
-	var s: float = maxf(hw / tw, hh / th)
+	## After ±90°, visual size is (th*s, tw*s); cover the card.
+	var s: float = maxf(hw / th, hh / tw)
 	var dw: float = tw * s
 	var dh: float = th * s
 	tips.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	tips.anchor_right = 0.0
 	tips.anchor_bottom = 0.0
-	tips.position = Vector2((hw - dw) * 0.5, 0.0)
+	tips.pivot_offset = Vector2(dw * 0.5, dh * 0.5)
+	tips.rotation = -PI / 2.0
+	tips.position = Vector2((hw - dw) * 0.5, (hh - dh) * 0.5)
 	tips.size = Vector2(dw, dh)
 
 
 func _shop_card_size(slot_count: int, box: Control) -> Vector2:
-	var avail_w: float = box.size.x
+	if _hud_shop_card_size.x >= 8.0 and _hud_shop_card_size.y >= 8.0:
+		## Fill path always stores squares.
+		var s0: float = minf(_hud_shop_card_size.x, _hud_shop_card_size.y)
+		return Vector2(s0, s0)
 	var avail_h: float = box.size.y
-	## Prefer measured ShopSlots / ShopInner height (Meta:ships = 1:3 stretch).
 	if avail_h < 8.0:
 		@warning_ignore("unsafe_cast")
-		var inner: Control = hud.get_node_or_null("Root/%s" % _SHOP_INNER) as Control
-		if inner and inner.size.y >= 8.0:
-			avail_h = inner.size.y
-			if avail_w < 8.0:
-				avail_w = maxf(inner.size.x * 0.88, box.size.x)
-	if avail_w < 8.0 or avail_h < 8.0:
-		@warning_ignore("unsafe_cast")
-		var shop_panel: Control = hud.get_node_or_null("Root/Shop") as Control
-		if shop_panel:
-			if avail_w < 8.0:
-				avail_w = shop_panel.size.x * 0.88
-			## 3/4 of shop strip ≈ ship row after Meta stretch ratio 1.
-			if avail_h < 8.0:
-				avail_h = shop_panel.size.y * 0.75
-	if avail_w < 8.0:
-		avail_w = UiLayout.px(1100.0, box)
+		var ship_col: Control = hud.get_node_or_null("Root/%s" % _SHOP_INNER) as Control
+		if ship_col and ship_col.size.y >= 8.0:
+			avail_h = ship_col.size.y
 	if avail_h < 8.0:
-		avail_h = UiLayout.px(156.0, box)
-	var sep: float = float(UiLayout.margin_px(6, box))
-	var total_sep: float = sep * float(maxi(0, slot_count - 1))
-	var w: float = (avail_w - total_sep) / float(maxi(1, slot_count))
-	## Fill ship-row height; low min so card mins cannot steal Meta's 1/4 stretch.
-	var h: float = avail_h
-	var aspect: float = 1.22
-	var from_w: float = w * aspect
-	if from_w < h * 0.85:
-		h = maxf(from_w, avail_h * 0.85)
-	h = clampf(h, UiLayout.px(48.0, box), avail_h)
-	w = clampf(w, UiLayout.px(48.0, box), UiLayout.px(200.0, box))
-	return Vector2(w, h)
+		@warning_ignore("unsafe_cast")
+		var bar: Control = hud.get_node_or_null("Root/%s" % _SHOP_BAR) as Control
+		var btns: Control = hud.get_node_or_null("Root/%s" % _SHOP_BTNS) as Control
+		if bar and bar.size.y >= 8.0:
+			var bh: float = btns.size.y if btns and btns.size.y >= 8.0 else 0.0
+			avail_h = maxf(8.0, bar.size.y - bh - float(UiLayout.margin_px(2, box)))
+	if avail_h < 8.0:
+		avail_h = UiLayout.px(560.0, box)
+	var n: int = maxi(1, slot_count)
+	var sep: float = float(UiLayout.margin_px(2, box))
+	var side: float = (avail_h - sep * float(n - 1)) / float(n)
+	var max_w: float = box.size.x
+	if max_w < 8.0:
+		@warning_ignore("unsafe_cast")
+		var ship_col_w: Control = hud.get_node_or_null("Root/%s" % _SHOP_INNER) as Control
+		if ship_col_w and ship_col_w.size.x >= 8.0:
+			max_w = ship_col_w.size.x
+	if max_w >= 8.0:
+		side = minf(side, max_w)
+	side = clampf(side, UiLayout.px(28.0, box), UiLayout.px(200.0, box))
+	return Vector2(side, side)
 
 func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost: int, idx: int, card_size: Vector2 = Vector2.ZERO) -> Control:
 	var card: PanelContainer = PanelContainer.new()
 	var sz: Vector2 = card_size if card_size.x > 0.0 else Vector2(UiLayout.px(140, card), UiLayout.px(170, card))
 	card.custom_minimum_size = sz
+	## Always expand equally so N cards fill ShopBody and kiss ShopBtns (no bottom dead gap).
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var titan_race: String = _local_titan_race_for_ui()
 	var tips_tex: Texture2D = null if purchased else UiAssets.shop_card_tips_skybox(ship, titan_race)
 	var outer: StyleBoxFlat = StyleBoxFlat.new()
-	## When tips fill the card, keep only a thin border — don't paint an opaque plate over the nebula.
+	## Fill only; cyan hairline is drawn on top of skybox (UI_AND_SHELL §2.1.1).
 	if tips_tex != null:
-		outer.bg_color = Color(0.08, 0.09, 0.12, 0.35)
+		outer.bg_color = Color(0.08, 0.09, 0.12, 0.28)
 	else:
 		outer.bg_color = Color(0.14, 0.16, 0.18, 0.98)
-	outer.border_color = Color(0.4, 0.65, 0.78, 0.95)
-	outer.set_border_width_all(2)
-	outer.set_corner_radius_all(5)
+	outer.border_color = Color(0, 0, 0, 0)
+	outer.set_border_width_all(0)
+	outer.set_corner_radius_all(4)
 	outer.set_content_margin_all(0)
 	card.add_theme_stylebox_override("panel", outer)
+	card.clip_contents = true
 	var stack: Control = Control.new()
 	stack.custom_minimum_size = sz
 	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -5927,8 +8425,9 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		UiAssets.apply_label_font(done, false, UiLayout.font_size(20, card))
 		done.add_theme_color_override("font_color", Color(0.85, 0.85, 0.8))
 		stack.add_child(done)
+		_add_shop_card_frame_overlay(stack)
 		return card
-	## UI_AND_SHELL §2.1.1: tips skybox under ISIS portrait — top-aligned COVERED (not centered).
+	## UI_AND_SHELL §2.1.1: tips skybox under ISIS portrait — +90° fade toward screen center.
 	if tips_tex:
 		var tips: TextureRect = TextureRect.new()
 		tips.name = "TipsSkybox"
@@ -6042,7 +8541,7 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 	star_badge.offset_right = star_badge.offset_left + UiLayout.px(42, card)
 	star_badge.offset_bottom = star_badge.offset_top + UiLayout.px(24, card)
 	stack.add_child(star_badge)
-	# 价格角标 · 右下
+	# 价格角标 · 右上（与星级左上对称）
 	var cost_badge: PanelContainer = PanelContainer.new()
 	var cost_sb: StyleBoxFlat = StyleBoxFlat.new()
 	cost_sb.bg_color = Color(0.05, 0.08, 0.1, 0.92)
@@ -6067,13 +8566,13 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 	UiAssets.apply_label_font(cost_l, false, UiLayout.font_size(15, card))
 	cost_l.add_theme_color_override("font_color", Color(1, 0.95, 0.7))
 	cost_row.add_child(cost_l)
-	cost_badge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	cost_badge.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	cost_badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	cost_badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	cost_badge.grow_vertical = Control.GROW_DIRECTION_END
 	cost_badge.offset_right = -UiLayout.px(4, card)
-	cost_badge.offset_bottom = -UiLayout.px(4, card)
+	cost_badge.offset_top = UiLayout.px(4, card)
 	cost_badge.offset_left = cost_badge.offset_right - UiLayout.px(56, card)
-	cost_badge.offset_top = cost_badge.offset_bottom - UiLayout.px(26, card)
+	cost_badge.offset_bottom = cost_badge.offset_top + UiLayout.px(26, card)
 	stack.add_child(cost_badge)
 	var hit: Button = Button.new()
 	hit.flat = true
@@ -6091,7 +8590,34 @@ func _make_shop_card(ship_name: String, ship: Dictionary, purchased: bool, cost:
 		)
 		hit.mouse_entered.connect(func() -> void: _show_ship_info_id(TypedVariant.as_int(ship.get("id", 0), 0), false))
 	stack.add_child(hit)
+	_add_shop_card_frame_overlay(stack)
 	return card
+
+
+func _add_shop_card_frame_overlay(stack: Control) -> void:
+	## Cyan rounded hairline on top of skybox (UI_AND_SHELL §2.1.1 / right-col style).
+	if stack == null:
+		return
+	var overlay: Panel = stack.get_node_or_null("CardFrameOverlay") as Panel
+	if overlay == null:
+		overlay = Panel.new()
+		overlay.name = "CardFrameOverlay"
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stack.add_child(overlay)
+	overlay.z_index = 12
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.offset_left = 0.0
+	overlay.offset_top = 0.0
+	overlay.offset_right = 0.0
+	overlay.offset_bottom = 0.0
+	var fr: StyleBoxFlat = StyleBoxFlat.new()
+	fr.bg_color = Color(0, 0, 0, 0)
+	fr.border_color = Color(0.35, 0.72, 0.85, 0.9)
+	fr.set_border_width_all(1)
+	fr.set_corner_radius_all(4)
+	fr.set_content_margin_all(0)
+	overlay.add_theme_stylebox_override("panel", fr)
+
 
 func _make_corner_badge(text: String, bg: Color, fg: Color, from: Node) -> PanelContainer:
 	var badge: PanelContainer = PanelContainer.new()
@@ -6371,14 +8897,22 @@ func _shop_pick_hangar_at_screen(screen: Vector2) -> Dictionary:
 
 
 func _set_sell_mode(active: bool, price: int = 0) -> void:
+	## Overlay only — keep ShopSlots in layout so MetaCol / ShopBtns do not jump.
 	@warning_ignore("unsafe_cast")
 	var slots: Control = hud.get_node_or_null("Root/%s" % _SHOP_SLOTS) as Control
+	if slots == null:
+		slots = hud.get_node_or_null("Root/%s/ShopSlots" % _SHOP_INNER) as Control
 	@warning_ignore("unsafe_cast")
-	var sell: PanelContainer = hud.get_node_or_null("Root/%s/SellZone" % _SHOP_INNER) as PanelContainer
+	var sell: PanelContainer = _resolve_sell_zone()
 	if slots:
-		slots.visible = not active
+		## Stay visible for layout footprint; ignore picks while sell overlay is up.
+		slots.visible = true
+		slots.mouse_filter = Control.MOUSE_FILTER_IGNORE if active else Control.MOUSE_FILTER_PASS
 	if sell:
 		sell.visible = active
+		sell.mouse_filter = Control.MOUSE_FILTER_STOP if active else Control.MOUSE_FILTER_IGNORE
+		sell.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		sell.custom_minimum_size = Vector2.ZERO
 		@warning_ignore("unsafe_cast")
 		var lab: Label = sell.get_node_or_null("SellLabel") as Label
 		if lab:
@@ -6388,11 +8922,16 @@ func _set_sell_mode(active: bool, price: int = 0) -> void:
 func _on_drag_begin(ship: ShipUnit) -> void:
 	board.begin_drag(ship)
 	_drag_info_ship = ship
-	_dragging_sell_ui = true
-	var price: int = 0
-	if ship:
-		price = ship.get_sell_price()
-	_set_sell_mode(true, price)
+	## Sell overlay only when bottom shop is expanded.
+	if is_shop_sell_enabled():
+		_dragging_sell_ui = true
+		var price: int = 0
+		if ship:
+			price = ship.get_sell_price()
+		_set_sell_mode(true, price)
+	else:
+		_dragging_sell_ui = false
+		_set_sell_mode(false)
 
 func _on_drag_move(world_pos: Vector3) -> void:
 	board.update_drag(world_pos)
@@ -6496,6 +9035,7 @@ func _play_titan_berth_intro() -> void:
 	_titan_intro_pitch0 = _cam_base_pitch_deg
 	## Head down (more negative pitch).
 	_cam_base_pitch_deg = minf(_cam_base_pitch_deg, _cam_base_pitch_deg - 12.0)
+	_titan_intro_pitch_start = _cam_base_pitch_deg
 	_titan_intro_t = 0.0
 	## Lowsec R1 already shows rival — slide both together (§2.5).
 	if _rival_titan_berth and is_instance_valid(_rival_titan_berth) and _rival_titan_berth.visible:
@@ -6554,15 +9094,17 @@ func _tick_titan_intro(delta: float) -> void:
 		_titan_intro_t = -1.0
 		return
 	_titan_intro_t += delta
-	var u: float = clampf(_titan_intro_t / _TITAN_INTRO_DUR_S, 0.0, 1.0)
+	var u_slide: float = clampf(_titan_intro_t / _TITAN_INTRO_SLIDE_DUR_S, 0.0, 1.0)
+	var u_cam: float = clampf(_titan_intro_t / _TITAN_INTRO_CAM_DUR_S, 0.0, 1.0)
 	## Smoothstep.
-	u = u * u * (3.0 - 2.0 * u)
+	u_slide = u_slide * u_slide * (3.0 - 2.0 * u_slide)
+	u_cam = u_cam * u_cam * (3.0 - 2.0 * u_cam)
 	if home_sliding:
-		_titan_berth.position = _titan_intro_start.lerp(_titan_intro_end, u)
-		_cam_base_pitch_deg = lerpf(_cam_base_pitch_deg, _titan_intro_pitch0, u)
+		_titan_berth.position = _titan_intro_start.lerp(_titan_intro_end, u_slide)
+		_cam_base_pitch_deg = lerpf(_titan_intro_pitch_start, _titan_intro_pitch0, u_cam)
 	if _rival_intro_active and _rival_titan_berth != null and is_instance_valid(_rival_titan_berth):
-		_rival_titan_berth.position = _rival_intro_start.lerp(_rival_intro_end, u)
-	if u < 1.0:
+		_rival_titan_berth.position = _rival_intro_start.lerp(_rival_intro_end, u_slide)
+	if u_slide < 1.0:
 		return
 	if home_sliding:
 		_titan_berth.position = _titan_intro_end
@@ -6737,11 +9279,48 @@ func _race_drone_id(ship_data: Dictionary) -> int:
 		_:
 			return TypedVariant.as_int(_RACE_DRONE_LIGHT.get(race, 1001), 0)
 
+func _ship_drone_unit_ids(ship_data: Dictionary) -> Array:
+	## Explicit multi-id list wins (Nestor 1421–1424, Guristas doubles).
+	@warning_ignore("unsafe_cast")
+	var raw: Array = ship_data.get("drone_unit_ids", []) as Array
+	var out: Array = []
+	for u: Variant in raw:
+		var uid: int = TypedVariant.as_int(u, 0)
+		if uid > 0:
+			out.append(uid)
+	return out
+
+
+func _ship_fighter_unit_ids(ship_data: Dictionary) -> Array:
+	## Multi-type carriers (Delirium): fighter_unit_ids[]; else single fighter_unit_id.
+	@warning_ignore("unsafe_cast")
+	var raw: Array = ship_data.get("fighter_unit_ids", []) as Array
+	var out: Array = []
+	for u: Variant in raw:
+		var uid: int = TypedVariant.as_int(u, 0)
+		if uid > 0:
+			out.append(uid)
+	if out.is_empty():
+		var one: int = TypedVariant.as_int(ship_data.get("fighter_unit_id", 0), 0)
+		if one > 0:
+			out.append(one)
+	return out
+
+
 func _ship_drone_bay_slots(ship_data: Dictionary) -> int:
+	var explicit: Array = _ship_drone_unit_ids(ship_data)
+	if not explicit.is_empty():
+		return explicit.size()
 	var sid: int = TypedVariant.as_int(ship_data.get("id", 0), 0)
+	var group: String = str(ship_data.get("ship_group", ""))
+	## COMBAT §14C: logistic cruiser / BC show empty drone bay.
+	if TypedVariant.as_bool(ship_data.get("is_logistic", false), false) and group in ["cruiser", "battlecruiser"]:
+		return 0
+	## Logistic battleship without drone_unit_ids: no combat heavies (Nestor must set the array).
+	if TypedVariant.as_bool(ship_data.get("is_logistic", false), false) and group == "battleship":
+		return 0
 	if _DRONE_COUNT_EXCEPTIONS.has(sid):
 		return TypedVariant.as_int(_DRONE_COUNT_EXCEPTIONS[sid], 0)
-	var group: String = str(ship_data.get("ship_group", ""))
 	if group == "battleship":
 		return 2
 	if group == "battlecruiser":
@@ -7155,7 +9734,16 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 		var mining_gold_base: int = TypedVariant.as_int(ship_data.get("mining_gold_per_round", 0), 0)
 		var mining_gold: int = mining_gold_base * maxi(star, 1)
 		var is_heal: bool = str(ship_data.get("weapon_fx", "")) == "heal" or TypedVariant.as_bool(ship_data.get("is_logistic", false), false)
-		if is_titan_info:
+		var hi_slots: int = TypedVariant.as_int(ship_data.get("hi_slots", 0), 0)
+		## hi_slots=0 (Nestor / Delirium): hide high-slot / primary weapon block — no zero-damage fake.
+		if hi_slots <= 0 and not show_cyno and not is_mining and not is_titan_info:
+			if weapon_panel:
+				weapon_panel.visible = false
+			if weapon_icon:
+				weapon_icon.texture = null
+			if weapon_label:
+				weapon_label.text = ""
+		elif is_titan_info:
 			if weapon_panel:
 				weapon_panel.visible = true
 			if weapon_icon:
@@ -7232,7 +9820,8 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 			if drone_label:
 				drone_label.text = ""
 		else:
-			var fighter_id: int = TypedVariant.as_int(ship_data.get("fighter_unit_id", 0), 0)
+			var fighter_ids: Array = _ship_fighter_unit_ids(ship_data)
+			var drone_ids: Array = _ship_drone_unit_ids(ship_data)
 			var repair_id: int = TypedVariant.as_int(ship_data.get("heavy_repair_drone_id", 0), 0)
 			var mining_drone_id2: int = TypedVariant.as_int(ship_data.get("mining_drone_id", 0), 0)
 			var bay_slots: int = _ship_drone_bay_slots(ship_data)
@@ -7257,21 +9846,34 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 						maxi(star, 1)
 					]
 					_style_info_stat_label(drone_label)
-			elif fighter_id > 0:
-				var squads: int = TypedVariant.as_int(ship_data.get("fighter_squadrons", 3), 0)
+			elif not fighter_ids.is_empty():
+				## Carrier / Delirium: list each fighter type (1 squadron each when multi-id).
+				var squads: int = TypedVariant.as_int(ship_data.get("fighter_squadrons", fighter_ids.size()), 0)
 				var tubes: int = TypedVariant.as_int(ship_data.get("fighter_tubes_per_squadron", 3), 0)
-				var n_fighters: int = squads * tubes
-				var fighter_data: Dictionary = DataStore.get_ship(fighter_id)
-				var fighter_star: Dictionary = DataStore.get_star(fighter_id, maxi(star, 1))
+				var names: PackedStringArray = PackedStringArray()
+				var first_fid: int = TypedVariant.as_int(fighter_ids[0], 0)
+				for fi: Variant in fighter_ids:
+					var fid: int = TypedVariant.as_int(fi, 0)
+					var fd: Dictionary = DataStore.get_ship(fid)
+					names.append(str(fd.get("name", "舰载机")))
+				var per_squad: int = tubes
+				var multi: bool = fighter_ids.size() > 1
+				var head: String = "、".join(names) if multi else str(names[0] if names.size() > 0 else "舰载机")
+				var count_txt: String = "%d组×%d" % [fighter_ids.size(), per_squad] if multi else "×%d" % (squads * tubes)
+				var stats_src: Dictionary = DataStore.get_ship(first_fid)
+				var stats_star: Dictionary = DataStore.get_star(first_fid, maxi(star, 1))
 				if drone_panel:
 					drone_panel.visible = true
 				if drone_icon:
-					drone_icon.texture = UiAssets.champion_icon(str(fighter_data.get("name", "")), fighter_id)
+					drone_icon.texture = UiAssets.champion_icon(str(stats_src.get("name", "")), first_fid)
+					var fp: String = str(stats_src.get("portrait", ""))
+					if fp != "" and drone_icon.texture == null:
+						drone_icon.texture = UiAssets.tex(fp)
 				if drone_label:
-					drone_label.text = "%s ×%d\n%s" % [
-						str(fighter_data.get("name", "舰载机")),
-						n_fighters,
-						_drone_stats_text(fighter_data, fighter_star)
+					drone_label.text = "%s %s\n%s" % [
+						head,
+						count_txt,
+						_drone_stats_text(stats_src, stats_star)
 					]
 					_style_info_stat_label(drone_label)
 			elif repair_id > 0:
@@ -7291,6 +9893,29 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 						str(rep_data.get("name", "维修无人机")),
 						n_rep,
 						_drone_stats_text(rep_data, rep_star)
+					]
+					_style_info_stat_label(drone_label)
+			elif not drone_ids.is_empty():
+				## Explicit list (Nestor 四族后勤): never fall back to race combat drones.
+				var dnames: PackedStringArray = PackedStringArray()
+				var first_did: int = TypedVariant.as_int(drone_ids[0], 0)
+				for di: Variant in drone_ids:
+					var did: int = TypedVariant.as_int(di, 0)
+					var dd: Dictionary = DataStore.get_ship(did)
+					dnames.append(str(dd.get("name", "无人机")))
+				var d0: Dictionary = DataStore.get_ship(first_did)
+				var d0_star: Dictionary = DataStore.get_star(first_did, maxi(star, 1))
+				if drone_panel:
+					drone_panel.visible = true
+				if drone_icon:
+					drone_icon.texture = UiAssets.drone_portrait(first_did)
+					if drone_icon.texture == null:
+						drone_icon.texture = UiAssets.champion_icon(str(d0.get("name", "")), first_did)
+				if drone_label:
+					drone_label.text = "%s\n各1 · 共%d\n%s" % [
+						"、".join(dnames),
+						drone_ids.size(),
+						_drone_stats_text(d0, d0_star)
 					]
 					_style_info_stat_label(drone_label)
 			else:
@@ -7352,15 +9977,18 @@ func _fill_info_panel(ship_name: String, star: int, shield_txt: String, armor_tx
 	var root: Control = hud.get_node_or_null("Root") as Control
 	if root:
 		_apply_info_panel_adaptive_layout(root)
-	# Expand right column when showing ship info.
-	if _collapse_right:
-		_collapse_right = false
-		_apply_adaptive_hud_layout()
+	## Do not auto-expand right column here — collapsed stays collapsed until user toggles (UI_AND_SHELL §2.5).
 
 func _show_ship_info(ship: ShipUnit) -> void:
 	_info_ship = ship
+	if ship != null and is_instance_valid(ship):
+		_last_touched_ship = ship
 	_suppress_headup_for_preview = ship == null or ship.slot_type != "field"
 	if ship == null:
+		_refresh_observe_btn()
+		return
+	## Right collapsed: remember unit only — no panel / no auto-expand.
+	if _collapse_right:
 		_refresh_observe_btn()
 		return
 	## Refresh fetter multipliers before reading runtime stats into InfoPanel.
@@ -7395,11 +10023,16 @@ func _show_ship_info(ship: ShipUnit) -> void:
 func _show_ship_info_id(ship_id: int, pin: bool = false) -> void:
 	## `pin=true`: mobile shop tap / long-press — dwell INFO_HOLD_S so release→hover-null
 	## cannot instantly hide the panel (INPUT_PC_TOUCH_MAP §4). PC shop hover keeps pin=false.
+	## Do not wipe `_last_touched_ship` — shop preview is temporary.
 	_info_ship = null
 	_info_hold_until_ms = 0
 	_suppress_headup_for_preview = true
 	if _camera_observe:
 		_exit_observe_keep_view()
+	## Right collapsed: skip shop preview expand as well.
+	if _collapse_right:
+		_refresh_observe_btn()
+		return
 	var st: Dictionary = DataStore.get_star_resolved(ship_id, 1)
 	var data: Dictionary = DataStore.get_ship(ship_id)
 	var dmg: Dictionary = st.get("damage", {})
@@ -7423,11 +10056,15 @@ func _show_ship_info_id(ship_id: int, pin: bool = false) -> void:
 	_refresh_observe_btn()
 
 func _hide_ship_info() -> void:
-	_info_ship = null
 	_info_hold_until_ms = 0
 	_suppress_headup_for_preview = false
 	if _camera_observe:
 		_exit_observe_keep_view()
+	## DETAIL mode must not become an empty shell — restore last touched unit.
+	if _right_pane_mode == RightPaneMode.DETAIL and not _collapse_right:
+		if _restore_detail_ship_panel():
+			return
+	_info_ship = null
 	@warning_ignore("unsafe_cast")
 	var p: PanelContainer = hud.get_node_or_null("Root/%s" % _INFO_PANEL) as PanelContainer
 	if p:
@@ -7435,6 +10072,10 @@ func _hide_ship_info() -> void:
 	_refresh_observe_btn()
 
 func _on_match_over(summary: String) -> void:
+	SessionDiagnostics.log(
+		"match.leave",
+		"reason=match_over mode=%s summary=%s" % [str(GameSession.pending_mode), summary]
+	)
 	show_notice(summary)
 	_append_battle_log(summary)
 	_cam_headup_phase = 0
@@ -7630,16 +10271,387 @@ func _present_nullsec_settlement(summary: String) -> void:
 	_settlement_panel.show_report(report)
 	show_notice(summary)
 
+func _submit_seat_round_summary_if_net(result: String) -> void:
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or GameSession.pending_mode != "nullsec":
+		return
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	var titles: Array = []
+	if _match_titles.has(local_seat):
+		titles = TypedVariant.as_array(_match_titles.get(local_seat)).duplicate()
+	var wld: Dictionary = TypedVariant.as_dict(_wld_by_seat.get(local_seat, {}))
+	var round_id: int = TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else 0
+	var summary: Dictionary = {
+		"seat": local_seat,
+		"seat_id": local_seat,
+		"rival": rival,
+		"result": result,
+		"titles": titles,
+		"w": TypedVariant.as_int(wld.get("w", 0), 0),
+		"l": TypedVariant.as_int(wld.get("l", 0), 0),
+		"d": TypedVariant.as_int(wld.get("d", 0), 0),
+		"round": round_id,
+		"is_ai": false,
+	}
+	## Host fills AI desks before local human ingest so stitch does not race empty AI rows.
+	if net.is_host:
+		_host_inject_ai_round_summaries(round_id)
+	if net.has_method("submit_seat_round_summary"):
+		net.call("submit_seat_round_summary", summary)
+	SessionDiagnostics.log("net.round_summary", "seat=%d result=%s titles=%d" % [local_seat, result, titles.size()])
+
+
+func _host_inject_ai_round_summaries(round_id: int) -> void:
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or not net.is_host or not net.has_method("host_inject_round_summary"):
+		return
+	@warning_ignore("unsafe_cast")
+	var seats: Array = GameSession.pending_nullsec.get("seats", []) as Array
+	var mu: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {}))
+	for s_v: Variant in seats:
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		if not TypedVariant.as_bool(s.get("is_ai", false), false):
+			continue
+		if NullsecNetSession.is_spectate_race(str(s.get("titan_race", ""))):
+			continue
+		if not NullsecNetSession.is_player_race(str(s.get("titan_race", ""))):
+			continue
+		var seat_id: int = TypedVariant.as_int(s.get("seat_id", -1), -1)
+		if seat_id < 0:
+			continue
+		var rival: int = NullsecRoundPairing.rival_from_matchups(mu, seat_id)
+		var result: String = _ai_round_result_for_seat(seat_id, rival)
+		var wld: Dictionary = _wld_tuple(seat_id)
+		var titles: Array = TypedVariant.as_array(_match_titles.get(seat_id, [])).duplicate()
+		net.call("host_inject_round_summary", {
+			"seat": seat_id,
+			"seat_id": seat_id,
+			"rival": rival,
+			"result": result,
+			"titles": titles,
+			"w": TypedVariant.as_int(wld.get("w", 0), 0),
+			"l": TypedVariant.as_int(wld.get("l", 0), 0),
+			"d": TypedVariant.as_int(wld.get("d", 0), 0),
+			"round": round_id,
+			"is_ai": true,
+			"nick": str(s.get("nick", "席位%d" % seat_id)),
+		})
+
+
+func _ai_round_result_for_seat(seat_id: int, rival: int) -> String:
+	## Prefer inverting a human rival's known local result; else AI↔AI dual_win / PVE win.
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	if rival == local_seat and match_ctrl and not _seat_is_ai(rival):
+		var hr: String = str(match_ctrl.last_round_result)
+		if hr == "win":
+			return "lose"
+		if hr == "lose":
+			return "win"
+		return "draw"
+	## AI vs human on another table: WLD already bumped by host instant/report paths when known.
+	if rival >= 0 and not _seat_is_ai(rival):
+		## No local POV — leave as win if host already counted a win this round via instant settle.
+		var wld: Dictionary = _wld_tuple(seat_id)
+		if TypedVariant.as_int(wld.get("w", 0), 0) > 0:
+			return "win"
+		return "—"
+	## AI vs AI / AI PVE instant: recorded as wins on host.
+	return "win"
+
+
+func _on_net_round_standings(standings: Dictionary) -> void:
+	var summaries: Array = TypedVariant.as_array(standings.get("summaries", []))
+	SessionDiagnostics.log(
+		"net.round_standings",
+		"apply n=%d round=%d" % [
+			summaries.size(),
+			TypedVariant.as_int(standings.get("round", -1), -1),
+		]
+	)
+	for s_v: Variant in summaries:
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		var seat: int = TypedVariant.as_int(s.get("seat", s.get("seat_id", -1)), -1)
+		if seat < 0:
+			continue
+		_wld_by_seat[seat] = {
+			"w": TypedVariant.as_int(s.get("w", 0), 0),
+			"l": TypedVariant.as_int(s.get("l", 0), 0),
+			"d": TypedVariant.as_int(s.get("d", 0), 0),
+		}
+		var titles: Array = TypedVariant.as_array(s.get("titles", []))
+		if not titles.is_empty():
+			_match_titles[seat] = titles.duplicate()
+		## Append battle-log lines for remote seats' new titles this round when result known.
+		var result: String = str(s.get("result", ""))
+		var rival: int = TypedVariant.as_int(s.get("rival", -1), -1)
+		var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+		if seat != local_seat and result != "" and result != "—":
+			var nick: String = NickCodec.display_short(str(_seat_row_nick(seat)))
+			var rival_nick: String = NickCodec.display_short(str(_seat_row_nick(rival))) if rival >= 0 else "?"
+			_append_battle_log("%s本回合对%s · %s" % [nick, rival_nick, result])
+	if _right_pane_mode == RightPaneMode.RANK:
+		_refresh_rank_panel()
+
+
 func _on_nullsec_match_report_received(report: Dictionary) -> void:
+	var n: int = TypedVariant.as_array(report.get("players", [])).size()
+	SessionDiagnostics.log(
+		"net.match_report",
+		"apply players=%d provisional=%d" % [
+			n,
+			1 if TypedVariant.as_bool(report.get("provisional", false), false) else 0,
+		]
+	)
 	## Host-collected §7 report (every contestant's own titles/summary) supersedes the
 	## local-only fallback rows shown the instant combat ended.
 	if _settlement_panel and is_instance_valid(_settlement_panel):
 		_settlement_panel.show_report(report)
+	else:
+		## Guest may receive report before panel exists — persist + show.
+		NullsecSettlement.save_match_report(report)
+		if _settlement_panel == null:
+			_settlement_panel = NullsecSettlementPanel.new()
+			hud.add_child(_settlement_panel)
+		_settlement_panel.show_report(report)
+
+
+func on_gold_income_float(amount: int, mining_part: int = 0) -> void:
+	if amount <= 0:
+		return
+	var root: Control = hud.get_node_or_null("Root") if hud else null
+	if root == null:
+		return
+	var gold_box: Control = root.get_node_or_null("%s/GoldBox" % _BOTTOM_GOLD_POP) as Control
+	if gold_box == null:
+		gold_box = root.get_node_or_null("%s/StatsRow/GoldBox" % _SHOP_MID) as Control
+	if gold_box:
+		var floater: Label = Label.new()
+		floater.text = "+%d" % amount
+		floater.modulate = Color(1.0, 0.92, 0.35, 1.0)
+		floater.z_index = 40
+		floater.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		gold_box.add_child(floater)
+		floater.position = Vector2(0, -8)
+		var tw: Tween = create_tween()
+		tw.tween_property(floater, "position:y", -48.0, 0.85).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_property(floater, "modulate:a", 0.0, 0.85)
+		tw.tween_callback(floater.queue_free)
+	if mining_part > 0 and board != null:
+		_log_mining_ship_incomes()
+
+
+func _log_mining_ship_incomes() -> void:
+	if board == null:
+		return
+	for s: ShipUnit in board.field_ships(ShipUnit.TEAM_PLAYER):
+		if s == null or s.is_destroyed or s.is_unmanned:
+			continue
+		var sd: Dictionary = DataStore.get_ship(s.ship_id)
+		var base_g: int = TypedVariant.as_int(sd.get("mining_gold_per_round", 0), 0)
+		if base_g <= 0:
+			continue
+		var amt: int = base_g * maxi(1, s.star)
+		var nm: String = str(sd.get("name", s.ship_id))
+		_append_battle_log("矿船 %s +%d" % [nm, amt])
 
 func _on_refresh_pressed() -> void:
 	shop.manual_refresh()
 	_refresh_shop_ui()
-	_refresh_hud()
+	_refresh_hud_economy_only()
+
+
+func _restyle_scanner_host_to_side(host: Control, side: float, root: Control) -> void:
+	## Keep snapped host rect; only refresh frame/art/caption to match `side`.
+	if host == null or root == null or side < 8.0:
+		return
+	host.custom_minimum_size = Vector2(side, side)
+	host.clip_contents = true
+	var frame: PanelContainer = host.get_node_or_null("ScannerFrame") as PanelContainer
+	if frame == null:
+		return
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.custom_minimum_size = Vector2.ZERO
+	var cost: int = TypedVariant.as_int(DataStore.economy.get("ship_scanner_cost", 50), 50)
+	var inner: VBoxContainer = frame.get_node_or_null("ScannerInner") as VBoxContainer
+	if inner == null:
+		return
+	var btn: Button = inner.get_node_or_null("ScannerBtn") as Button
+	if btn != null:
+		var cap_h: float = float(UiLayout.px(16, root))
+		var art_side: float = maxf(8.0, side - float(UiLayout.margin_px(8, root)) - cap_h)
+		_style_image_button_fill(btn, UiAssets.shop_scanner_path(), "高级刷新", cost, art_side, art_side)
+		btn.custom_minimum_size = Vector2(0.0, art_side * 0.55)
+	var cap: Label = inner.get_node_or_null("ScannerCaption") as Label
+	if cap != null:
+		cap.text = "高级刷新 %d" % cost
+
+
+func _ensure_ship_scanner_btn(root: Control, btn_w: int, parent_col: Node = null) -> void:
+	if root == null:
+		return
+	if parent_col == null:
+		parent_col = root.get_node_or_null(_SHOP_BAR)
+	if parent_col == null:
+		parent_col = root.get_node_or_null(_SHOP_META_COL)
+	if parent_col == null:
+		return
+	## Prefer plain Control host (absolute snap square); migrate legacy VBox.
+	var host: Control = parent_col.get_node_or_null("ScannerHost") as Control
+	if host == null:
+		var meta_mid: Node = root.get_node_or_null(_SHOP_META_MID)
+		if meta_mid != null:
+			host = meta_mid.get_node_or_null("ScannerHost") as Control
+			if host == null:
+				var esc: Node = meta_mid.get_node_or_null("EquipScanCol")
+				if esc != null:
+					host = esc.get_node_or_null("ScannerHost") as Control
+		if host != null and host.get_parent() != parent_col:
+			_reparent_keep_signals(host, parent_col)
+	if host == null:
+		host = Control.new()
+		host.name = "ScannerHost"
+		parent_col.add_child(host)
+	elif host is VBoxContainer or host is HBoxContainer:
+		## Box host fights FULL_RECT frame; flatten to plain Control.
+		var flat: Control = Control.new()
+		flat.name = "ScannerHost"
+		var hp: Node = host.get_parent()
+		var hi: int = host.get_index()
+		var migrate: Array[Node] = []
+		for ch: Node in host.get_children():
+			migrate.append(ch)
+		for ch2: Node in migrate:
+			_reparent_keep_signals(ch2, flat)
+		host.name = "ScannerHost_Legacy"
+		host.queue_free()
+		hp.add_child(flat)
+		hp.move_child(flat, hi)
+		host = flat
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.clip_contents = true
+	host.size_flags_horizontal = 0
+	host.size_flags_vertical = 0
+	var side: float = float(maxi(btn_w, UiLayout.px(56, root)))
+	if _hud_shop_card_side >= 8.0:
+		side = clampf(_hud_shop_card_side * 0.85, float(UiLayout.px(48, root)), float(UiLayout.px(100, root)))
+	side = clampf(side, float(UiLayout.px(48, root)), float(UiLayout.px(110, root)))
+	host.custom_minimum_size = Vector2(side, side)
+	var frame: PanelContainer = host.get_node_or_null("ScannerFrame") as PanelContainer
+	if frame == null:
+		frame = PanelContainer.new()
+		frame.name = "ScannerFrame"
+		host.add_child(frame)
+	_clear_control_abs_layout(frame)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.custom_minimum_size = Vector2.ZERO
+	var outer: StyleBoxFlat = StyleBoxFlat.new()
+	outer.bg_color = Color(0.1, 0.12, 0.16, 0.95)
+	outer.border_color = Color(0.35, 0.62, 0.78, 0.9)
+	outer.set_border_width_all(1)
+	outer.set_corner_radius_all(4)
+	outer.set_content_margin_all(UiLayout.margin_px(2, root))
+	frame.add_theme_stylebox_override("panel", outer)
+	frame.mouse_filter = Control.MOUSE_FILTER_STOP
+	## Title+price inside frame (not host-external Caption).
+	var inner: VBoxContainer = frame.get_node_or_null("ScannerInner") as VBoxContainer
+	if inner == null:
+		inner = VBoxContainer.new()
+		inner.name = "ScannerInner"
+		frame.add_child(inner)
+	inner.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+	inner.alignment = BoxContainer.ALIGNMENT_CENTER
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cost: int = TypedVariant.as_int(DataStore.economy.get("ship_scanner_cost", 50), 50)
+	var btn: Button = inner.get_node_or_null("ScannerBtn") as Button
+	if btn == null:
+		btn = frame.get_node_or_null("ScannerBtn") as Button
+	if btn == null:
+		btn = host.get_node_or_null("ScannerBtn") as Button
+	if btn == null:
+		btn = parent_col.get_node_or_null("ScannerBtn") as Button
+		if btn == null:
+			btn = root.get_node_or_null("%s/LeftBtns/ScannerBtn" % _SHOP_LEFT) as Button
+	if btn != null and btn.get_parent() != inner:
+		_reparent_keep_signals(btn, inner)
+	if btn == null:
+		btn = Button.new()
+		btn.name = "ScannerBtn"
+		inner.add_child(btn)
+	_clear_control_abs_layout(btn)
+	var cap_h: float = float(UiLayout.px(16, root))
+	var art_side: float = maxf(8.0, side - float(UiLayout.margin_px(8, root)) - cap_h)
+	_style_image_button_fill(btn, UiAssets.shop_scanner_path(), "高级刷新", cost, art_side, art_side)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0.0, art_side * 0.55)
+	if not btn.pressed.is_connected(_on_scanner_pressed):
+		btn.pressed.connect(_on_scanner_pressed)
+	var cap: Label = inner.get_node_or_null("ScannerCaption") as Label
+	if cap == null:
+		cap = frame.get_node_or_null("ScannerCaption") as Label
+	if cap == null:
+		cap = host.get_node_or_null("ScannerCaption") as Label
+	if cap != null and cap.get_parent() != inner:
+		_reparent_keep_signals(cap, inner)
+	if cap == null:
+		cap = Label.new()
+		cap.name = "ScannerCaption"
+		inner.add_child(cap)
+	cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cap.autowrap_mode = TextServer.AUTOWRAP_OFF
+	cap.text = "高级刷新 %d" % cost
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cap.size_flags_vertical = Control.SIZE_SHRINK_END
+	UiAssets.apply_label_font(cap, false, UiLayout.font_size(11, root))
+	cap.add_theme_color_override("font_color", Color(0.92, 0.94, 0.98))
+	cap.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	cap.add_theme_constant_override("outline_size", UiLayout.margin_px(2, root))
+	## Drop stray host-level captions left from older layout.
+	for ch: Node in host.get_children():
+		if ch != frame and str(ch.name).begins_with("ScannerCaption"):
+			ch.queue_free()
+	inner.move_child(btn, 0)
+	inner.move_child(cap, inner.get_child_count() - 1)
+
+
+func _refresh_scanner_cost_caption(root: Control = null) -> void:
+	## Keep 「高级刷新 N」 in sync with economy.json / 全舰船数据调整.
+	if root == null and hud != null:
+		root = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	var cost: int = TypedVariant.as_int(DataStore.economy.get("ship_scanner_cost", 50), 50)
+	var cap: Label = root.get_node_or_null(
+		"%s/ScannerFrame/ScannerInner/ScannerCaption" % _SHOP_SCANNER_HOST
+	) as Label
+	if cap == null:
+		cap = root.get_node_or_null("%s/ScannerFrame/ScannerCaption" % _SHOP_SCANNER_HOST) as Label
+	if cap == null:
+		cap = root.get_node_or_null("%s/ScannerCaption" % _SHOP_SCANNER_HOST) as Label
+	if cap:
+		cap.text = "高级刷新 %d" % cost
+	var btn: Button = root.get_node_or_null(_SHOP_SCANNER) as Button
+	if btn == null:
+		btn = root.get_node_or_null(
+			"LeftCol/LeftInner/LeftContent/ShopBarPanel/ShopBar/ScannerHost/ScannerFrame/ScannerBtn"
+		) as Button
+	if btn:
+		btn.tooltip_text = "高级刷新  %d" % cost
+
+
+func _on_scanner_pressed() -> void:
+	if shop == null or not shop.has_method("try_ship_scanner"):
+		return
+	if shop.try_ship_scanner():
+		_refresh_shop_ui()
+		_refresh_hud()
+
 
 func _on_lock_pressed() -> void:
 	## Lock shop removed (ECONOMY_AND_SHOP §3).
@@ -7702,8 +10714,8 @@ func _try_buy_exp_once() -> bool:
 	if match_ctrl == null or match_ctrl.player_gold < cost:
 		return false
 	var before: int = match_ctrl.player_gold
+	## `_grant_exp` emits hud_refresh; while hold-active `_refresh_hud` stays economy-only.
 	match_ctrl.buy_exp()
-	_refresh_hud()
 	return match_ctrl.player_gold < before
 
 func _player_hp_label_text() -> String:
@@ -7826,6 +10838,10 @@ func _normalize_equipment_shop_slots(raw: Variant) -> Array:
 			"id": str(slot.get("id", "")),
 			"purchased": TypedVariant.as_bool(slot.get("purchased", false), false),
 		})
+	## Old saves may still carry 5 slots — clamp to live economy count (EQUIPMENT.md).
+	var cap: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 4), 4))
+	if out.size() > cap:
+		out.resize(cap)
 	return out
 
 
@@ -8084,13 +11100,13 @@ func _build_match_settings_panel() -> Control:
 	_fps_slider.min_value = 30
 	_fps_slider.max_value = 240
 	_fps_slider.step = 1
-	_fps_slider.value = GameSession.target_fps
+	_fps_slider.value = (PlayerSettings.instance() as PlayerSettings).target_fps
 	_fps_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fps_slider.value_changed.connect(_on_match_fps_changed)
 	row.add_child(_fps_slider)
 	_fps_lbl = Label.new()
 	_fps_lbl.custom_minimum_size = Vector2(UiLayout.px(40, self), 0)
-	_fps_lbl.text = str(int(GameSession.target_fps))
+	_fps_lbl.text = str(int((PlayerSettings.instance() as PlayerSettings).target_fps))
 	UiAssets.apply_label_font(_fps_lbl, false, UiLayout.font_size(16, self))
 	row.add_child(_fps_lbl)
 	box.add_child(row)
@@ -8109,25 +11125,33 @@ func _build_match_settings_panel() -> Control:
 
 	var nomodel: CheckBox = CheckBox.new()
 	nomodel.text = "无模型性能模式（亦关血条特效）"
-	nomodel.button_pressed = GameSession.no_model_perf_mode
+	nomodel.button_pressed = (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode
 	UiAssets.apply_button_font(nomodel, UiLayout.font_size(16, self))
-	nomodel.toggled.connect(func(on: bool) -> void: GameSession.set_no_model_perf_mode(on))
+	nomodel.toggled.connect(func(on: bool) -> void: (PlayerSettings.instance() as PlayerSettings).set_no_model_perf_mode(on))
 	box.add_child(nomodel)
 
 	var fx_simple: CheckBox = CheckBox.new()
 	fx_simple.text = "装备与武器特效简化"
 	fx_simple.tooltip_text = "关闭=正常特效（与预览同套）；开启=色块束/单球加农/直线导弹"
-	fx_simple.button_pressed = GameSession.weapon_fx_simplified
+	fx_simple.button_pressed = (PlayerSettings.instance() as PlayerSettings).weapon_fx_simplified
 	UiAssets.apply_button_font(fx_simple, UiLayout.font_size(16, self))
-	fx_simple.toggled.connect(func(on: bool) -> void: GameSession.set_weapon_fx_simplified(on))
+	fx_simple.toggled.connect(func(on: bool) -> void: (PlayerSettings.instance() as PlayerSettings).set_weapon_fx_simplified(on))
 	box.add_child(fx_simple)
 
 	var breathe: CheckBox = CheckBox.new()
 	breathe.text = "镜头呼吸浮动"
-	breathe.button_pressed = GameSession.camera_breathe_enabled
+	breathe.button_pressed = (PlayerSettings.instance() as PlayerSettings).camera_breathe_enabled
 	UiAssets.apply_button_font(breathe, UiLayout.font_size(16, self))
-	breathe.toggled.connect(func(on: bool) -> void: GameSession.set_camera_breathe_enabled(on))
+	breathe.toggled.connect(func(on: bool) -> void: (PlayerSettings.instance() as PlayerSettings).set_camera_breathe_enabled(on))
 	box.add_child(breathe)
+
+	var hp_vis: CheckBox = CheckBox.new()
+	hp_vis.text = "显示血条"
+	hp_vis.tooltip_text = "关闭后隐藏盾/甲/结构/电量几何；吨位章与装备格仍显示"
+	hp_vis.button_pressed = (PlayerSettings.instance() as PlayerSettings).health_bar_visible
+	UiAssets.apply_button_font(hp_vis, UiLayout.font_size(16, self))
+	hp_vis.toggled.connect(func(on: bool) -> void: (PlayerSettings.instance() as PlayerSettings).set_health_bar_visible(on))
+	box.add_child(hp_vis)
 
 	var hp_row: HBoxContainer = HBoxContainer.new()
 	hp_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
@@ -8138,7 +11162,7 @@ func _build_match_settings_panel() -> Control:
 	var hp_opt: OptionButton = OptionButton.new()
 	hp_opt.add_item("环形血量展示", 0)
 	hp_opt.add_item("四条血量展示", 1)
-	hp_opt.select(1 if str(GameSession.get("health_bar_style")) == "bars" else 0)
+	hp_opt.select(1 if PlayerSettings.get_or_null() != null and PlayerSettings.get_or_null().health_bar_style == "bars" else 0)
 	UiAssets.apply_button_font(hp_opt, UiLayout.font_size(16, self))
 	hp_opt.item_selected.connect(_on_match_health_bar_style_selected)
 	hp_row.add_child(hp_opt)
@@ -8164,6 +11188,37 @@ func _build_match_settings_panel() -> Control:
 	UiAssets.apply_label_font(_bgm_lbl, false, UiLayout.font_size(16, self))
 	bgm_vol_row.add_child(_bgm_lbl)
 	box.add_child(bgm_vol_row)
+
+	var ps_audio: PlayerSettings = PlayerSettings.get_or_null()
+	var sfx_on_row: HBoxContainer = HBoxContainer.new()
+	_sfx_check = CheckBox.new()
+	_sfx_check.text = "音效"
+	_sfx_check.button_pressed = ps_audio.sfx_enabled if ps_audio else true
+	UiAssets.apply_button_font(_sfx_check, UiLayout.font_size(16, self))
+	_sfx_check.toggled.connect(_on_match_sfx_toggled)
+	sfx_on_row.add_child(_sfx_check)
+	box.add_child(sfx_on_row)
+
+	var sfx_vol_row: HBoxContainer = HBoxContainer.new()
+	sfx_vol_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var sfx_cap: Label = Label.new()
+	sfx_cap.text = "音效音量"
+	UiAssets.apply_label_font(sfx_cap, false, UiLayout.font_size(16, self))
+	sfx_vol_row.add_child(sfx_cap)
+	_sfx_slider = HSlider.new()
+	_sfx_slider.min_value = 0
+	_sfx_slider.max_value = 100
+	_sfx_slider.step = 1
+	_sfx_slider.value = ps_audio.sfx_volume_pct if ps_audio else 80.0
+	_sfx_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sfx_slider.value_changed.connect(_on_match_sfx_volume_changed)
+	sfx_vol_row.add_child(_sfx_slider)
+	_sfx_lbl = Label.new()
+	_sfx_lbl.custom_minimum_size = Vector2(UiLayout.px(40, self), 0)
+	_sfx_lbl.text = str(int(_sfx_slider.value))
+	UiAssets.apply_label_font(_sfx_lbl, false, UiLayout.font_size(16, self))
+	sfx_vol_row.add_child(_sfx_lbl)
+	box.add_child(sfx_vol_row)
 
 	var export_btn: Button = Button.new()
 	export_btn.text = "导出 debug 日志"
@@ -8219,31 +11274,31 @@ func _build_match_developer_panel() -> Control:
 
 	_dev_master_check = CheckBox.new()
 	_dev_master_check.text = "启用开发者调试"
-	_dev_master_check.button_pressed = GameSession.developer_debug_enabled
+	_dev_master_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_master_check, UiLayout.font_size(16, self))
 	_dev_master_check.toggled.connect(_on_match_dev_master_toggled)
 	box.add_child(_dev_master_check)
 
 	_dev_soften_check = CheckBox.new()
 	_dev_soften_check.text = "我方扣血软化（失败惩罚减为 1）"
-	_dev_soften_check.button_pressed = GameSession.player_citadel_soften
-	_dev_soften_check.disabled = not GameSession.developer_debug_enabled
+	_dev_soften_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).player_citadel_soften
+	_dev_soften_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_soften_check, UiLayout.font_size(16, self))
 	_dev_soften_check.toggled.connect(_on_match_dev_soften_toggled)
 	box.add_child(_dev_soften_check)
 
 	_dev_economy_check = CheckBox.new()
 	_dev_economy_check.text = "人机双倍经济（我方战斗收入×同人机）"
-	_dev_economy_check.button_pressed = GameSession.player_ai_double_economy
-	_dev_economy_check.disabled = not GameSession.developer_debug_enabled
+	_dev_economy_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).player_ai_double_economy
+	_dev_economy_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_economy_check, UiLayout.font_size(16, self))
 	_dev_economy_check.toggled.connect(_on_match_dev_economy_toggled)
 	box.add_child(_dev_economy_check)
 
 	_dev_enemy_layout_check = CheckBox.new()
 	_dev_enemy_layout_check.text = "敌方布局调整许可（暂停时可拖敌方单位）"
-	_dev_enemy_layout_check.button_pressed = GameSession.enemy_layout_adjust
-	_dev_enemy_layout_check.disabled = not GameSession.developer_debug_enabled
+	_dev_enemy_layout_check.button_pressed = (PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust
+	_dev_enemy_layout_check.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(_dev_enemy_layout_check, UiLayout.font_size(16, self))
 	_dev_enemy_layout_check.toggled.connect(_on_match_dev_enemy_layout_toggled)
 	box.add_child(_dev_enemy_layout_check)
@@ -8251,7 +11306,7 @@ func _build_match_developer_panel() -> Control:
 	var swap_btn: Button = Button.new()
 	swap_btn.text = "换边（双方棋子中心对称交换）"
 	swap_btn.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
-	swap_btn.disabled = not GameSession.developer_debug_enabled
+	swap_btn.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(swap_btn, UiLayout.font_size(16, self))
 	swap_btn.pressed.connect(_on_match_dev_swap_sides)
 	swap_btn.name = "DevSwapSidesBtn"
@@ -8260,7 +11315,7 @@ func _build_match_developer_panel() -> Control:
 	var ship_data_btn: Button = Button.new()
 	ship_data_btn.text = "全舰船装备数据调整（暂停对局）"
 	ship_data_btn.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
-	ship_data_btn.disabled = not GameSession.developer_debug_enabled
+	ship_data_btn.disabled = not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	UiAssets.apply_button_font(ship_data_btn, UiLayout.font_size(16, self))
 	ship_data_btn.pressed.connect(_on_match_dev_ship_data)
 	ship_data_btn.name = "DevShipDataBtn"
@@ -8341,16 +11396,16 @@ func _open_developer_panel() -> void:
 
 func _sync_dev_debug_widgets() -> void:
 	if _dev_master_check:
-		_dev_master_check.set_pressed_no_signal(GameSession.developer_debug_enabled)
-	var master_on: bool = GameSession.developer_debug_enabled
+		_dev_master_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).developer_debug_enabled)
+	var master_on: bool = (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled
 	if _dev_soften_check:
-		_dev_soften_check.set_pressed_no_signal(GameSession.player_citadel_soften)
+		_dev_soften_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).player_citadel_soften)
 		_dev_soften_check.disabled = not master_on
 	if _dev_economy_check:
-		_dev_economy_check.set_pressed_no_signal(GameSession.player_ai_double_economy)
+		_dev_economy_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).player_ai_double_economy)
 		_dev_economy_check.disabled = not master_on
 	if _dev_enemy_layout_check:
-		_dev_enemy_layout_check.set_pressed_no_signal(GameSession.enemy_layout_adjust)
+		_dev_enemy_layout_check.set_pressed_no_signal((PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust)
 		_dev_enemy_layout_check.disabled = not master_on
 	if _game_menu_dev:
 		@warning_ignore("unsafe_cast")
@@ -8364,7 +11419,7 @@ func _sync_dev_debug_widgets() -> void:
 
 
 func _on_match_dev_master_toggled(on: bool) -> void:
-	GameSession.set_developer_debug_enabled(on)
+	(PlayerSettings.instance() as PlayerSettings).set_developer_debug_enabled(on)
 	SessionDiagnostics.log("dev.debug", "on=%s" % on)
 	if _dev_soften_check:
 		_dev_soften_check.disabled = not on
@@ -8384,19 +11439,19 @@ func _on_match_dev_master_toggled(on: bool) -> void:
 
 
 func _on_match_dev_soften_toggled(on: bool) -> void:
-	GameSession.set_player_citadel_soften(on)
+	(PlayerSettings.instance() as PlayerSettings).set_player_citadel_soften(on)
 
 
 func _on_match_dev_economy_toggled(on: bool) -> void:
-	GameSession.set_player_ai_double_economy(on)
+	(PlayerSettings.instance() as PlayerSettings).set_player_ai_double_economy(on)
 
 
 func _on_match_dev_enemy_layout_toggled(on: bool) -> void:
-	GameSession.set_enemy_layout_adjust(on)
+	(PlayerSettings.instance() as PlayerSettings).set_enemy_layout_adjust(on)
 
 
 func _on_match_dev_swap_sides() -> void:
-	if not GameSession.developer_debug_enabled:
+	if not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled:
 		return
 	if board == null:
 		return
@@ -8410,7 +11465,7 @@ func _on_match_dev_swap_sides() -> void:
 
 ## UI_AND_SHELL §2.5.1 — pauses the match; guests in a net match may not edit (host authority).
 func _on_match_dev_ship_data() -> void:
-	if not GameSession.developer_debug_enabled:
+	if not (PlayerSettings.instance() as PlayerSettings).developer_debug_enabled:
 		return
 	var net: NullsecNetSession = _nullsec_net_session()
 	if GameSession.pending_mode == "nullsec" and net != null and not net.is_host:
@@ -8442,6 +11497,8 @@ func _on_ship_data_editor_closed(changed_ids: Array, equipment_changed: bool = f
 	if net != null and net.is_host and net.match_started:
 		net.broadcast_ships_table()
 		show_notice("%s并同步给房客" % what)
+	## economy.ship_scanner_cost may have changed — refresh 「高级刷新 N」.
+	_refresh_hud()
 	if _game_menu_dev:
 		_game_menu_dev.visible = true
 
@@ -8545,9 +11602,9 @@ func _return_to_main_menu() -> void:
 
 func _sync_game_menu_settings_widgets() -> void:
 	if _fps_slider:
-		_fps_slider.value = GameSession.target_fps
+		_fps_slider.value = (PlayerSettings.instance() as PlayerSettings).target_fps
 	if _fps_lbl:
-		_fps_lbl.text = str(int(GameSession.target_fps))
+		_fps_lbl.text = str(int((PlayerSettings.instance() as PlayerSettings).target_fps))
 	@warning_ignore("unsafe_method_access")
 	@warning_ignore("unsafe_cast")
 	var bgm: BgMusic = _BgMusic.instance() as BgMusic
@@ -8557,17 +11614,24 @@ func _sync_game_menu_settings_widgets() -> void:
 		_bgm_slider.value = bgm.volume_pct
 	if _bgm_lbl and bgm:
 		_bgm_lbl.text = str(int(bgm.volume_pct))
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if _sfx_check and ps:
+		_sfx_check.button_pressed = ps.sfx_enabled
+	if _sfx_slider and ps:
+		_sfx_slider.value = ps.sfx_volume_pct
+	if _sfx_lbl and ps:
+		_sfx_lbl.text = str(int(ps.sfx_volume_pct))
 
 
 func _on_match_fps_changed(v: float) -> void:
 	if GameSession.has_method("set_target_fps"):
-		GameSession.set_target_fps(int(v))
+		(PlayerSettings.instance() as PlayerSettings).set_target_fps(int(v))
 	else:
-		GameSession.target_fps = int(v)
-		Engine.max_fps = GameSession.target_fps
-		GameSession.save_settings()
+		(PlayerSettings.instance() as PlayerSettings).target_fps = int(v)
+		Engine.max_fps = (PlayerSettings.instance() as PlayerSettings).target_fps
+		(PlayerSettings.instance() as PlayerSettings).save_settings()
 	if _fps_lbl:
-		_fps_lbl.text = str(GameSession.target_fps)
+		_fps_lbl.text = str((PlayerSettings.instance() as PlayerSettings).target_fps)
 
 
 ## Mid-match no-model toggle: refresh existing ships + asteroid visuals (UI_AND_SHELL).
@@ -8588,7 +11652,7 @@ func apply_no_model_perf_mode_changed() -> void:
 
 ## Mid-match toggle: drop trails / active weapon FX (settlement + float text stay).
 func apply_no_model_perf_cleanup() -> void:
-	if not GameSession.no_model_perf_mode:
+	if not (PlayerSettings.instance() as PlayerSettings).no_model_perf_mode:
 		return
 	if firing_fx != null and firing_fx.has_method("clear_all"):
 		@warning_ignore("unsafe_method_access")
@@ -8620,11 +11684,11 @@ func _on_match_bgm_toggled(on: bool) -> void:
 func _on_match_health_bar_style_selected(idx: int) -> void:
 	var style: String = "bars" if idx == 1 else "ring"
 	if GameSession.has_method("set_health_bar_style"):
-		GameSession.set_health_bar_style(style)
+		(PlayerSettings.instance() as PlayerSettings).set_health_bar_style(style)
 	else:
 		GameSession.set("health_bar_style", style)
 		if GameSession.has_method("save_settings"):
-			GameSession.save_settings()
+			(PlayerSettings.instance() as PlayerSettings).save_settings()
 	rebuild_all_ship_health_bars()
 
 
@@ -8636,6 +11700,20 @@ func _on_match_bgm_volume_changed(v: float) -> void:
 	var bgm: BgMusic = _BgMusic.instance() as BgMusic
 	if bgm:
 		bgm.set_volume_pct(v)
+
+
+func _on_match_sfx_toggled(on: bool) -> void:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps:
+		ps.set_sfx_enabled(on)
+
+
+func _on_match_sfx_volume_changed(v: float) -> void:
+	if _sfx_lbl:
+		_sfx_lbl.text = str(int(v))
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps:
+		ps.set_sfx_volume_pct(v)
 
 
 func _on_pause_pressed() -> void:
@@ -8654,49 +11732,97 @@ func _on_pause_pressed() -> void:
 func _on_collapse_left() -> void:
 	_hud_interact_ms = Time.get_ticks_msec()
 	_collapse_left = not _collapse_left
+	_collapse_left_syn = _collapse_left
+	_collapse_left_equip = _collapse_left
 	_apply_adaptive_hud_layout()
+
+func _on_collapse_left_equip() -> void:
+	## Legacy equip-only toggle — now folds the whole left column (plan J).
+	_on_collapse_left()
 
 func _on_collapse_right() -> void:
 	_hud_interact_ms = Time.get_ticks_msec()
 	_collapse_right = not _collapse_right
 	_apply_adaptive_hud_layout()
+	_sync_default_camera_to_hud()
+	## Remembered unit survives collapse; restore detail body when expanding on DETAIL.
+	if not _collapse_right and _right_pane_mode == RightPaneMode.DETAIL:
+		_restore_detail_ship_panel()
+
+
+func _restore_detail_ship_panel() -> bool:
+	## UI_AND_SHELL §2.6 — restore last touched unit into DETAIL; empty only if never touched.
+	var ship: ShipUnit = null
+	if is_instance_valid(_info_ship) and not _info_ship.is_destroyed:
+		ship = _info_ship
+	elif is_instance_valid(_last_touched_ship) and not _last_touched_ship.is_destroyed:
+		ship = _last_touched_ship
+	else:
+		_info_ship = null
+		if not is_instance_valid(_last_touched_ship):
+			_last_touched_ship = null
+		return false
+	_show_ship_info(ship)
+	return true
 
 func _on_collapse_bottom() -> void:
 	_hud_interact_ms = Time.get_ticks_msec()
 	var was_collapsed: bool = _collapse_bottom
 	_collapse_bottom = not _collapse_bottom
-	_apply_adaptive_hud_layout()
-	## Free / observe view: HUD only — never move the camera for shop or stage chrome.
-	if _camera_manual_pose():
-		return
-	## Shop expand → view 2. Shop collapse → first default (default mode).
-	## Battle: bottom toggle does not move the camera.
-	if match_ctrl != null and match_ctrl.stage == MatchController.Stage.BATTLE:
-		return
+	## Hide/show bottom strip only — do not re-snap left shop / LevelExp (UI_AND_SHELL §3.1).
+	_apply_adaptive_hud_layout(true)
 	if was_collapsed and not _collapse_bottom:
 		_on_shop_expanded_camera()
 	elif not was_collapsed and _collapse_bottom:
 		_on_shop_collapsed_camera()
+	else:
+		_sync_default_camera_to_hud()
+
+func _try_auto_collapse_hud_once() -> void:
+	## UI_AND_SHELL §2.5 — whole match: first Battle only.
+	if _hud_auto_collapsed_once:
+		return
+	_hud_auto_collapsed_once = true
+	if Time.get_ticks_msec() - _hud_interact_ms < 2000:
+		return
+	_collapse_left_syn = true
+	_collapse_left_equip = true
+	_collapse_left = true
+	_collapse_right = true
+	_collapse_bottom = true
+	_cam_pose_before_shop_valid = false
+	_cam_pose_before_shop.clear()
+	_apply_adaptive_hud_layout()
+	_sync_default_camera_to_hud()
+
+
+func _try_auto_expand_hud_once() -> void:
+	## UI_AND_SHELL §2.5 — whole match: GAME_END only.
+	if _hud_auto_expanded_once:
+		return
+	_hud_auto_expanded_once = true
+	if Time.get_ticks_msec() - _hud_interact_ms < 2000:
+		return
+	_collapse_left_syn = false
+	_collapse_left_equip = false
+	_collapse_left = false
+	_collapse_right = false
+	_collapse_bottom = false
+	_apply_adaptive_hud_layout()
+	_sync_default_camera_to_hud()
+
 
 func _on_stage_changed_ui(stage: int) -> void:
+	_apply_collapse_arrow_frames()
 	var stage_label: String = "准备" if stage == MatchController.Stage.PREPARE else ("战斗" if stage == MatchController.Stage.BATTLE else "结束")
 	_append_battle_log("进入%s阶段" % stage_label)
-	## Battle start: auto-collapse side chrome + shop once; toggles remain available.
-	## Right = battle log (auto-collapse once on enter Battle).
 	if stage == MatchController.Stage.BATTLE:
 		## SEMI_ASYNC §4.5 — never carry conditional wall draw / auto 4× into a new Battle.
 		if _nullsec_speed:
 			_nullsec_speed.reset_round()
 			_apply_resolved_speed()
-		## Skip the auto-collapse if the player just touched shop/side chrome — don't yank
-		## a panel out from under an in-progress tap/drag (< 2s grace window).
-		if Time.get_ticks_msec() - _hud_interact_ms >= 2000:
-			_collapse_left = true
-			_collapse_right = true
-			_collapse_bottom = true
-			_cam_pose_before_shop_valid = false
-			_cam_pose_before_shop.clear()
-			_apply_adaptive_hud_layout()
+		_try_auto_collapse_hud_once()
+		_flash_enemy_locks_on_battle_start()
 		## Force full Prepare fleet snapshot once before HostSim battle.
 		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_local_is_pve():
 			_push_local_prepare_fleet()
@@ -8704,10 +11830,8 @@ func _on_stage_changed_ui(stage: int) -> void:
 			var net_pre: NullsecNetSession = _nullsec_net_session()
 			if net_pre != null and rival_pre >= 0 and not _seat_is_ai(rival_pre):
 				net_pre.request_prepare_fleet_snapshot(rival_pre)
-		## PVP: nullsec guest hop (§4.1). Lowsec stays host-home — no teleport/sky switch.
+		## PVP: guest hop already at Prepare (§4.1). Battle only starts combat.
 		if GameSession.pending_mode == "nullsec" and _nullsec_pve and not _nullsec_local_is_pve():
-			if not _nullsec_pve.always_pvp:
-				_nullsec_pvp_battle_teleport()
 			_apply_remote_watch_only_for_battle()
 			if _net_battle:
 				_net_jobs_ready_for_titan = false
@@ -8725,15 +11849,22 @@ func _on_stage_changed_ui(stage: int) -> void:
 		else:
 			if match_ctrl:
 				match_ctrl.remote_watch_only = false
-		## Free / observe view keeps current pose across combat enter.
+			_begin_combat_eval_if_human_pvp()
+		## PVE local also tracks rank stats.
+		if GameSession.pending_mode == "nullsec" and _nullsec_pve and _nullsec_local_is_pve():
+			if _combat_eval == null:
+				_combat_eval = CombatEvalTracker.new()
+			_combat_eval.begin_round(board)
+			_combat_eval_active = true
 		if not _camera_manual_pose():
-			_apply_camera_view_dict(_camera_primary_view())
-			## Keep slot grid until camera settles on first default view.
+			_sync_default_camera_to_hud()
+			## Keep slot grid until camera settles on HUD default view.
 			_show_slot_markers_now()
 			_pending_hide_slot_markers = true
 		else:
 			_hide_slot_markers_now()
-	# 回合结束：战斗 -> 准备；展开左栏+右栏+底栏一次；default 切视角 2；free/observe 不动镜头。
+	# 回合结束：战斗 -> 准备；HUD 不在此处自动展开（整局仅 GAME_END 展开一次）。
+	# 镜头锁当前 HUD 默认（底栏/右栏收展组合）。
 	# 负安局若要播末日/击毁，先把 HUD/镜头转场压住，等演出结束再走 prepare 展示。
 	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
 		## SEMI_ASYNC §3.1a — PVP watch peers only. PVE stays local (§3.2); sync via battle_done.
@@ -8757,19 +11888,14 @@ func _on_stage_changed_ui(stage: int) -> void:
 			if not _doomsday_busy and not _titan_kill_busy:
 				_apply_nullsec_prepare_presentation()
 		else:
-			_collapse_left = false
-			_collapse_right = false
-			_collapse_bottom = false
-			_apply_adaptive_hud_layout()
 			_show_slot_markers_now()
 			if not _camera_manual_pose():
 				_cam_headup_phase = 0
 				_cam_headup_t = 0.0
 				_cam_headup_offset_deg = 0.0
-				_cam_default_pitch_deg = TypedVariant.as_float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
-				_cam_pose_before_shop = _capture_cam_pose()
-				_cam_pose_before_shop_valid = true
-				_apply_camera_view_dict(_camera_secondary_view())
+				_sync_default_camera_to_hud()
+	elif stage == MatchController.Stage.GAME_END:
+		_try_auto_expand_hud_once()
 	elif not _camera_manual_pose():
 		_trigger_camera_headup("stage_change")
 	_last_match_stage = stage
@@ -8780,19 +11906,13 @@ func _apply_nullsec_prepare_presentation() -> void:
 	if not _nullsec_prepare_ui_pending:
 		return
 	_nullsec_prepare_ui_pending = false
-	_collapse_left = false
-	_collapse_right = false
-	_collapse_bottom = false
-	_apply_adaptive_hud_layout()
+	## Do not auto-expand HUD here — only GAME_END may try expand once.
 	_show_slot_markers_now()
 	if not _camera_manual_pose():
 		_cam_headup_phase = 0
 		_cam_headup_t = 0.0
 		_cam_headup_offset_deg = 0.0
-		_cam_default_pitch_deg = TypedVariant.as_float(_camera_primary_view().get("pitch_deg", _cam_default_pitch_deg))
-		_cam_pose_before_shop = _capture_cam_pose()
-		_cam_pose_before_shop_valid = true
-		_apply_camera_view_dict(_camera_secondary_view())
+		_sync_default_camera_to_hud()
 
 
 ## SEMI_ASYNC §3.1a — non-host peers on **PVP** barrier tables only watch authority snaps.
@@ -8831,18 +11951,26 @@ func notify_cyno_success(team_id: int) -> void:
 		_combat_eval.on_cyno_success(team_id)
 
 
+func note_cap_war_stat(source_id: int, amount: float) -> void:
+	if not _combat_eval_active or _combat_eval == null:
+		return
+	if _combat_eval.has_method("on_cap_war"):
+		_combat_eval.on_cap_war(source_id, amount)
+
+
 func _begin_combat_eval_if_human_pvp() -> void:
+	## Always track per-ship dmg/heal for HUD rank; titles still require human rival.
 	_combat_eval_active = false
 	if match_ctrl != null and match_ctrl.remote_watch_only:
-		return
-	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
-	var rival: int = _nullsec_rival_seat(local_seat)
-	if rival < 0 or _seat_is_ai(rival):
 		return
 	if _combat_eval == null:
 		_combat_eval = CombatEvalTracker.new()
 	_combat_eval.begin_round(board)
 	_combat_eval_active = true
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	if rival < 0 or _seat_is_ai(rival):
+		return
 	if _match_eval == null:
 		_match_eval = MatchEvalTracker.new()
 	_match_eval.reset(local_seat)
@@ -8898,7 +12026,13 @@ func _on_admin_after_for_combat_eval(channel: StringName, payload: Dictionary, r
 			if _match_eval != null and str(payload.get("via", "")) != "mixed_lance":
 				_match_eval.note_ship_lost(tgt, src, false)
 	elif ch == "combat.heal":
-		_combat_eval.on_heal(TypedVariant.as_float(result.get("applied", 0.0), 0.0))
+		var healer_id: int = TypedVariant.as_int(payload.get("source_id", payload.get("healer_id", 0)), 0)
+		_combat_eval.on_heal(TypedVariant.as_float(result.get("applied", 0.0), 0.0), healer_id)
+	elif ch == "combat.cap" or ch == "combat.energy":
+		var cap_amt: float = absf(TypedVariant.as_float(result.get("applied", result.get("amount", 0.0)), 0.0))
+		var cap_src: int = TypedVariant.as_int(payload.get("source_id", 0), 0)
+		if cap_amt > 0.0 and cap_src != 0 and _combat_eval.has_method("on_cap_war"):
+			_combat_eval.on_cap_war(cap_src, cap_amt)
 
 func _note_shop_purchase(bought: Dictionary, ship_id_hint: int = 0) -> void:
 	if not TypedVariant.as_bool(bought.get("accepted", false), false):
@@ -8944,6 +12078,7 @@ func note_match_lance_hit(src: ShipUnit, tgt: ShipUnit, dealt: float, destroyed:
 ## Merge this round's §7.1 titles into the running per-seat tally and log them.
 func _finalize_combat_eval(result: String, local_seat: int, rival_seat: int) -> void:
 	if not _combat_eval_active or _combat_eval == null:
+		SessionDiagnostics.log("eval.skip", "reason=inactive_or_null")
 		return
 	_combat_eval_active = false
 	## Update streak / loss meta before finalize reads it.
@@ -8971,6 +12106,10 @@ func _finalize_combat_eval(result: String, local_seat: int, rival_seat: int) -> 
 	_eval_scout_vs_rival = 0
 	_eval_sold_first_this_prepare = false
 	_eval_bought_capital_this_prepare = false
+	SessionDiagnostics.log(
+		"eval.finalize",
+		"result=%s seat=%d rival=%d titles=%d" % [result, local_seat, rival_seat, titles.size()]
+	)
 	for t_v: Variant in titles:
 		var t: Dictionary = TypedVariant.as_dict(t_v)
 		var seat_id: int = TypedVariant.as_int(t.get("seat_id", -1), -1)
@@ -9098,6 +12237,15 @@ func _nullsec_after_battle_into_prepare() -> void:
 	## Enter next Prepare after settle; creep lock waits for Prepare→Battle.
 	if _titan_kill_busy or _doomsday_busy:
 		_nullsec_prepare_pending = true
+		## Doomsday/kill hold must not permanently drop combat_eval finalize.
+		if _combat_eval_active and _pending_combat_eval_finalize.is_empty() and match_ctrl:
+			var ls_busy: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+			_pending_combat_eval_finalize = {
+				"result": str(match_ctrl.last_round_result),
+				"local_seat": ls_busy,
+				"rival_seat": _nullsec_rival_seat(ls_busy),
+			}
+			SessionDiagnostics.log("eval.skip", "reason=doomsday_or_kill_busy")
 		return
 	if _nullsec_pve and match_ctrl:
 		## Read the outcome frozen at combat end: by now every field hull has been
@@ -9113,12 +12261,33 @@ func _nullsec_after_battle_into_prepare() -> void:
 			## Nullsec multi-seat: wait until host authority jobs flush before titan settle.
 			if _net_battle and _net_battle.is_host and not _net_jobs_ready_for_titan:
 				_nullsec_prepare_pending = true
+				## Stash eval so titan gate cannot permanently skip finalize.
+				if _combat_eval_active:
+					var ls0: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+					_pending_combat_eval_finalize = {
+						"result": result,
+						"local_seat": ls0,
+						"rival_seat": _nullsec_rival_seat(ls0),
+					}
+					SessionDiagnostics.log("eval.skip", "reason=titan_jobs_pending")
 				return
 			if _net_battle and _net_battle.is_host:
 				_net_battle.take_round_reports()
-			if _combat_eval_active:
+			if not _pending_combat_eval_finalize.is_empty():
+				var pend: Dictionary = _pending_combat_eval_finalize
+				_pending_combat_eval_finalize = {}
+				## Re-arm active so finalize runs after a jobs/doomsday hold.
+				if not _combat_eval_active and _combat_eval != null:
+					_combat_eval_active = true
+				_finalize_combat_eval(
+					str(pend.get("result", result)),
+					TypedVariant.as_int(pend.get("local_seat", 0), 0),
+					TypedVariant.as_int(pend.get("rival_seat", -1), -1)
+				)
+			elif _combat_eval_active:
 				var local_seat_eval: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 				_finalize_combat_eval(result, local_seat_eval, _nullsec_rival_seat(local_seat_eval))
+			_submit_seat_round_summary_if_net(result)
 			_nullsec_resolve_pvp_doomsday(result)
 			if _doomsday_busy or _titan_kill_busy:
 				## Hold the next round until the beam (and any hull kill) has played out.
@@ -9150,7 +12319,7 @@ func _nullsec_enter_next_round() -> void:
 		_restore_local_home_skybox()
 		_nullsec_on_prepare_begin()
 	elif _nullsec_pve:
-		## PVP prepare stays on the local home field; battle does the guest hop (§4.1).
+		## PVP prepare: roll guest home; guest hop + CapitalJumpFx at Prepare start (§4.1).
 		_nullsec_prepare_pvp_round()
 	if _nullsec_speed:
 		## Cancel auto finish floor before next battle prefers preferred/votes (SEMI_ASYNC §4.5).
@@ -9182,6 +12351,7 @@ func _nullsec_prepare_pvp_round() -> void:
 	_set_rival_berth_visible(true)
 	_restore_local_home_skybox()
 	_nullsec_pvp_guest = false
+	_nullsec_guest_hop_done = false
 	var lowsec: bool = _nullsec_pve != null and _nullsec_pve.always_pvp
 	if rival < 0:
 		show_notice("PVP 准备 · 本房无对手席位 · 本场主场进行")
@@ -9203,6 +12373,12 @@ func _nullsec_prepare_pvp_round() -> void:
 			_nullsec_pvp_guest = (Time.get_ticks_msec() % 2) == 0
 		if _nullsec_pvp_guest:
 			show_notice("PVP 准备 · 对手席位 %02d · 交战进客场" % (rival + 1))
+			## Switch sky immediately so Prepare happens on guest field; FX after fleets ready.
+			var region: String = _seat_region(rival)
+			if region != "":
+				apply_region_skybox(region)
+			_nullsec_watch_seat = rival
+			_refresh_region_label()
 		else:
 			show_notice("PVP 准备 · 对手席位 %02d · 本场主场开战" % (rival + 1))
 	for s: ShipUnit in board.all_ships().duplicate():
@@ -9245,6 +12421,9 @@ func _nullsec_prepare_pvp_round() -> void:
 		combat.bind_match_rng(_nullsec_rng, serial)
 		if match_ctrl.has_method("bind_cyno_rng"):
 			match_ctrl.bind_cyno_rng(_nullsec_rng, serial)
+	## Induction land flash after fleets are on the board (Prepare start, §4.1).
+	if not lowsec and rival >= 0:
+		_nullsec_pvp_prepare_guest_hop()
 
 
 func _wire_prepare_fleet_sync() -> void:
@@ -9407,18 +12586,31 @@ func _apply_rival_prepare_fleet(ships: Array) -> void:
 	if board == null:
 		return
 	_applying_rival_fleet = true
-	var before: int = 0
-	for s0: ShipUnit in board.all_ships():
-		if s0 != null and is_instance_valid(s0) and TypedVariant.as_int(s0.team_id, 0) == ShipUnit.TEAM_AI:
-			before += 1
+	_rival_fleet_queue.clear()
 	for s: ShipUnit in board.all_ships().duplicate():
 		if s == null or not is_instance_valid(s) or s.is_unmanned:
 			continue
 		if TypedVariant.as_int(s.team_id, 0) == ShipUnit.TEAM_AI:
 			board.remove_ship_node(s)
-	var spawned: int = 0
 	for entry_v: Variant in ships:
-		var entry: Dictionary = TypedVariant.as_dict(entry_v)
+		_rival_fleet_queue.append(TypedVariant.as_dict(entry_v))
+	_rival_fleet_spawned = 0
+	_rival_fleet_before = board.count_alive_field(ShipUnit.TEAM_AI)
+	if not is_processing():
+		set_process(true)
+	## Kick first batch this frame.
+	_process_rival_fleet_queue()
+
+
+func _process_rival_fleet_queue() -> void:
+	if board == null:
+		_rival_fleet_queue.clear()
+		_applying_rival_fleet = false
+		return
+	const K: int = 3
+	var n: int = 0
+	while n < K and not _rival_fleet_queue.is_empty():
+		var entry: Dictionary = TypedVariant.as_dict(_rival_fleet_queue.pop_front())
 		var sid: int = TypedVariant.as_int(entry.get("ship_id", 0), 0)
 		if sid <= 0:
 			continue
@@ -9428,12 +12620,11 @@ func _apply_rival_prepare_fleet(ships: Array) -> void:
 			st = "field"
 		var x: int = TypedVariant.as_int(entry.get("x", 0), 0)
 		var z: int = TypedVariant.as_int(entry.get("z", 0), 0)
-		## Sender-perspective side → flip for local AI half.
 		var sender_side: int = TypedVariant.as_int(entry.get("side", -1), -1)
 		if sender_side < 0:
 			var sd: Dictionary = DataStore.get_ship(sid)
 			if TypedVariant.as_bool(sd.get("deploy_enemy_half_only", false), false):
-				sender_side = ShipUnit.TEAM_AI ## enemy half from sender = their AI
+				sender_side = ShipUnit.TEAM_AI
 			else:
 				sender_side = ShipUnit.TEAM_PLAYER
 		var local_side: int = ShipUnit.TEAM_AI if sender_side == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
@@ -9448,37 +12639,42 @@ func _apply_rival_prepare_fleet(ships: Array) -> void:
 				for fid_v: Variant in fit_ids:
 					fit_entries.append({"id": str(fid_v)})
 				ship.set_function_fit(fit_entries)
-		spawned += 1
-	board.recalculate_fetters(ShipUnit.TEAM_AI)
-	_applying_rival_fleet = false
-	print("[mp.diag] fleet_apply done before=%d spawned=%d field_ai=%d" % [
-		before, spawned, board.count_alive_field(ShipUnit.TEAM_AI)
-	])
-	SessionDiagnostics.log(
-		"mp.fleet_apply",
-		"before=%d spawned=%d" % [before, spawned]
-	)
-	_refresh_hud()
+			## Defer heavy mesh for AI fleet to next frames when supported.
+			if ship.has_method("defer_mesh_ensure"):
+				ship.call("defer_mesh_ensure")
+		_rival_fleet_spawned += 1
+		n += 1
+	if _rival_fleet_queue.is_empty():
+		board.recalculate_fetters(ShipUnit.TEAM_AI)
+		_applying_rival_fleet = false
+		print("[mp.diag] fleet_apply done before=%d spawned=%d field_ai=%d" % [
+			_rival_fleet_before, _rival_fleet_spawned, board.count_alive_field(ShipUnit.TEAM_AI)
+		])
+		SessionDiagnostics.log(
+			"mp.fleet_apply",
+			"spawned=%d field_ai=%d" % [_rival_fleet_spawned, board.count_alive_field(ShipUnit.TEAM_AI)]
+		)
+		_try_flush_pending_enter_battle()
+		_refresh_hud()
+
+
+func _nullsec_pvp_prepare_guest_hop() -> void:
+	## Prepare: induction flash after fleets ready. Sky already switched for guest above.
+	if _nullsec_guest_hop_done:
+		return
+	_nullsec_pvp_battle_teleport()
+	_nullsec_guest_hop_done = true
 
 
 func _nullsec_pvp_battle_teleport() -> void:
-	## Prepare→Battle only: guest hops to rival skybox + cyno flash (nullsec §4.1).
-	## Lowsec callers must not reach here.
+	## Guest/home induction land flash at Prepare (§4.1). Not mid-match cyno capital entry.
 	if _nullsec_pve and _nullsec_pve.always_pvp:
 		return
-	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
-	var rival: int = _nullsec_rival_seat(local_seat)
 	var land_team: int = ShipUnit.TEAM_PLAYER if _nullsec_pvp_guest else ShipUnit.TEAM_AI
-	if _nullsec_pvp_guest and rival >= 0:
-		var region: String = _seat_region(rival)
-		if region != "":
-			apply_region_skybox(region)
-		_nullsec_watch_seat = rival
-		_refresh_region_label()
-		show_notice("客场作战 · 诱导落位 · 开战")
+	if _nullsec_pvp_guest:
+		show_notice("客场作战 · 诱导落位 · 准备")
 	else:
-		show_notice("主场迎战 · 对手诱导落位 · 开战")
-	## CapitalJumpFx flash-land, no travel path — guest = our hulls; home = rival hulls.
+		show_notice("主场迎战 · 对手诱导落位 · 准备")
 	for s: ShipUnit in board.all_ships():
 		if s == null or not is_instance_valid(s):
 			continue
@@ -9539,3 +12735,651 @@ func _scroll_battle_log_to_end() -> void:
 	var bar: VScrollBar = scroll.get_v_scroll_bar()
 	if bar:
 		scroll.scroll_vertical = roundi(bar.max_value)
+func _style_collapse_texture_btn(btn: BaseButton, collapsed: bool, axis: String) -> void:
+	if btn == null:
+		return
+	var tex: Texture2D = UiAssets.hud_icon(UiAssets.ICON_PANEL_COLLAPSE)
+	## UI_ICONS §9 — unified edge icon side (former ×4 × ⅔).
+	var side: float = UiLayout.hud_edge_icon_px(btn)
+	btn.custom_minimum_size = Vector2(side, side)
+	## Left chrome: flush begin (toward panel); right chrome: flush end.
+	if axis == "right":
+		btn.size_flags_horizontal = Control.SIZE_SHRINK_END
+	elif axis == "left":
+		btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	else:
+		btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	## Never rotate the button itself (clipping / hit-box issues); rotate ArrowHost.
+	btn.rotation_degrees = 0.0
+	btn.pivot_offset = Vector2.ZERO
+	var empty: StyleBoxEmpty = StyleBoxEmpty.new()
+	if btn is TextureButton:
+		@warning_ignore("unsafe_cast")
+		var tb: TextureButton = btn as TextureButton
+		tb.texture_normal = null
+		tb.texture_pressed = null
+		tb.texture_hover = null
+		tb.ignore_texture_size = true
+	elif btn is Button:
+		@warning_ignore("unsafe_cast")
+		var b: Button = btn as Button
+		b.icon = null
+		b.text = ""
+		b.flat = true
+		b.add_theme_stylebox_override("normal", empty)
+		b.add_theme_stylebox_override("pressed", empty)
+		b.add_theme_stylebox_override("hover", empty)
+		b.add_theme_stylebox_override("focus", empty)
+		b.add_theme_stylebox_override("disabled", empty)
+	@warning_ignore("unsafe_cast")
+	var host: Control = btn.get_node_or_null("ArrowHost") as Control
+	if host == null:
+		host = Control.new()
+		host.name = "ArrowHost"
+		host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(host)
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.position = Vector2.ZERO
+	host.size = Vector2(side, side)
+	host.custom_minimum_size = Vector2(side, side)
+	host.pivot_offset = Vector2(side * 0.5, side * 0.5)
+	## Outer frame around arrow (does not rotate with whole button).
+	@warning_ignore("unsafe_cast")
+	var frame: Panel = host.get_node_or_null("ArrowFrame") as Panel
+	if frame == null:
+		frame = Panel.new()
+		frame.name = "ArrowFrame"
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		host.add_child(frame)
+		host.move_child(frame, 0)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.06, 0.08, 0.55)
+	sb.border_color = Color(0.75, 0.82, 0.9, 0.85)
+	sb.set_border_width_all(maxi(1, int(roundf(side * 0.06))))
+	sb.set_corner_radius_all(maxi(2, int(roundf(side * 0.12))))
+	frame.add_theme_stylebox_override("panel", sb)
+	@warning_ignore("unsafe_cast")
+	var icon: TextureRect = host.get_node_or_null("ArrowIcon") as TextureRect
+	if icon == null:
+		icon = TextureRect.new()
+		icon.name = "ArrowIcon"
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		host.add_child(icon)
+	icon.texture = tex
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.position = Vector2.ZERO
+	icon.size = Vector2(side, side)
+	icon.custom_minimum_size = Vector2(side, side)
+	## Icon art points right at 0°. Expanded → collapse direction; collapsed → +180°.
+	var rot: float = 0.0
+	if axis == "left":
+		rot = 0.0 if collapsed else 180.0
+	elif axis == "right":
+		rot = 180.0 if collapsed else 0.0
+	elif axis == "bottom":
+		rot = 270.0 if collapsed else 90.0
+	host.rotation_degrees = rot
+	_apply_collapse_arrow_frame_on(frame)
+
+
+func _is_first_prepare_arrow_frame() -> bool:
+	if match_ctrl == null:
+		return false
+	return match_ctrl.stage == MatchController.Stage.PREPARE and match_ctrl.battle_game_stage_count == 0
+
+
+func _collapse_arrow_frame_pulse_alpha() -> float:
+	var t: float = float(Time.get_ticks_msec()) * 0.001
+	var wave: float = 0.5 + 0.5 * sin(t * TAU / _ARROW_FRAME_PULSE_S)
+	return 0.35 + 0.65 * wave
+
+
+func _apply_collapse_arrow_frame_on(frame: Panel) -> void:
+	if frame == null:
+		return
+	var show_frame: bool = _is_first_prepare_arrow_frame()
+	frame.visible = show_frame
+	if show_frame:
+		var a: float = _collapse_arrow_frame_pulse_alpha()
+		frame.modulate = Color(1.0, 1.0, 1.0, a)
+	else:
+		frame.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+
+func _apply_collapse_arrow_frames(root: Control = null) -> void:
+	if root == null and hud != null:
+		@warning_ignore("unsafe_cast")
+		root = hud.get_node_or_null("Root") as Control
+	if root == null:
+		return
+	for path: String in [
+			"LeftEdgeChrome/CollapseLeftBtn/ArrowHost/ArrowFrame",
+			"RightEdgeChrome/RightEdgeInner/CollapseRightBtn/ArrowHost/ArrowFrame",
+			"BottomEdgeChrome/CollapseBottomBtn/ArrowHost/ArrowFrame"]:
+		@warning_ignore("unsafe_cast")
+		var fr: Panel = root.get_node_or_null(path) as Panel
+		_apply_collapse_arrow_frame_on(fr)
+
+
+func _tick_collapse_arrow_frame_pulse() -> void:
+	if not _is_first_prepare_arrow_frame():
+		return
+	_apply_collapse_arrow_frames()
+
+
+func _as_base_button(n: Node) -> BaseButton:
+	if n == null or not (n is BaseButton):
+		return null
+	@warning_ignore("unsafe_cast")
+	return n as BaseButton
+
+
+func _as_panel(n: Node) -> PanelContainer:
+	if n == null or not (n is PanelContainer):
+		return null
+	@warning_ignore("unsafe_cast")
+	return n as PanelContainer
+
+
+func _as_vbox(n: Node) -> VBoxContainer:
+	if n == null or not (n is VBoxContainer):
+		return null
+	@warning_ignore("unsafe_cast")
+	return n as VBoxContainer
+
+
+func _as_grid(n: Node) -> GridContainer:
+	if n == null or not (n is GridContainer):
+		return null
+	@warning_ignore("unsafe_cast")
+	return n as GridContainer
+
+
+func _as_tex_btn(n: Node) -> TextureButton:
+	if n == null or not (n is TextureButton):
+		return null
+	@warning_ignore("unsafe_cast")
+	return n as TextureButton
+
+
+func _style_collapse_arrow_buttons(root: Control) -> void:
+	if root == null:
+		return
+	_style_collapse_texture_btn(_as_base_button(root.get_node_or_null("LeftEdgeChrome/CollapseLeftBtn")), _collapse_left, "left")
+	## EquipEdgeChrome retired under plan J (single left collapse).
+	var cle_style: BaseButton = _as_base_button(root.get_node_or_null("EquipEdgeChrome/CollapseLeftEquipBtn"))
+	if cle_style:
+		cle_style.visible = false
+		cle_style.disabled = true
+	_style_collapse_texture_btn(_as_base_button(root.get_node_or_null("RightEdgeChrome/RightEdgeInner/CollapseRightBtn")), _collapse_right, "right")
+	_style_collapse_texture_btn(_as_base_button(root.get_node_or_null("BottomEdgeChrome/CollapseBottomBtn")), _collapse_bottom, "bottom")
+	_apply_collapse_arrow_frames(root)
+
+
+func _make_edge_chrome(root: Control, chrome_name: String) -> PanelContainer:
+	var chrome: PanelContainer = _as_panel(root.get_node_or_null(chrome_name))
+	if chrome != null:
+		return chrome
+	chrome = PanelContainer.new()
+	chrome.name = chrome_name
+	var empty: StyleBoxEmpty = StyleBoxEmpty.new()
+	chrome.add_theme_stylebox_override("panel", empty)
+	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(chrome)
+	return chrome
+
+
+func _reparent_keep_signals(node: Node, new_parent: Node) -> void:
+	if node == null or new_parent == null:
+		return
+	if node.get_parent() == new_parent:
+		return
+	var p: Node = node.get_parent()
+	if p != null:
+		p.remove_child(node)
+	new_parent.add_child(node)
+
+
+func _ensure_equip_col(root: Control = null) -> void:
+	## Plan J: inventory lives under Shop MetaRow — keep as alias to left-shop ensure.
+	_ensure_left_shop_layout(root)
+
+
+func _ensure_hud_edge_chrome(root: Control) -> void:
+	if root == null:
+		return
+	_ensure_left_shop_layout(root)
+	## Left column collapse — right edge of LeftCol (shop+fetter).
+	var left_chrome: PanelContainer = _make_edge_chrome(root, "LeftEdgeChrome")
+	left_chrome.z_index = 40
+	var cl: BaseButton = _as_base_button(root.get_node_or_null("LeftEdgeChrome/CollapseLeftBtn"))
+	var leftover_inner_cl: BaseButton = _as_base_button(root.get_node_or_null("LeftCol/LeftInner/CollapseLeftBtn"))
+	if cl == null:
+		cl = leftover_inner_cl
+		leftover_inner_cl = null
+	if cl == null:
+		var tb: TextureButton = TextureButton.new()
+		tb.name = "CollapseLeftBtn"
+		tb.ignore_texture_size = true
+		tb.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+		tb.mouse_filter = Control.MOUSE_FILTER_STOP
+		tb.pressed.connect(_on_collapse_left)
+		left_chrome.add_child(tb)
+		cl = tb
+	if cl != null:
+		_reparent_keep_signals(cl, left_chrome)
+		cl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		cl.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		cl.tooltip_text = "收起/展开羁绊"
+		if not cl.pressed.is_connected(_on_collapse_left):
+			cl.pressed.connect(_on_collapse_left)
+	if leftover_inner_cl != null and leftover_inner_cl != cl:
+		var p_left: Node = leftover_inner_cl.get_parent()
+		if p_left:
+			p_left.remove_child(leftover_inner_cl)
+		leftover_inner_cl.queue_free()
+	## Hide legacy equip-only edge chrome (plan J: one left button).
+	var equip_chrome: PanelContainer = _make_edge_chrome(root, "EquipEdgeChrome")
+	equip_chrome.visible = false
+	equip_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cle: BaseButton = _as_base_button(root.get_node_or_null("EquipEdgeChrome/CollapseLeftEquipBtn"))
+	if cle != null:
+		cle.visible = false
+		cle.disabled = true
+	## Right: collapse + three mode buttons in one transparent column on left edge.
+	var right_chrome: PanelContainer = _make_edge_chrome(root, "RightEdgeChrome")
+	var right_box: VBoxContainer = _as_vbox(right_chrome.get_node_or_null("RightEdgeInner"))
+	if right_box == null:
+		right_box = VBoxContainer.new()
+		right_box.name = "RightEdgeInner"
+		right_box.alignment = BoxContainer.ALIGNMENT_CENTER
+		right_box.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		right_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		right_chrome.add_child(right_box)
+	right_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	right_box.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+	right_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	right_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var cr: BaseButton = _as_base_button(root.get_node_or_null("RightEdgeChrome/RightEdgeInner/CollapseRightBtn"))
+	if cr == null:
+		cr = _as_base_button(root.get_node_or_null("RightCol/RightInner/CollapseRightBtn"))
+	if cr != null:
+		_reparent_keep_signals(cr, right_box)
+		## Flush to panel (right edge of chrome strip).
+		cr.size_flags_horizontal = Control.SIZE_SHRINK_END
+	var mode_col: VBoxContainer = _as_vbox(right_box.get_node_or_null("RightModeBtns"))
+	if mode_col == null:
+		mode_col = VBoxContainer.new()
+		mode_col.name = "RightModeBtns"
+		mode_col.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		mode_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		right_box.add_child(mode_col)
+	mode_col.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+	mode_col.size_flags_horizontal = Control.SIZE_SHRINK_END
+	var edge_side: float = UiLayout.hud_edge_icon_px(root)
+	var specs: Array = [
+		["DetailBtn", UiAssets.ICON_SHIP_DETAIL, "舰船详情", RightPaneMode.DETAIL],
+		["LogBtn", UiAssets.ICON_BATTLE_LOG, "战斗日志", RightPaneMode.LOG],
+		["RankBtn", UiAssets.ICON_COMBAT_RANK, "排行榜", RightPaneMode.RANK],
+	]
+	for spec: Variant in specs:
+		@warning_ignore("unsafe_cast")
+		var s: Array = spec as Array
+		var nm: String = str(s[0])
+		var existing: TextureButton = _as_tex_btn(mode_col.get_node_or_null(nm))
+		if existing == null:
+			var old_box: Node = root.get_node_or_null("RightCol/RightInner/RightModeBtns")
+			if old_box != null:
+				existing = _as_tex_btn(old_box.get_node_or_null(nm))
+		if existing == null:
+			var tb2: TextureButton = TextureButton.new()
+			tb2.name = nm
+			tb2.texture_normal = UiAssets.hud_icon(str(s[1]))
+			tb2.tooltip_text = str(s[2])
+			tb2.ignore_texture_size = true
+			tb2.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+			tb2.custom_minimum_size = Vector2(edge_side, edge_side)
+			tb2.size_flags_horizontal = Control.SIZE_SHRINK_END
+			var mode: int = TypedVariant.as_int(s[3], RightPaneMode.DETAIL)
+			tb2.pressed.connect(func() -> void: _set_right_pane_mode(mode))
+			mode_col.add_child(tb2)
+		else:
+			_reparent_keep_signals(existing, mode_col)
+			existing.texture_normal = UiAssets.hud_icon(str(s[1]))
+			existing.ignore_texture_size = true
+			existing.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+			existing.custom_minimum_size = Vector2(edge_side, edge_side)
+			existing.size_flags_horizontal = Control.SIZE_SHRINK_END
+	## Drop obsolete mode host if emptied.
+	var stale_modes: Node = root.get_node_or_null("RightCol/RightInner/RightModeBtns")
+	if stale_modes != null and stale_modes.get_child_count() == 0:
+		stale_modes.queue_free()
+	## Collapsed right: only collapse arrow — hide mode trio (UI_AND_SHELL §3.4).
+	mode_col.visible = not _collapse_right
+	## Bottom shop collapse — above Shop top edge, centered.
+	var bottom_chrome: PanelContainer = _make_edge_chrome(root, "BottomEdgeChrome")
+	bottom_chrome.z_index = 40
+	var cb: BaseButton = _as_base_button(root.get_node_or_null("BottomEdgeChrome/CollapseBottomBtn"))
+	var leftover_shop_cb: BaseButton = _as_base_button(root.get_node_or_null("Shop/ShopCol/CollapseBottomBtn"))
+	if cb == null:
+		cb = leftover_shop_cb
+		leftover_shop_cb = null
+	if cb == null:
+		var tb_bot: TextureButton = TextureButton.new()
+		tb_bot.name = "CollapseBottomBtn"
+		tb_bot.ignore_texture_size = true
+		tb_bot.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+		tb_bot.mouse_filter = Control.MOUSE_FILTER_STOP
+		tb_bot.pressed.connect(_on_collapse_bottom)
+		bottom_chrome.add_child(tb_bot)
+		cb = tb_bot
+	if cb != null:
+		_reparent_keep_signals(cb, bottom_chrome)
+		cb.visible = true
+		cb.mouse_filter = Control.MOUSE_FILTER_STOP
+		cb.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		cb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		cb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cb.tooltip_text = "收起/展开底栏"
+		if not cb.pressed.is_connected(_on_collapse_bottom):
+			cb.pressed.connect(_on_collapse_bottom)
+	if leftover_shop_cb != null and leftover_shop_cb != cb:
+		var p_bot: Node = leftover_shop_cb.get_parent()
+		if p_bot:
+			p_bot.remove_child(leftover_shop_cb)
+		leftover_shop_cb.queue_free()
+
+
+func _ensure_left_equip_collapse_btn(root: Control) -> void:
+	## Kept for callers; edge chrome owns the button now.
+	_ensure_hud_edge_chrome(root)
+
+
+func _ensure_hud_mode_buttons(root: Control) -> void:
+	## Kept for callers; edge chrome owns mode buttons now.
+	_ensure_hud_edge_chrome(root)
+
+
+func _set_right_pane_mode(mode: int) -> void:
+	_hud_interact_ms = Time.get_ticks_msec()
+	_right_pane_mode = mode
+	if _collapse_right:
+		_collapse_right = false
+	_apply_adaptive_hud_layout()
+	if mode == RightPaneMode.DETAIL:
+		_restore_detail_ship_panel()
+	elif mode == RightPaneMode.RANK:
+		_refresh_rank_panel()
+
+
+func _apply_right_pane_mode(root: Control) -> void:
+	if root == null:
+		return
+	@warning_ignore("unsafe_cast")
+	var info: Control = root.get_node_or_null(_INFO_PANEL) as Control
+	@warning_ignore("unsafe_cast")
+	var blog: Control = root.get_node_or_null("RightCol/RightInner/RightContent/BattleLog") as Control
+	@warning_ignore("unsafe_cast")
+	var rank: Control = root.get_node_or_null("RightCol/RightInner/RightContent/RankPanel") as Control
+	if info:
+		info.visible = (_right_pane_mode == RightPaneMode.DETAIL) and not _collapse_right
+		info.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if blog:
+		blog.visible = (_right_pane_mode == RightPaneMode.LOG) and not _collapse_right
+		blog.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if rank:
+		rank.visible = (_right_pane_mode == RightPaneMode.RANK) and not _collapse_right
+		rank.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if _right_pane_mode == RightPaneMode.RANK and not _collapse_right:
+		_refresh_rank_panel()
+
+
+func _ensure_rank_panel(root: Control) -> void:
+	if root == null:
+		return
+	var content: Control = root.get_node_or_null("RightCol/RightInner/RightContent") as Control
+	if content == null:
+		return
+	var panel: PanelContainer = content.get_node_or_null("RankPanel") as PanelContainer
+	var created: bool = false
+	if panel == null:
+		panel = PanelContainer.new()
+		panel.name = "RankPanel"
+		panel.visible = false
+		panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		content.add_child(panel)
+		created = true
+	var inner: VBoxContainer = panel.get_node_or_null("RankInner") as VBoxContainer
+	if inner == null:
+		inner = VBoxContainer.new()
+		inner.name = "RankInner"
+		inner.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		panel.add_child(inner)
+	var headers: HBoxContainer = inner.get_node_or_null("RankHeaders") as HBoxContainer
+	if headers == null:
+		headers = HBoxContainer.new()
+		headers.name = "RankHeaders"
+		headers.add_theme_constant_override("separation", UiLayout.margin_px(2, root))
+		headers.alignment = BoxContainer.ALIGNMENT_CENTER
+		inner.add_child(headers)
+		created = true
+	## Rebuild headers when missing tonnage icon spacer (older runtime panels).
+	if created or headers.get_node_or_null("H_icon") == null:
+		while headers.get_child_count() > 0:
+			var old_h: Node = headers.get_child(0)
+			headers.remove_child(old_h)
+			old_h.free()
+		var cols: Array = [
+			["icon", ""],
+			["name", "舰船名"],
+			["taken", "抗伤"],
+			["dealt", "伤害"],
+			["heal", "维修"],
+			["cap", "电容战"],
+		]
+		for c: Variant in cols:
+			@warning_ignore("unsafe_cast")
+			var pair: Array = c as Array
+			var key: String = str(pair[0])
+			if key == "icon":
+				var spacer: Control = Control.new()
+				spacer.name = "H_icon"
+				spacer.custom_minimum_size = Vector2(UiLayout.px(22, root), UiLayout.px(18, root))
+				spacer.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+				spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				headers.add_child(spacer)
+				continue
+			var b: Button = Button.new()
+			b.name = "H_%s" % key
+			b.text = str(pair[1])
+			b.flat = true
+			b.focus_mode = Control.FOCUS_NONE
+			b.custom_minimum_size = Vector2(0, UiLayout.px(18, root))
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			UiAssets.apply_button_font(b, UiLayout.font_size(11, root))
+			b.pressed.connect(func() -> void:
+				_rank_sort_key = key
+				_refresh_rank_panel()
+			)
+			headers.add_child(b)
+	var scroll: ScrollContainer = inner.get_node_or_null("RankScroll") as ScrollContainer
+	if scroll == null:
+		scroll = ScrollContainer.new()
+		scroll.name = "RankScroll"
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		inner.add_child(scroll)
+	var list: VBoxContainer = scroll.get_node_or_null("RankList") as VBoxContainer
+	if list == null:
+		list = VBoxContainer.new()
+		list.name = "RankList"
+		list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		list.add_theme_constant_override("separation", UiLayout.margin_px(1, root))
+		scroll.add_child(list)
+
+
+func _format_rank_stat(v: float) -> String:
+	## UI_AND_SHELL §2.6 — ≥1e7 → m, ≥1000 → k.
+	var a: float = absf(v)
+	if a >= 10000000.0:
+		return "%.1fm" % (v / 1000000.0)
+	if a >= 1000.0:
+		return "%.1fk" % (v / 1000.0)
+	return "%.0f" % v
+
+
+func _make_rank_tonnage_badge(ship_group: String, overlay_key: String, host_from: Control) -> Control:
+	## Compact HUD copy of in-world tonnage stack: bg → icon → corner badge.
+	var icon_side: float = float(UiLayout.px(14, host_from))
+	var host_side: float = icon_side * 1.5
+	var host: Control = Control.new()
+	host.custom_minimum_size = Vector2(host_side, host_side)
+	host.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	host.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ov: Dictionary = {}
+	if overlay_key != "":
+		ov = UiAssets.tonnage_overlay_set(overlay_key)
+	@warning_ignore("unsafe_cast")
+	var bg_tex: Texture2D = ov.get("bg") as Texture2D
+	if bg_tex != null:
+		var bg: TextureRect = TextureRect.new()
+		bg.texture = bg_tex
+		bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		host.add_child(bg)
+	var icon_tex: Texture2D = UiAssets.tonnage_icon(ship_group) if ship_group != "" else null
+	if icon_tex != null:
+		var icon: TextureRect = TextureRect.new()
+		icon.texture = icon_tex
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var pad: float = (host_side - icon_side) * 0.5
+		icon.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		icon.offset_left = pad
+		icon.offset_top = pad
+		icon.offset_right = pad + icon_side
+		icon.offset_bottom = pad + icon_side
+		host.add_child(icon)
+	@warning_ignore("unsafe_cast")
+	var badge_tex: Texture2D = ov.get("badge") as Texture2D
+	if badge_tex != null:
+		var badge_side: float = maxf(icon_side / 3.0, float(UiLayout.px(5, host_from)))
+		var badge: TextureRect = TextureRect.new()
+		badge.texture = badge_tex
+		badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		badge.offset_left = host_side - badge_side
+		badge.offset_top = host_side - badge_side
+		badge.offset_right = host_side
+		badge.offset_bottom = host_side
+		host.add_child(badge)
+	return host
+
+
+func _refresh_rank_panel() -> void:
+	@warning_ignore("unsafe_cast")
+	var list: VBoxContainer = hud.get_node_or_null("Root/RightCol/RightInner/RightContent/RankPanel/RankInner/RankScroll/RankList") as VBoxContainer
+	if list == null:
+		return
+	list.add_theme_constant_override("separation", UiLayout.margin_px(1, list))
+	for c: Node in list.get_children():
+		c.queue_free()
+	var rows: Array = []
+	if _combat_eval != null and _combat_eval.has_method("ranking_rows"):
+		rows = _combat_eval.ranking_rows(_rank_sort_key, board)
+	var fs: int = UiLayout.font_size(11, list)
+	var row_h: float = float(UiLayout.px(20, list))
+	for row_v: Variant in rows:
+		@warning_ignore("unsafe_cast")
+		var row: Dictionary = row_v as Dictionary
+		var row_btn: Button = Button.new()
+		row_btn.flat = true
+		row_btn.focus_mode = Control.FOCUS_NONE
+		row_btn.custom_minimum_size = Vector2(0, row_h)
+		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var iid: int = TypedVariant.as_int(row.get("iid", 0), 0)
+		row_btn.pressed.connect(func() -> void: _on_rank_row_pressed(iid))
+		var hb: HBoxContainer = HBoxContainer.new()
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hb.alignment = BoxContainer.ALIGNMENT_CENTER
+		hb.add_theme_constant_override("separation", UiLayout.margin_px(2, list))
+		hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		row_btn.add_child(hb)
+		hb.add_child(
+			_make_rank_tonnage_badge(
+				str(row.get("ship_group", "")),
+				str(row.get("overlay_key", "enemy")),
+				list
+			)
+		)
+		var cells: Array = [
+			str(row.get("name", "?")),
+			_format_rank_stat(TypedVariant.as_float(row.get("taken", 0.0), 0.0)),
+			_format_rank_stat(TypedVariant.as_float(row.get("dealt", 0.0), 0.0)),
+			_format_rank_stat(TypedVariant.as_float(row.get("heal", 0.0), 0.0)),
+			_format_rank_stat(TypedVariant.as_float(row.get("cap", 0.0), 0.0)),
+		]
+		for i: int in range(cells.size()):
+			var lab: Label = Label.new()
+			lab.text = str(cells[i])
+			lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if i == 0 else HORIZONTAL_ALIGNMENT_RIGHT
+			lab.clip_text = true
+			lab.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			UiAssets.apply_label_font(lab, false, fs)
+			hb.add_child(lab)
+		list.add_child(row_btn)
+
+
+func _on_rank_row_pressed(iid: int) -> void:
+	@warning_ignore("unsafe_cast")
+	var ship: ShipUnit = instance_from_id(iid) as ShipUnit
+	if ship == null or not is_instance_valid(ship):
+		return
+	if ship.has_method("flash_tonnage_lock"):
+		ship.call("flash_tonnage_lock", 0.55)
+	_show_ship_info(ship)
+	_pin_ship_info()
+	_set_right_pane_mode(RightPaneMode.DETAIL)
+
+
+func _flash_enemy_locks_on_battle_start() -> void:
+	if board == null:
+		return
+	var delay: float = 0.0
+	for s: ShipUnit in board.all_ships():
+		if s == null or not is_instance_valid(s):
+			continue
+		if s.slot_type != "field" or s.is_destroyed:
+			continue
+		if s.team_id == ShipUnit.TEAM_PLAYER:
+			continue
+		var ship_ref: ShipUnit = s
+		var d: float = delay
+		get_tree().create_timer(d).timeout.connect(func() -> void:
+			if ship_ref != null and is_instance_valid(ship_ref) and ship_ref.has_method("flash_tonnage_lock"):
+				ship_ref.call("flash_tonnage_lock", 0.4)
+		)
+		delay += 0.04
+
+
+func _sync_all_tactical_stems() -> void:
+	if board == null:
+		return
+	for s: ShipUnit in board.all_ships():
+		if s != null and is_instance_valid(s) and s.has_method("sync_tactical_stem"):
+			s.call("sync_tactical_stem")

@@ -10,8 +10,10 @@ var _active: Array[Dictionary] = []
 var _sfx: WeaponFireSfx
 ## Per-firer near/far parity for turret kinds (COMBAT §8): false → next near, true → next far.
 var _range_parity: Dictionary = {}
-## Preview gallery forces full FX regardless of GameSession.weapon_fx_simplified.
+## Preview gallery forces full FX regardless of (PlayerSettings.instance() as PlayerSettings).weapon_fx_simplified.
 var force_full_fx: bool = false
+## Optional shield-hit payload attached to the next spawned shot (cleared after play).
+var _shot_shield_hit: Dictionary = {}
 
 func setup(world_root: Node3D) -> void:
 	_world = world_root
@@ -21,9 +23,10 @@ func setup(world_root: Node3D) -> void:
 func _use_simplified_fx() -> bool:
 	if force_full_fx:
 		return false
-	if GameSession == null:
+	var ps: PlayerSettings = PlayerSettings.get_or_null()
+	if ps == null:
 		return false
-	return bool(GameSession.weapon_fx_simplified)
+	return ps.weapon_fx_simplified
 
 
 func _strip_shot_textures(shot_def: Dictionary) -> void:
@@ -55,25 +58,38 @@ func _ensure_sfx() -> void:
 func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, projectile_travel_s: float = -1.0, projectile_speed_cells: float = -1.0) -> void:
 	if firer == null or target == null or _world == null:
 		return
+	## COMBAT — carrier fighters: no missile attack VFX/SFX (damage still resolves).
+	if firer.is_unmanned and firer.unmanned_kind == "fighter":
+		return
 	## COMBAT §8.1 — SFX stays on in no_model_perf; only skip VFX (death boom already ignores this flag).
 	_ensure_sfx()
 	if _sfx:
 		_sfx.play_for(firer, kind)
-	if GameSession and bool(GameSession.no_model_perf_mode):
+	if (PlayerSettings.instance() as PlayerSettings) and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode):
 		return
 	_play_kind(firer, target, null, kind, duration, projectile_travel_s, projectile_speed_cells)
 
 
-## Visual-only mining beam toward a MiningAnchor (no damage).
-func play_to_anchor(firer: ShipUnit, anchor: Node3D, kind: String = "mining", duration: float = 0.85) -> void:
+## Visual-only beam/shot toward an anchor. Optional `shield_hit` ties shield glow to this shot
+## (same lifetime for beams; flash on impact for projectiles/tracers) for perfect sync.
+## shield_hit keys: mat (ShaderMaterial), hit_dir (Vector3), peak_alpha, emit_boost, base_vis, flash_s.
+func play_to_anchor(
+	firer: ShipUnit,
+	anchor: Node3D,
+	kind: String = "mining",
+	duration: float = 0.85,
+	shield_hit: Dictionary = {}
+) -> void:
 	if firer == null or anchor == null or not is_instance_valid(anchor) or _world == null:
 		return
 	_ensure_sfx()
 	if _sfx:
 		_sfx.play_for(firer, kind)
-	if GameSession and bool(GameSession.no_model_perf_mode):
+	if (PlayerSettings.instance() as PlayerSettings) and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode):
 		return
+	_shot_shield_hit = shield_hit.duplicate(true) if not shield_hit.is_empty() else {}
 	_play_kind(firer, null, anchor, kind, duration, -1.0, -1.0)
+	_shot_shield_hit = {}
 
 
 ## Function-bucket ship-to-ship FX (COMBAT §8.2) — nos/neut/damp/painter/…
@@ -87,7 +103,7 @@ func play_function(firer: ShipUnit, target: ShipUnit, kind: String, duration: fl
 	_ensure_sfx()
 	if _sfx:
 		_sfx.play_for(firer, k)
-	if GameSession and bool(GameSession.no_model_perf_mode):
+	if (PlayerSettings.instance() as PlayerSettings) and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode):
 		return
 	## Refresh existing link for the same firer/target/kind so the beam stays for the full active window.
 	for e: Dictionary in _active:
@@ -162,14 +178,18 @@ func _play_kind(
 	var dur: float = maxf(0.08, duration * dur_scale)
 	var rand_r: float = TypedVariant.as_float(cfg.get("rand_pos_range", 0.25), 0.25)
 	## Function / heal / mining stay pinned; attack beams keep light muzzle jitter.
+	## Shield-hit preview: no jitter so aim stays on model-center→shell clip.
 	var jitter_a: Vector3 = Vector3.ZERO
 	var jitter_b: Vector3 = Vector3.ZERO
-	if look == "solid" or look == "projectile" or look == "missile" or look == "cannon_cone":
+	var pin_aim: bool = not _shot_shield_hit.is_empty()
+	if not pin_aim and (look == "solid" or look == "projectile" or look == "missile" or look == "cannon_cone"):
 		jitter_a = Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
 		jitter_b = Vector3(randf_range(-rand_r, rand_r), randf_range(0.0, rand_r), randf_range(-rand_r, rand_r))
-	if style == "tracer" and target != null and not simplified:
-		_spawn_cannon_tracers(firer, target, color, width, jitter_a, jitter_b, shot_def)
-	elif (style == "projectile" or (simplified and style == "tracer")) and target != null:
+	if style == "tracer" and (target != null or (anchor != null and is_instance_valid(anchor))):
+		_spawn_cannon_tracers(firer, target, color, width, jitter_a, jitter_b, shot_def, anchor)
+	elif (style == "projectile" or (simplified and style == "tracer")) and (
+		target != null or (anchor != null and is_instance_valid(anchor))
+	):
 		var spd_cells: float = projectile_speed_cells
 		if spd_cells <= 0.0 and kind == "missile":
 			spd_cells = CombatFormulas.missile_speed_cells_per_s(firer)
@@ -188,7 +208,8 @@ func _play_kind(
 			TypedVariant.as_float(shot_def.get("trail_length", 0.6), 0.6),
 			spd_cells,
 			"" if simplified else str(shot_def.get("tex_beam", "")),
-			shot_def
+			shot_def,
+			anchor
 		)
 	else:
 		if simplified:
@@ -286,7 +307,14 @@ func _make_stretch_mat(color: Color, kdef: Dictionary, grid_mix_override: float 
 		sm.set_shader_parameter("tint", color)
 		var gmix: float = grid_mix_override if grid_mix_override >= 0.0 else TypedVariant.as_float(kdef.get("grid_mix", 0.55), 0.55)
 		sm.set_shader_parameter("grid_mix", gmix)
-		sm.set_shader_parameter("scroll_speed", TypedVariant.as_float(kdef.get("scroll_speed", 1.8), 1.8))
+		var scroll: float = TypedVariant.as_float(kdef.get("scroll_speed", 1.8), 1.8)
+		## Trumpet/cone V = firer→target; shader `uv.y -= TIME*speed` → positive scrolls toward firer.
+		## Outbound module FX need flow firer→target (COMBAT §8.2). Vampire nos keeps toward firer.
+		var look_l: String = str(kdef.get("look", "")).strip_edges().to_lower()
+		var default_outbound: bool = look_l == "trumpet" or look_l == "cone_grid" or look_l == "paint"
+		if TypedVariant.as_bool(kdef.get("flow_to_target", default_outbound), default_outbound):
+			scroll = -absf(scroll)
+		sm.set_shader_parameter("scroll_speed", scroll)
 		sm.set_shader_parameter(
 			"emission_boost",
 			TypedVariant.as_float(kdef.get("emission_boost", 2.6), 2.6)
@@ -320,14 +348,88 @@ func _process(delta: float) -> void:
 			alive = _tick_beam(e, scaled)
 		elif st == "tracer":
 			alive = _tick_cannon_tracers(e, scaled)
+			if not alive:
+				_spawn_shield_hit_flash_from(e)
+		elif st == "shield_hit":
+			alive = _tick_shield_hit_flash(e, scaled)
 		else:
 			alive = _tick_projectile(e, scaled)
+			if not alive:
+				_spawn_shield_hit_flash_from(e)
 		if alive:
 			i += 1
 		else:
 			_free_entry(e)
 			_active.remove_at(i)
 	SessionDiagnostics.add_usec(&"fx", Time.get_ticks_usec() - t0)
+
+
+func _attach_shot_shield_hit(entry: Dictionary, t_total: float = -1.0) -> void:
+	if _shot_shield_hit.is_empty():
+		return
+	entry["shield_hit"] = _shot_shield_hit.duplicate(true)
+	var tot: float = t_total
+	if tot < 0.0:
+		tot = TypedVariant.as_float(entry.get("t_left", 0.425), 0.425)
+	entry["t_total"] = maxf(tot, 0.001)
+	## Beams light immediately with the shot; projectiles wait for impact flash.
+	if str(entry.get("style", "")) == "beam":
+		_apply_shield_hit_glow(entry["shield_hit"], 1.0)
+
+
+func _apply_shield_hit_glow(sh: Variant, glow: float) -> void:
+	if not (sh is Dictionary):
+		return
+	var d: Dictionary = sh
+	var mat_v: Variant = d.get("mat")
+	if not (mat_v is ShaderMaterial):
+		return
+	@warning_ignore("unsafe_cast")
+	var mat: ShaderMaterial = mat_v as ShaderMaterial
+	var g: float = clampf(glow, 0.0, 1.0)
+	mat.set_shader_parameter("hit_glow", g)
+	mat.set_shader_parameter("hit_dir_obj", TypedVariant.as_vector3(d.get("hit_dir", Vector3(0, 1, 0)), Vector3(0, 1, 0)))
+	mat.set_shader_parameter("hit_peak_alpha", TypedVariant.as_float(d.get("peak_alpha", 0.36), 0.36))
+	mat.set_shader_parameter("hit_emit_boost", TypedVariant.as_float(d.get("emit_boost", 8.0), 8.0))
+	mat.set_shader_parameter("visibility", TypedVariant.as_float(d.get("base_vis", 0.03), 0.03))
+	mat.set_shader_parameter("pulse", lerpf(1.0, 1.25, g))
+
+
+func _sync_beam_shield_hit(e: Dictionary) -> void:
+	var sh_v: Variant = e.get("shield_hit")
+	if not (sh_v is Dictionary):
+		return
+	var tot: float = maxf(TypedVariant.as_float(e.get("t_total", 0.001), 0.001), 0.001)
+	var left: float = TypedVariant.as_float(e.get("t_left", 0.0), 0.0)
+	_apply_shield_hit_glow(sh_v, clampf(left / tot, 0.0, 1.0))
+
+
+func _spawn_shield_hit_flash_from(e: Dictionary) -> void:
+	var sh_v: Variant = e.get("shield_hit")
+	if not (sh_v is Dictionary):
+		return
+	var sh: Dictionary = sh_v
+	## Avoid double-flash if already consumed.
+	if TypedVariant.as_bool(sh.get("_flashed", false), false):
+		return
+	sh["_flashed"] = true
+	var flash_s: float = maxf(TypedVariant.as_float(sh.get("flash_s", 0.425), 0.425), 0.05)
+	_apply_shield_hit_glow(sh, 1.0)
+	_active.append({
+		"style": "shield_hit",
+		"t_left": flash_s,
+		"t_total": flash_s,
+		"shield_hit": sh,
+		"node": null,
+	})
+
+
+func _tick_shield_hit_flash(e: Dictionary, delta: float) -> bool:
+	e["t_left"] = TypedVariant.as_float(e.get("t_left", 0.0), 0.0) - delta
+	var tot: float = maxf(TypedVariant.as_float(e.get("t_total", 0.001), 0.001), 0.001)
+	var left: float = TypedVariant.as_float(e.get("t_left", 0.0), 0.0)
+	_apply_shield_hit_glow(e.get("shield_hit"), clampf(left / tot, 0.0, 1.0))
+	return left > 0.0
 
 func _beam_mat(color: Color, energy: float = 2.2, alpha_mul: float = 1.0) -> StandardMaterial3D:
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
@@ -342,8 +444,8 @@ func _beam_mat(color: Color, energy: float = 2.2, alpha_mul: float = 1.0) -> Sta
 
 
 func _make_trumpet_mesh() -> CylinderMesh:
-	## After look_at(to) + rotate_local X=-90°: mesh +Y maps toward target (−Z).
-	## So top_radius = target (flare), bottom_radius = firer (tip). Was swapped before.
+	## After look_at(to) + rotate_local X=-90°: mesh +Y points toward target.
+	## tip (narrow) @ firer = bottom; flare @ target = top (COMBAT §8.2).
 	var cyl: CylinderMesh = CylinderMesh.new()
 	cyl.top_radius = 1.0
 	cyl.bottom_radius = 0.22
@@ -479,6 +581,7 @@ func _spawn_beam(
 		"strobe_i": 0,
 		"strobe_t": 0.0,
 	}
+	_attach_shot_shield_hit(entry, duration)
 	_active.append(entry)
 	## Layout immediately — otherwise first frame sits at world origin (looks like FX missing).
 	_tick_beam(entry, 0.0)
@@ -490,7 +593,11 @@ func _muzzle_point(firer: ShipUnit) -> Vector3:
 		return Vector3(0.0, 0.4, 0.0)
 	var from: Vector3 = firer.get_muzzle_global()
 	var ship_pos: Vector3 = firer.visual_origin_world() if firer.has_method("visual_origin_world") else firer.global_position
-	if from.distance_to(ship_pos) > MUZZLE_FALLBACK_DIST:
+	## Capitals/dreads display longest often ≥5–6wu; scale the sanity limit (COMBAT §8).
+	var limit: float = MUZZLE_FALLBACK_DIST
+	if firer.has_method("get_model_display_size"):
+		limit = maxf(limit, TypedVariant.as_float(firer.call("get_model_display_size"), 0.0) * 1.5)
+	if from.distance_to(ship_pos) > limit:
 		return ship_pos + Vector3(0.0, 0.4, 0.0)
 	return from
 
@@ -510,7 +617,15 @@ func _sample_aim_world(target: ShipUnit, jb: Vector3, fallback: Vector3) -> Vect
 
 
 ## Live aim, else hold last `e["to"]` (COMBAT §8 kill-freeze). Never invent a near-muzzle placeholder.
+## Anchor (shield surface / mining) wins over live ship aim so beams stop on the shield.
 func _aim_to(e: Dictionary, jb: Vector3, fallback: Vector3) -> Vector3:
+	var anchor_v: Variant = e.get("anchor")
+	if anchor_v != null and is_instance_valid(anchor_v) and anchor_v is Node3D:
+		@warning_ignore("unsafe_cast")
+		var anchor: Node3D = anchor_v as Node3D
+		var held_a: Vector3 = anchor.global_position + jb
+		e["to"] = held_a
+		return held_a
 	var target: ShipUnit = _alive_ship_ref(e, "target")
 	var held: Vector3 = _dict_vec3(e.get("to", fallback), fallback)
 	if target != null:
@@ -549,10 +664,15 @@ func _spawn_cannon_tracers(
 	width: float,
 	ja: Vector3,
 	jb: Vector3,
-	shot_def: Dictionary
+	shot_def: Dictionary,
+	anchor: Node3D = null
 ) -> void:
 	var from: Vector3 = _muzzle_point(firer) + ja
-	var to: Vector3 = _sample_aim_world(target, jb, from + Vector3(0, 0, 1))
+	var to: Vector3 = from + Vector3(0, 0, 1)
+	if anchor != null and is_instance_valid(anchor):
+		to = anchor.global_position + jb
+	elif target != null:
+		to = _sample_aim_world(target, jb, to)
 	var band: String = str(shot_def.get("range_band", "near"))
 	var is_far: bool = band == "far"
 	var count: int = maxi(
@@ -627,6 +747,7 @@ func _spawn_cannon_tracers(
 		"target": null,
 		"firer": null,
 	})
+	_attach_shot_shield_hit(_active[_active.size() - 1], 0.425)
 	_tick_cannon_tracers(_active[_active.size() - 1], 0.0)
 
 
@@ -695,11 +816,16 @@ func _spawn_projectile(
 	trail_length: float = 0.6,
 	speed_cells_per_s: float = -1.0,
 	tex_path: String = "",
-	shot_def: Dictionary = {}
+	shot_def: Dictionary = {},
+	anchor: Node3D = null
 ) -> void:
 	var from: Vector3 = _muzzle_point(firer) + ja
 	## Seed even if kill already flipped is_destroyed before play().
-	var to: Vector3 = _sample_aim_world(target, jb, from + Vector3(0, 0, 1))
+	var to: Vector3 = from + Vector3(0, 0, 1)
+	if anchor != null and is_instance_valid(anchor):
+		to = anchor.global_position + jb
+	elif target != null:
+		to = _sample_aim_world(target, jb, to)
 	var mi: MeshInstance3D = MeshInstance3D.new()
 	var sphere: SphereMesh = SphereMesh.new()
 	sphere.radius = width * 0.5
@@ -775,6 +901,7 @@ func _spawn_projectile(
 		## Detached chase missiles do not re-tether to firer muzzle.
 		"firer": null if chase else firer,
 		"target": target,
+		"anchor": anchor,
 		"ja": ja,
 		"jb": jb,
 		"from": from,
@@ -802,6 +929,7 @@ func _spawn_projectile(
 		"eject_speed_wu": eject_speed_wu,
 		"eject_dir": eject_dir,
 	})
+	_attach_shot_shield_hit(_active[_active.size() - 1], 0.425)
 
 func _dict_vec3(v: Variant, default_val: Vector3 = Vector3.ZERO) -> Vector3:
 	if v is Vector3:
@@ -812,7 +940,7 @@ func _orient_beam_node(mi: MeshInstance3D, from: Vector3, to: Vector3, look: Str
 	var mid: Vector3 = from + (to - from) * 0.5
 	mi.global_position = mid
 	if look == "cone" or look == "cone_grid" or look == "trumpet" or look == "helix":
-		## CylinderMesh Y-up: tip at firer (top_radius), flare at target (bottom).
+		## CylinderMesh Y-up: after rotate, +Y → target; bottom=tip@firer, top=flare@target.
 		mi.look_at(to, Vector3.UP)
 		mi.rotate_object_local(Vector3.RIGHT, -PI * 0.5)
 		mi.scale = Vector3(sx, length, sy)
@@ -978,6 +1106,7 @@ func _tick_beam(e: Dictionary, delta: float) -> bool:
 	if sec_pulse_v != null and is_instance_valid(sec_pulse_v) and sec_pulse_v is MeshInstance3D:
 		@warning_ignore("unsafe_cast")
 		_set_mat_pulse((sec_pulse_v as MeshInstance3D).material_override, pulse * 0.75)
+	_sync_beam_shield_hit(e)
 	return TypedVariant.as_float(e.get("t_left", 0.0), 0.0) > 0.0
 
 func _tick_projectile(e: Dictionary, delta: float) -> bool:
@@ -1085,6 +1214,11 @@ func _alive_ship_ref(e: Dictionary, key: String) -> ShipUnit:
 	return ship
 
 func _free_entry(e: Dictionary) -> void:
+	var st: String = str(e.get("style", ""))
+	## Clear glow when beam/flash ends; projectile hands off to shield_hit flash entry.
+	if st == "beam" or st == "shield_hit":
+		if e.has("shield_hit"):
+			_apply_shield_hit_glow(e.get("shield_hit"), 0.0)
 	var sec_v: Variant = e.get("secondary")
 	if sec_v != null and is_instance_valid(sec_v) and sec_v is Node:
 		@warning_ignore("unsafe_cast")

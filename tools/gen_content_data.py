@@ -406,6 +406,11 @@ def build_ship(def_row: dict, raw: dict, mods: dict, drone_slots_map: dict, long
         "attack_cycle_s": attack_cycle_s,
         "stars": stars,
     }
+    ## COMBAT §14C: logistic cruiser / battlecruiser — no combat drones (FAX unchanged).
+    if logistic and group in ("cruiser", "battlecruiser"):
+        doc["drone_bandwidth"] = 0.0
+        doc["drone_bay_slots"] = 0
+        doc["drone_count_cap"] = 0
     if weapon_tier:
         doc["weapon_tier"] = weapon_tier
     if bool(def_row.get("is_attack_battlecruiser", False)):

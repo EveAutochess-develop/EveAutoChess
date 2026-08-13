@@ -133,7 +133,7 @@ func _grant_exp(amount: int) -> void:
 func _refresh_shop() -> void:
 	var prev_stream: String = ShopController._auth_stream
 	ShopController._auth_stream = "shop_ai"
-	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 7), 7)
+	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 6), 6)
 	ShopController._decay_recent_hits(_recent_shop_hits)
 	shop_slots.clear()
 	var seen_counts: Dictionary = {}
@@ -258,7 +258,7 @@ func _ensure_equipment_inventory() -> void:
 
 func _roll_equipment_shop(force_ids: Array = []) -> void:
 	equipment_slots.clear()
-	var count: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 5), 5))
+	var count: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 4), 4))
 	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_category_pity_window", 10), 10))
 	var pool: Array = DataStore.function_module_shop_pool_ids_for_level(ai_level)
 	var by_cat: Dictionary = {}

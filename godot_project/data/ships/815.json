@@ -1,0 +1,135 @@
+{
+  "agility": 0.125,
+  "attack_cycle_s": 3.5,
+  "attack_weapon_slots": 4.0,
+  "capacitor_capacity": 7500.0,
+  "capacitor_recharge_s": 1154.0,
+  "cost": 18.0,
+  "drone_bandwidth": 50,
+  "drone_bay_slots": 2,
+  "drone_count_cap": 2,
+  "drone_unit_ids": [
+    1011,
+    1011
+  ],
+  "echoes_item_id": 0.0,
+  "faction_ship": true,
+  "fetter_ids": [
+    "blood",
+    "battleship",
+    "ewar"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7.0,
+  "id": 815.0,
+  "is_logistic": false,
+  "low_slots": 7.0,
+  "mass": 97100000.0,
+  "med_slots": 5.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "xxz_bagelong",
+  "model_long_axis": 450.0,
+  "name": "巴戈龙级",
+  "name_en": "Bhaalgorn",
+  "portrait": "res://assets/ui/portraits/xxz_bagelong.png",
+  "race": "blood",
+  "scan_resolution": 130.0,
+  "sensor_strength": 28.0,
+  "ship_group": "battleship",
+  "ship_groups": [
+    "battleship"
+  ],
+  "shop_min_level": 14.0,
+  "signature_radius": 400.0,
+  "sof_hull": "ab2_t1",
+  "source_module_type_id": 462.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 101.0,
+  "stars": [
+    {
+      "armor_hp": 11935.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 9.0,
+      "is_logistic": false,
+      "shield_hp": 10230.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 10230.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 23870.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 9.0,
+      "is_logistic": false,
+      "shield_hp": 20460.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 20460.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 35805.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 9.0,
+      "is_logistic": false,
+      "shield_hp": 30690.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 30690.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    }
+  ],
+  "tags": [
+    "blood",
+    "battleship",
+    "ewar"
+  ],
+  "type_id": 17920.0,
+  "weapon_fx": "laser",
+  "weapon_tier": "large"
+}

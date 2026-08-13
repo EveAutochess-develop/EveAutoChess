@@ -3,7 +3,8 @@ render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_g
 
 /// Godot port of Unity Custom/StandardShipShader (DUST_243).
 /// Albedo intensity × Material-map 4-band colors + glow emission + metallic threshold.
-/// Opaque + cull_disabled: prevents GLB-alpha / backface “镂空”.
+/// Opaque + cull_disabled by default; optional alpha discard for glass/padding
+/// (e.g. Stratios ring — glass UVs land on near-white atlas padding).
 
 uniform sampler2D albedo_tex : source_color;
 uniform sampler2D normal_tex : hint_normal;
@@ -24,9 +25,14 @@ uniform float normal_scale = 1.0;
 uniform float glow_mul = 1.0;
 uniform float intensity_floor = 0.04;
 uniform float combat_emission_strength : hint_range(0.0, 2.0) = 0.0;
+/// When >0, discard fragments with albedo.a below this (glass / atlas padding).
+uniform float alpha_cutoff : hint_range(0.0, 1.0) = 0.0;
 
 void fragment() {
 	vec4 ad = texture(albedo_tex, UV);
+	if (alpha_cutoff > 0.001 && ad.a < alpha_cutoff) {
+		discard;
+	}
 	// Match Unity StandardShipShader: intensity from albedo.r only.
 	float intensity = max(ad.r, intensity_floor);
 	vec4 pmwo = texture(pmwo_tex, UV);

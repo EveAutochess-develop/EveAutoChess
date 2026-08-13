@@ -1,79 +1,79 @@
 {
-  "id": 1006,
+  "_content_dph_mul": 3.0,
+  "agility": 0.8,
+  "attack_cycle_s": 2.0,
+  "capacitor_capacity": 80.0,
+  "capacitor_recharge_s": 25.0,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 14000110006.0,
+  "fetter_ids": [],
+  "function_slots": {
+    "slots": []
+  },
+  "id": 1006.0,
+  "is_logistic": false,
+  "is_unmanned": true,
+  "mass": 5000.0,
+  "model_key": "wrj_j_jinxing",
+  "model_long_axis": 34.0,
   "name": "金星中型无人机",
   "name_en": "Vespa",
-  "model_key": "wrj_j_jinxing",
-  "echoes_item_id": 14000110006,
-  "cost": 0,
+  "race": "caldari",
+  "scan_resolution": 600.0,
+  "sensor_strength": 5.0,
   "ship_group": "drone_medium",
   "ship_groups": [
     "drone_medium"
   ],
-  "fetter_ids": [],
+  "signature_radius": 25.0,
+  "sof_hull": "cdm1_t1",
+  "speed": 480.0,
+  "stars": [
+    {
+      "armor_hp": 50.0,
+      "armor_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "attack_range": 4.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 52.8,
+        "kinetic": 79.2,
+        "thermal": 0.0
+      },
+      "falloff": 2.0,
+      "optimal": 4.0,
+      "optimal_sig_radius": 35.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 60.0,
+      "shield_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "structure_hp": 40.0,
+      "structure_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "tracking": 0.32
+    }
+  ],
   "tags": [
     "caldari",
     "drone"
   ],
-  "is_logistic": false,
-  "is_unmanned": true,
   "unmanned_kind": "combat_drone",
-  "weapon_fx": "rail",
-  "race": "caldari",
-  "signature_radius": 25.0,
-  "sensor_strength": 5.0,
-  "scan_resolution": 600.0,
-  "speed": 480.0,
-  "mass": 5000.0,
-  "agility": 0.8,
-  "capacitor_capacity": 80.0,
-  "capacitor_recharge_s": 25.0,
-  "attack_cycle_s": 2.0,
-  "drone_bandwidth": 0,
-  "function_slots": {
-    "slots": []
-  },
-  "stars": [
-    {
-      "attack_range": 4,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 72.0,
-        "explosive": 48.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.32,
-      "optimal": 4.0,
-      "falloff": 2.0,
-      "optimal_sig_radius": 35.0,
-      "shield_hp": 60,
-      "armor_hp": 50,
-      "structure_hp": 40,
-      "shield_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "armor_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      }
-    }
-  ],
-  "model_long_axis": 34.0,
-  "sof_hull": "cdm1_t1",
-  "_content_dph_mul": 3
+  "weapon_fx": "rail"
 }

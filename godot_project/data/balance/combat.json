@@ -1,6 +1,6 @@
 {
   "meters_per_cell": 2000,
-  "speed_meters_per_cell": 500,
+  "speed_meters_per_cell": 750,
   "tracking_meters_per_cell": 2000,
   "world_units_per_cell": 3.0,
   "move_speed_scale": 1.65,

@@ -1,0 +1,134 @@
+{
+  "agility": 0.62,
+  "attack_cycle_s": 3.5,
+  "attack_weapon_slots": 3.0,
+  "capacitor_capacity": 1800.0,
+  "capacitor_recharge_s": 495.0,
+  "cost": 7.0,
+  "drone_bandwidth": 10,
+  "drone_bay_slots": 1,
+  "drone_count_cap": 1,
+  "drone_unit_ids": [
+    1005
+  ],
+  "echoes_item_id": 0.0,
+  "faction_ship": true,
+  "fetter_ids": [
+    "sansha",
+    "cruiser",
+    "firepower"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 4.0,
+  "id": 820.0,
+  "is_logistic": false,
+  "low_slots": 5.0,
+  "mass": 9600000.0,
+  "med_slots": 6.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "ss_youling",
+  "model_long_axis": 174.0,
+  "name": "幽灵级",
+  "name_en": "Phantasm",
+  "portrait": "res://assets/ui/portraits/ss_youling.png",
+  "race": "sansha",
+  "scan_resolution": 275.0,
+  "sensor_strength": 20.0,
+  "ship_group": "cruiser",
+  "ship_groups": [
+    "cruiser"
+  ],
+  "shop_min_level": 6.0,
+  "signature_radius": 120.0,
+  "sof_hull": "sc1_t1",
+  "source_module_type_id": 456.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 228.0,
+  "stars": [
+    {
+      "armor_hp": 2175.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 6.0,
+      "is_logistic": false,
+      "shield_hp": 2700.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 2065.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 4350.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 6.0,
+      "is_logistic": false,
+      "shield_hp": 5400.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 4130.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 6525.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.25,
+        "explosive": 0.2
+      },
+      "attack_range": 6.0,
+      "is_logistic": false,
+      "shield_hp": 8100.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 6195.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    }
+  ],
+  "tags": [
+    "sansha",
+    "cruiser",
+    "firepower"
+  ],
+  "type_id": 17718.0,
+  "weapon_fx": "laser",
+  "weapon_tier": "medium"
+}

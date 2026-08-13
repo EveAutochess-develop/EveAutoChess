@@ -1,0 +1,42 @@
+{
+  "id": 925,
+  "name": "征服者级残骸",
+  "name_en": "Vanquisher Wreck",
+  "type_id": 0,
+  "echoes_item_id": 0,
+  "race": "angel",
+  "ship_group": "titan",
+  "model_auto_orient": true,
+  "model_key": "tsl_zhengfuzhe_wreck",
+  "sof_hull": "angt1_t1",
+  "model_long_axis": 2200.0,
+  "cost": 0,
+  "ship_groups": [
+    "titan"
+  ],
+  "fetter_ids": [],
+  "tags": [
+    "angel",
+    "titan",
+    "wreck",
+    "shop_ineligible"
+  ],
+  "is_logistic": false,
+  "weapon_fx": "",
+  "shop_eligible": false,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "med_slots": 0,
+  "low_slots": 0,
+  "capital_role": "titan",
+  "stars": [
+    {
+      "shield_hp": 1,
+      "armor_hp": 1,
+      "structure_hp": 1,
+      "attack_range": 0
+    }
+  ]
+}

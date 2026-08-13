@@ -2,6 +2,7 @@ extends RefCounted
 class_name RoundSpeedController
 ## Priority: unanimous non-1x > finished→max(4x,场上) > disagree/1x.
 ## Conditional wall-clock 2min draw: only while remaining mid-round battles (SEMI_ASYNC §4.5).
+## Auto finish floor arms only on manned seat finish — AI early end must not set any_finished.
 ## Auto finish floor must not persist as preferred.
 ## Unanimous requires EVERY occupied human seat to have voted the same speed.
 

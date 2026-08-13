@@ -1,0 +1,131 @@
+{
+  "agility": 0.47,
+  "attack_cycle_s": 3.0,
+  "attack_weapon_slots": 5.0,
+  "capacitor_capacity": 1700.0,
+  "capacitor_recharge_s": 456.0,
+  "cost": 7.0,
+  "drone_bandwidth": 0,
+  "drone_bay_slots": 0,
+  "drone_count_cap": 0,
+  "echoes_item_id": 0.0,
+  "faction_ship": true,
+  "fetter_ids": [
+    "soe",
+    "cruiser",
+    "logistic"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 5.0,
+  "id": 811.0,
+  "is_logistic": true,
+  "low_slots": 5.0,
+  "mass": 9350000.0,
+  "med_slots": 5.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "jmh_sitexiusi",
+  "model_long_axis": 174.0,
+  "name": "斯特修斯级",
+  "name_en": "Stratios",
+  "portrait": "res://assets/ui/portraits/jmh_sitexiusi.png",
+  "race": "soe",
+  "scan_resolution": 275.0,
+  "sensor_strength": 20.0,
+  "ship_group": "cruiser",
+  "ship_groups": [
+    "cruiser"
+  ],
+  "shop_min_level": 6.0,
+  "signature_radius": 150.0,
+  "sof_hull": "soec1_t1",
+  "source_module_type_id": 0.0,
+  "source_repair_module_type_id": 11357.0,
+  "speed": 182.0,
+  "stars": [
+    {
+      "armor_hp": 2400.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.35,
+        "explosive": 0.1
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 1950.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 2450.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 4800.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.35,
+        "explosive": 0.1
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 3900.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 4900.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    },
+    {
+      "armor_hp": 7200.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "thermal": 0.35,
+        "kinetic": 0.35,
+        "explosive": 0.1
+      },
+      "attack_range": 8.0,
+      "is_logistic": true,
+      "shield_hp": 5850.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "thermal": 0.2,
+        "kinetic": 0.4,
+        "explosive": 0.5
+      },
+      "structure_hp": 7350.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "thermal": 0.33,
+        "kinetic": 0.33,
+        "explosive": 0.33
+      }
+    }
+  ],
+  "tags": [
+    "soe",
+    "cruiser",
+    "logistic"
+  ],
+  "type_id": 33470.0,
+  "weapon_fx": "heal",
+  "weapon_tier": "medium"
+}

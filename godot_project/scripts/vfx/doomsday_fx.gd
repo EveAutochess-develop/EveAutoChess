@@ -62,13 +62,22 @@ static func play(parent: Node, race: String, from: Vector3, to: Vector3) -> Doom
 	fx.name = "DoomsdayFx"
 	fx.from_world = from
 	fx.to_world = to
-	var def_v: Variant = RACE_FX.get(race.to_lower(), RACE_FX["caldari"])
+	## Vanquisher (angel) has no unique stretch — reuse M / Gjallarhorn (MULTIPLAYER_PVP §6.1).
+	var key: String = _fx_race_key(race)
+	var def_v: Variant = RACE_FX.get(key, RACE_FX["caldari"])
 	if def_v is Dictionary:
 		fx._def = def_v
 	else:
 		fx._def = RACE_FX["caldari"]
 	parent.add_child(fx)
 	return fx
+
+
+static func _fx_race_key(race: String) -> String:
+	var r: String = race.to_lower().strip_edges()
+	if r == "angel" or r == "vanquisher":
+		return "minmatar"
+	return r
 
 
 func _ready() -> void:

@@ -1,0 +1,13 @@
+{
+  "id": "sansha",
+  "name": "萨沙",
+  "effects": [
+    {
+      "champion_count": 3,
+      "effect_type": "ShieldHP",
+      "effect_value_type": "Percentage",
+      "effect_target": "SelfFetter",
+      "value": 5
+    }
+  ]
+}

@@ -48,7 +48,7 @@ var _mesh_style: String = STYLE_RIBBON
 
 
 static func _no_model() -> bool:
-	return GameSession != null and bool(GameSession.no_model_perf_mode)
+	return (PlayerSettings.instance() as PlayerSettings) != null and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode)
 
 
 static func ensure_on(unit: Node3D, team_player: bool) -> EngineBoosterTrail:
@@ -470,6 +470,8 @@ func _build_crossed_ribbon(samples: Array, tint: Color, single_strand: bool = fa
 	var cols: PackedColorArray = PackedColorArray()
 	var indices: PackedInt32Array = PackedInt32Array()
 	var bright: float = clampf(TypedVariant.as_float(_vis().get("booster_trail_brightness", 0.5), 0.5), 0.0, 2.0)
+	if _ship != null and str(_ship.get("unmanned_kind")) == "fighter":
+		bright *= clampf(TypedVariant.as_float(_vis().get("fighter_trail_brightness_mul", 0.5), 0.5), 0.0, 1.0)
 	var width_mul: float = 1.0
 	if single_strand:
 		width_mul = maxf(0.25, TypedVariant.as_float(_vis().get("unmanned_single_strand_width_mul", 1.0), 1.0))
@@ -628,6 +630,8 @@ func _ensure_mesh_slots() -> void:
 
 func _sample_color(sample: Dictionary, tint: Color) -> Color:
 	var bright: float = clampf(TypedVariant.as_float(_vis().get("booster_trail_brightness", 0.5), 0.5), 0.0, 2.0)
+	if _ship != null and str(_ship.get("unmanned_kind")) == "fighter":
+		bright *= clampf(TypedVariant.as_float(_vis().get("fighter_trail_brightness_mul", 0.5), 0.5), 0.0, 1.0)
 	var a: float = tint.a * _fade_alpha(TypedVariant.as_float(sample.get("age", 0.0))) * bright
 	return Color(tint.r, tint.g, tint.b, a)
 

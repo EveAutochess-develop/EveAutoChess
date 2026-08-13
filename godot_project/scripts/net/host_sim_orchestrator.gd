@@ -107,6 +107,23 @@ func enqueue_ai_vs_ai_instant(seat_a: int, seat_b: int, ships_a: int, ships_b: i
 	return _serial
 
 
+## MULTIPLAYER_MATCH_FLOW §5.0 — ai_player PVE: no creeps / CombatResolver; seat wins + kill gold.
+func enqueue_ai_pve_instant(seat: int, ships: int, kill_gold_per_ship: int) -> int:
+	_serial += 1
+	var kg: int = maxi(0, kill_gold_per_ship)
+	var sh: int = maxi(0, ships)
+	_pending.append({
+		"serial": _serial,
+		"kind": "pve_ai_instant",
+		"seat": seat,
+		"ships": sh,
+		"kill_gold_per_ship": kg,
+		"gold": sh * kg,
+		"seeds": {},
+	})
+	return _serial
+
+
 func tick_authority(_logic_dt: float) -> void:
 	## Resolve up to budget jobs per authority tick (deterministic report from MatchRng).
 	var n: int = 0
@@ -144,6 +161,22 @@ func _simulate_job(job: Dictionary) -> Dictionary:
 				gold_b,
 			]),
 			"spot_sample": [{"kind": kind, "result": "dual_win"}],
+		}
+	if kind == "pve_ai_instant":
+		var gold: int = TypedVariant.as_int(job.get("gold", 0), 0)
+		var seat: int = TypedVariant.as_int(job.get("seat", -1), -1)
+		return {
+			"serial": serial,
+			"kind": kind,
+			"result": "win",
+			"seat": seat,
+			"ships": TypedVariant.as_int(job.get("ships", 0), 0),
+			"gold": gold,
+			"job": job,
+			"deputy_seat": -1,
+			"skip_titan": true,
+			"state_hash": "%08x" % hash("pve_ai_instant:win:%d:%d" % [seat, gold]),
+			"spot_sample": [{"kind": kind, "result": "win"}],
 		}
 	## Lightweight authority outcome from battle seeds (full board sim shares CombatResolver on host client).
 	var roll_a: float = 0.5

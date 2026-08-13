@@ -17,13 +17,15 @@
     "7": 3
   },
   "refresh_cost": 2,
+  "ship_scanner_cost": 50,
+  "player_level_cap": 20,
   "buy_exp_gold_cost": 4,
   "buy_exp_amount": 4,
   "base_exp_income": 4,
   "initial_level_exp_demand": 4,
   "level_exp_demand_increment": 8,
-  "shop_slot_count": 7,
-  "equipment_shop_slot_count": 5,
+  "shop_slot_count": 6,
+  "equipment_shop_slot_count": 4,
   "equipment_shop_category_pity_window": 10,
   "equipment_shop_min_level_m": 5,
   "equipment_shop_min_level_l": 10,
@@ -50,7 +52,8 @@
   "shop_capital_min_level": 15,
   "shop_capital_costs": [
     22,
-    24
+    24,
+    37
   ],
   "shop_capital_roll_weight_pct": 12,
   "shop_tonnage_pity_window": 5,

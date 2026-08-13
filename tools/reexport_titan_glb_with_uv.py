@@ -201,20 +201,86 @@ class MultiSectionGr2:
         return out
 
 
-def _try_uvs(blob: bytes, vcount: int, stride: int) -> np.ndarray | None:
-    """Match import_mining_pc_meshes: float16 UV at end of vertex."""
-    if stride >= 16 and stride % 2 == 0:
-        u16 = np.frombuffer(blob, dtype="<u2").reshape(vcount, stride // 2)
-        raw = u16[:, -2:].copy()
-        uvs = raw.view("<f2").astype(np.float64).reshape(vcount, 2)
-        if np.isfinite(uvs).all():
-            span = float((uvs[:, 0].max() - uvs[:, 0].min()) + (uvs[:, 1].max() - uvs[:, 1].min()))
-            nz = float(np.mean((np.abs(uvs[:, 0]) > 1e-3) | (np.abs(uvs[:, 1]) > 1e-3)))
-            if 0.05 < span < 20.0 and float(np.median(np.abs(uvs))) < 8.0 and nz > 0.2:
-                uvs = uvs.copy()
-                uvs[:, 1] = 1.0 - uvs[:, 1]
-                return uvs
-    return None
+def _uv_looks_valid(uvs: np.ndarray) -> bool:
+    if uvs is None or uvs.shape[0] < 32 or not np.isfinite(uvs).all():
+        return False
+    span_u = float(uvs[:, 0].max() - uvs[:, 0].min())
+    span_v = float(uvs[:, 1].max() - uvs[:, 1].min())
+    if span_u < 0.15 or span_v < 0.15:
+        return False
+    span = span_u + span_v
+    nz = float(np.mean((np.abs(uvs[:, 0]) > 1e-3) | (np.abs(uvs[:, 1]) > 1e-3)))
+    med = float(np.median(np.abs(uvs)))
+    return 0.05 < span < 20.0 and med < 8.0 and nz > 0.2
+
+
+def _uv_in01_score(uvs: np.ndarray) -> float:
+    in01 = float(
+        np.mean(
+            (uvs[:, 0] >= -0.05)
+            & (uvs[:, 0] <= 1.05)
+            & (uvs[:, 1] >= -0.05)
+            & (uvs[:, 1] <= 1.05)
+        )
+    )
+    span_u = float(uvs[:, 0].max() - uvs[:, 0].min())
+    span_v = float(uvs[:, 1].max() - uvs[:, 1].min())
+    med_u = float(np.median(uvs[:, 0]))
+    med_v = float(np.median(uvs[:, 1]))
+    ## Penalize collapsed islands (almost all verts on one texel).
+    collapse = 0.0
+    if (med_u > 0.92 and med_v > 0.92) or (abs(med_u) < 0.04 and abs(med_v) < 0.04):
+        collapse = 4.0
+    return in01 * 10.0 + min(span_u, 1.2) + min(span_v, 1.2) - collapse
+
+
+def _try_uvs(blob: bytes, vcount: int, stride: int) -> tuple[np.ndarray, int] | None:
+    """Score every 16-bit pair as float16 *and* unorm16.
+
+    Vanquisher hull/wreck store UV as unorm16 in the last 4 bytes (atlas ~0.02–0.82).
+    Packed normals remapped as unorm16 look like a perfect 0–1 sheet and used to
+    beat the real atlas (preview 'lost textures'). Tail unorm16 that does *not*
+    fill the full sheet gets a bonus. G wreck still wins as float16 @+16.
+    """
+    if stride < 16 or stride % 2 != 0:
+        return None
+    u16 = np.frombuffer(blob, dtype="<u2").reshape(vcount, stride // 2)
+    tail_col = stride // 2 - 2
+
+    def _from_col(col: int) -> np.ndarray:
+        raw = u16[:, col : col + 2].copy()
+        return raw.view("<f2").astype(np.float64).reshape(vcount, 2)
+
+    best: np.ndarray | None = None
+    best_score = -1.0
+    best_off = -1
+    ## Skip position xyz (first 12 bytes = 6 u16). Last pair is stride/2-2.
+    for col in range(6, stride // 2 - 1):
+        cands = (
+            ("f16", _from_col(col)),
+            ## Vanquisher / some wrecks store UV as unorm16, not float16.
+            ("unorm16", u16[:, col : col + 2].astype(np.float64) / 65535.0),
+        )
+        for kind, cand in cands:
+            if not _uv_looks_valid(cand):
+                continue
+            score = _uv_in01_score(cand)
+            mx = float(np.max(cand))
+            mn = float(np.min(cand))
+            ## Packed SNORM/UNORM attrs fill 0–1; real Angel atlas does not.
+            if kind == "unorm16" and mn <= 0.02 and mx >= 0.98:
+                score -= 2.5
+            if kind == "unorm16" and col == tail_col and mx < 0.92:
+                score += 3.0
+            if score > best_score:
+                best_score = score
+                best = cand
+                best_off = col * 2
+    if best is None:
+        return None
+    out = best.copy()
+    out[:, 1] = 1.0 - out[:, 1]
+    return out, best_off
 
 
 def _extract_best(g: MultiSectionGr2) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
@@ -281,12 +347,12 @@ def _extract_best(g: MultiSectionGr2) -> tuple[np.ndarray, np.ndarray, np.ndarra
                 faces = faces[emax <= extent * SPIKE_EDGE_FRAC]
                 if len(faces) < 32:
                     continue
-                uvs = _try_uvs(blob, vcount, stride)
-                if uvs is None:
+                uv_hit = _try_uvs(blob, vcount, stride)
+                if uv_hit is None:
                     uvs = np.zeros((vcount, 2), dtype=np.float64)
                     uv_off = -1
                 else:
-                    uv_off = stride - 4
+                    uvs, uv_off = uv_hit
                 lod_pen = 1 if "LOD" in name.upper() else 0
                 # Prefer: has UV, more tris, smaller edges, non-LOD, larger stride (32>).
                 score = (

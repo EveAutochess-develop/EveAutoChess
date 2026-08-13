@@ -6,6 +6,8 @@ enum Stage { PREPARE, BATTLE, GAME_END }
 
 signal stage_changed(stage: int)
 signal hud_refresh()
+## Light HUD only (timer/economy labels) — MatchRoot throttles to ≤½ FPS (UI_AND_SHELL).
+signal hud_tick()
 signal notice(text: String)
 signal match_over(summary: String)
 ## Nullsec R1 Prepare: any successful gold spend (buy/refresh/exp/equip).
@@ -43,7 +45,7 @@ var player_level: int = 1
 var player_exp: int = 0
 var up_level_demand: int = 4
 var speed_multiplier: float = 1.0
-## Player equipment bag — up to 16 item ids (EQUIPMENT.md §1).
+## Player equipment bag — up to 12 item ids (EQUIPMENT.md §1 · 3×4).
 var equipment_inventory: Array[String] = []
 const EQUIPMENT_INVENTORY_SIZE: int = 16
 var _preferred_battle_speed: float = 1.0
@@ -71,6 +73,7 @@ var _cyno: CynoController
 var _running: bool = false
 var _speed_step_index: int = 0
 var _sim_accum: float = 0.0
+var _battle_clock_diag_s: float = 0.0
 ## True when battle opens with either side already empty (symmetric instant wipe; no min_battle wait).
 var _battle_opened_empty: bool = false
 ## MatchRoot sets true when rival Prepare fleet was synced (empty OK) before Battle — skip 12s phantom hold.
@@ -137,9 +140,10 @@ func _process(delta: float) -> void:
 			SessionDiagnostics.log("mp.prep_freeze", "mode=%s count=%d" % [mode, battle_game_stage_count])
 	else:
 		_diag_prep_freeze_acc = 0.0
-	timer += sim_delta
 	var mf: Dictionary = DataStore.match_flow
 	if stage == Stage.PREPARE:
+		## Prepare has no combat substep cap — HUD uses full scaled dt.
+		timer += sim_delta
 		var dur: float = _prepare_duration_s()
 		if prepare_clock_armed and timer >= dur:
 			if hold_prepare_to_battle:
@@ -157,9 +161,14 @@ func _process(delta: float) -> void:
 	elif stage == Stage.BATTLE:
 		var fixed: float = maxf(0.001, TypedVariant.as_float(mf.get("sim_fixed_step_s", 0.05), 0.05))
 		var max_steps: int = maxi(1, TypedVariant.as_int(mf.get("sim_max_steps_per_frame", 8), 8))
+		var accum_cap: float = fixed * float(max_steps)
+		var advanced: float = 0.0
 		## SEMI_ASYNC §3.1a — watch peers render from authority snaps only.
 		if not remote_watch_only:
 			_sim_accum += sim_delta
+			## MATCH_FLOW §2.1: cap debt to one frame of full drain — never bank minutes of catch-up.
+			if _sim_accum > accum_cap:
+				_sim_accum = accum_cap
 			var steps: int = 0
 			while _sim_accum >= fixed and steps < max_steps:
 				var tc: int = Time.get_ticks_usec()
@@ -171,12 +180,17 @@ func _process(delta: float) -> void:
 					SessionDiagnostics.add_usec(&"cyno", Time.get_ticks_usec() - ty)
 				_sim_accum -= fixed
 				steps += 1
+			advanced = float(steps) * fixed
 			if steps > 0:
 				SessionDiagnostics.note_sim_steps(steps)
 		else:
 			_sim_accum = 0.0
-		## Leftover accum waits for next render frame — do not burn FPS catching up.
-		var bdur: float = TypedVariant.as_float(mf.get("battle_duration_s", 1800), 1800.0)
+			## Same drain ceiling as authority so watch HUD cannot race cyno/combat clocks.
+			advanced = minf(sim_delta, accum_cap)
+		## HUD / timeout / wipe gates share the drained sim clock (not uncapped sim_dt).
+		timer += advanced
+		## Leftover within cap waits for next frame; excess already dropped above.
+		var bdur: float = TypedVariant.as_float(mf.get("battle_duration_s", 900), 900.0)
 		## Opened empty (either side): skip wait — same rule for player and AI. Mid-fight wipe still uses min_battle.
 		## Nullsec: only hold briefly when empty-open AND fleet never synced (phantom); synced empty settles now.
 		var min_b: float = 0.0 if _battle_opened_empty else TypedVariant.as_float(mf.get("min_battle_duration_s", 1.25), 1.25)
@@ -193,14 +207,20 @@ func _process(delta: float) -> void:
 			elif timer >= min_b and _board.both_sides_no_offense():
 				## Neither side can finish the other off (all remaining hulls unarmed) — call it early.
 				_on_combat_complete("draw_no_offense")
-		## Glow countdown uses scaled battle time (same clock as HUD), not render FPS / substep catch-up.
-		if _board:
+		## Glow shares Battle HUD clock (drained sim), not uncapped frame dt.
+		if _board and advanced > 0.0:
 			for s: ShipUnit in _board.all_ships():
 				if s != null and is_instance_valid(s) and not s.is_destroyed:
-					s.tick_combat_glow(sim_delta)
-	var th: int = Time.get_ticks_usec()
-	hud_refresh.emit()
-	SessionDiagnostics.add_usec(&"hud", Time.get_ticks_usec() - th)
+					s.tick_combat_glow(advanced)
+		_battle_clock_diag_s += advanced
+		if _battle_clock_diag_s >= 5.0:
+			_battle_clock_diag_s = 0.0
+			var sim_t: float = _combat.sim_time() if _combat else 0.0
+			SessionDiagnostics.log(
+				"battle.clock",
+				"sim=%.2f timer=%.2f speed=%.2f advanced=%.3f" % [sim_t, timer, speed_multiplier, advanced]
+			)
+	hud_tick.emit()
 	SessionDiagnostics.add_usec(&"match_ctrl", Time.get_ticks_usec() - t0)
 
 func _init_speed_multiplier() -> void:
@@ -251,6 +271,8 @@ func cycle_speed() -> void:
 	_preferred_battle_speed = speed_multiplier
 	## Never couple 倍速 to render FPS or Engine.time_scale.
 	Engine.time_scale = 1.0
+	## MATCH_FLOW §2.1: drop unspent scaled time so the new gear takes effect now.
+	_sim_accum = 0.0
 	_save_preferred_battle_speed()
 	hud_refresh.emit()
 
@@ -260,6 +282,8 @@ func set_battle_speed(speed: float, persist_preferred: bool = true) -> void:
 		return
 	speed_multiplier = maxf(0.05, speed)
 	Engine.time_scale = 1.0
+	## MATCH_FLOW §2.1: clear debt on any gear change (net apply / UI / auto floor).
+	_sim_accum = 0.0
 	if persist_preferred:
 		_preferred_battle_speed = speed_multiplier
 		_save_preferred_battle_speed()
@@ -278,7 +302,7 @@ func speed_label() -> String:
 	return "%.1fx" % speed_multiplier
 
 func battle_remaining() -> float:
-	return maxf(0.0, TypedVariant.as_float(DataStore.match_flow.get("battle_duration_s", 1800), 1800.0) - timer)
+	return maxf(0.0, TypedVariant.as_float(DataStore.match_flow.get("battle_duration_s", 900), 900.0) - timer)
 
 func _enter_prepare() -> void:
 	stage = Stage.PREPARE
@@ -710,7 +734,7 @@ func _compute_round_income_parts(team: int, won: bool) -> Dictionary:
 		streak_g = _streak_bonus(streak)
 	var mining_g: int = _mining_gold_for_team(team)
 	var income: int = base + interest + win_g + streak_g + mining_g
-	if team == ShipUnit.TEAM_PLAYER and GameSession and GameSession.player_ai_double_economy_active():
+	if team == ShipUnit.TEAM_PLAYER and GameSession and (PlayerSettings.instance() as PlayerSettings).player_ai_double_economy_active():
 		var mul: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
 		var combat_part: int = income - mining_g
 		income = roundi(float(combat_part) * mul) + mining_g
@@ -793,6 +817,10 @@ func _grant_income_from_parts(
 	if team == ShipUnit.TEAM_PLAYER:
 		player_gold += final_income
 		player_gold_earned += maxi(0, final_income)
+		if final_income > 0:
+			var tree: SceneTree = get_tree()
+			if tree:
+				tree.call_group("match_root", "on_gold_income_float", final_income, mining_g)
 		if loss_comp > 0:
 			notice.emit("你收入了%d黄币（含连输补偿%d）" % [final_income, loss_comp])
 		elif mining_g > 0:
@@ -805,17 +833,35 @@ func _grant_income_from_parts(
 
 func _mining_gold_for_team(team: int) -> int:
 	## MINING_AND_DUST §3–4: Field survivors; ★k × base; Porpoise command +20% on other sources (floor).
+	## FETTERS §2: each extra Porpoise beyond base_need adds +1 percentage point.
 	if _board == null:
 		return 0
-	var has_command: bool = false
-	for s: ShipUnit in _board.field_ships(team):
-		if s == null or s.is_destroyed or s.is_unmanned:
+	var porpoise_n: int = 0
+	for s0: ShipUnit in _board.field_ships(team):
+		if s0 == null or s0.is_destroyed or s0.is_unmanned:
 			continue
-		var sd0: Dictionary = DataStore.get_ship(s.ship_id)
+		var sd0: Dictionary = DataStore.get_ship(s0.ship_id)
 		var fids0: Array = TypedVariant.as_array(sd0.get("fetter_ids", []))
-		if "mining_command" in fids0 or int(s.ship_id) == 136:
-			has_command = true
-			break
+		if "mining_command" in fids0 or int(s0.ship_id) == 136:
+			porpoise_n += 1
+	var has_command: bool = porpoise_n > 0
+	var cmd_mul: float = 1.2
+	if has_command:
+		var mc: Dictionary = DataStore.fetters.get("mining_command", {})
+		var effects: Array = TypedVariant.as_array(mc.get("effects", []))
+		var base_need: int = BoardController._fetter_base_need(effects)
+		if base_need <= 0:
+			base_need = 1
+		var base_pct: float = 20.0
+		for e_v: Variant in effects:
+			if typeof(e_v) != TYPE_DICTIONARY:
+				continue
+			var e: Dictionary = e_v
+			if str(e.get("effect_type", "")) == "MiningGoldBonus":
+				base_pct = TypedVariant.as_float(e.get("value", 20.0), 20.0)
+				break
+		var step: int = maxi(0, porpoise_n - base_need)
+		cmd_mul = 1.0 + (base_pct + float(step)) / 100.0
 	var total: int = 0
 	for s: ShipUnit in _board.field_ships(team):
 		if s == null or s.is_destroyed:
@@ -837,7 +883,7 @@ func _mining_gold_for_team(team: int) -> int:
 			var fids: Array = TypedVariant.as_array(sd.get("fetter_ids", []))
 			is_porpoise = int(s.ship_id) == 136 or ("mining_command" in fids)
 		if has_command and not is_porpoise:
-			total += floori(float(starred) * 1.2)
+			total += floori(float(starred) * cmd_mul)
 		else:
 			total += starred
 	return total
@@ -874,7 +920,7 @@ func _take_player_damage(amount: int) -> void:
 		return
 	var dmg: int = amount
 	## Soften only when Settings → 开发者调试 → 我方扣血软化 is on (default off).
-	if GameSession and GameSession.player_citadel_soften_active():
+	if GameSession and (PlayerSettings.instance() as PlayerSettings).player_citadel_soften_active():
 		var mf: Dictionary = DataStore.match_flow
 		dmg = TypedVariant.as_int(mf.get("citadel_test_loss_damage", 1), 1)
 	player_hp = maxi(0, player_hp - dmg)
@@ -889,13 +935,19 @@ func _take_ai_damage(amount: int) -> void:
 	notice.emit("对手主堡受到 %d 伤害" % dmg)
 
 func _grant_exp(amount: int) -> void:
-	player_exp += amount
 	var eco: Dictionary = DataStore.economy
+	var cap: int = TypedVariant.as_int(eco.get("player_level_cap", 20), 20)
+	if player_level >= cap:
+		hud_refresh.emit()
+		return
+	player_exp += amount
 	var inc: int = TypedVariant.as_int(eco.get("level_exp_demand_increment", 8), 8)
-	while player_exp >= up_level_demand:
+	while player_exp >= up_level_demand and player_level < cap:
 		player_exp -= up_level_demand
 		player_level += 1
 		up_level_demand += inc
+	if player_level >= cap:
+		player_exp = 0
 	hud_refresh.emit()
 
 
@@ -909,6 +961,10 @@ static func exp_demand_for_level(level: int) -> int:
 
 func buy_exp() -> void:
 	var eco: Dictionary = DataStore.economy
+	var cap: int = TypedVariant.as_int(eco.get("player_level_cap", 20), 20)
+	if player_level >= cap:
+		notice.emit("已达等级上限")
+		return
 	var cost: int = TypedVariant.as_int(eco.get("buy_exp_gold_cost", 4), 4)
 	var amt: int = TypedVariant.as_int(eco.get("buy_exp_amount", 4), 4)
 	var payload: Dictionary = {"gold_cost": cost, "exp_amount": amt, "team": ShipUnit.TEAM_PLAYER}

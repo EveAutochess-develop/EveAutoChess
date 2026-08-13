@@ -99,6 +99,17 @@ def gr2_to_obj(gr2: Path, obj: Path) -> None:
                 f"Place 64-bit granny2.dll + evegr2toobj_x64.exe in {EVE_PC} "
                 "(or set GRANNY2_DLL / EVEGR2_CONVERTER)."
             )
+        r = subprocess.run(
+            [str(LEGACY_EXE), str(gr2), str(obj)],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(LEGACY_DIR),
+        )
+        if r.returncode == 0 and obj.is_file() and obj.stat().st_size > 100:
+            return
+        err = (r.stderr or r.stdout or "")[-800:]
+        raise Gr2ConvertError(f"32-bit legacy converter failed: {err}")
 
     raise Gr2ConvertError(
         f"No gr2 converter found. Add 64-bit toolchain under {EVE_PC} "

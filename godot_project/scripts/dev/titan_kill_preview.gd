@@ -1,7 +1,7 @@
 extends Node3D
 ## Titan kill carousel preview — one race at a time.
-## Intact: ShipUnit + §0 tq_titan_*.
-## Wreck mesh: real extracted per-race TQ wreck mesh (all four races available).
+## Intact: ShipUnit + §0 hull bundles (empire tq_titan_* only).
+## Wreck: TQ wreck meshes for the four empires. Vanquisher is in-match only (205/925).
 ## Hull and wreck both use ShipUnit + the same §0 bundle / ShipLook material channel.
 ## Kill FX: Echoes ship_death cutout timeline (explosion_005 + fire_01_yd) + TQ death audio.
 
@@ -200,9 +200,19 @@ func _process(delta: float) -> void:
 		_label.modulate = def["color"]
 	if _hud:
 		_hud.text = (
-			"轮播 %d/%d %s  phase=%s  t=%.1f/%.1fs  | §0材质  | 船头标识 青=舰体 橙=残骸  | WASD QE RF TG"
+			"轮播 %d/%d %s  phase=%s  t=%.1f/%.1fs  | 1-5跳族  | §0材质  | 青=舰体 橙=残骸  | WASD QE RF TG"
 			% [race_i + 1, RACES.size(), str(def.get("label", "")), state, phase, RACE_CYCLE_S]
 		)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	var key: InputEventKey = event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return
+	var k: int = key.keycode
+	if k >= KEY_1 and k <= KEY_4:
+		_t = float(k - KEY_1) * RACE_CYCLE_S
+		get_viewport().set_input_as_handled()
 
 
 func _update_camera_free(delta: float) -> void:

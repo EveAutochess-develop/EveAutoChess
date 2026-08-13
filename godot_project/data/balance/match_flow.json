@@ -1,7 +1,7 @@
 {
   "prepare_duration_s": 16,
   "prepare_first_round_bonus_s": 10,
-  "battle_duration_s": 1800,
+  "battle_duration_s": 900,
   "min_battle_duration_s": 1.25,
   "speed_steps": [0.2, 0.5, 1, 2, 4, 8, 16],
   "speed_multiplier": 1.0,

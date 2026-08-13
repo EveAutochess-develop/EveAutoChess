@@ -1,79 +1,79 @@
 {
-  "id": 1005,
+  "_content_dph_mul": 3.0,
+  "agility": 0.8,
+  "attack_cycle_s": 2.0,
+  "capacitor_capacity": 80.0,
+  "capacitor_recharge_s": 25.0,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 14000100006.0,
+  "fetter_ids": [],
+  "function_slots": {
+    "slots": []
+  },
+  "id": 1005.0,
+  "is_logistic": false,
+  "is_unmanned": true,
+  "mass": 5000.0,
+  "model_key": "wrj_a_shentouzhe",
+  "model_long_axis": 34.0,
   "name": "渗透者中型无人机",
   "name_en": "Infiltrator",
-  "model_key": "wrj_a_shentouzhe",
-  "echoes_item_id": 14000100006,
-  "cost": 0,
+  "race": "amarr",
+  "scan_resolution": 600.0,
+  "sensor_strength": 5.0,
   "ship_group": "drone_medium",
   "ship_groups": [
     "drone_medium"
   ],
-  "fetter_ids": [],
+  "signature_radius": 25.0,
+  "sof_hull": "adm1_t1",
+  "speed": 500.0,
+  "stars": [
+    {
+      "armor_hp": 80.0,
+      "armor_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "attack_range": 3.0,
+      "damage": {
+        "emp": 78.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 52.0
+      },
+      "falloff": 1.5,
+      "optimal": 3.0,
+      "optimal_sig_radius": 35.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 40.0,
+      "shield_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "structure_hp": 40.0,
+      "structure_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "tracking": 0.35
+    }
+  ],
   "tags": [
     "amarr",
     "drone"
   ],
-  "is_logistic": false,
-  "is_unmanned": true,
   "unmanned_kind": "combat_drone",
-  "weapon_fx": "laser",
-  "race": "amarr",
-  "signature_radius": 25.0,
-  "sensor_strength": 5.0,
-  "scan_resolution": 600.0,
-  "speed": 500.0,
-  "mass": 5000.0,
-  "agility": 0.8,
-  "capacitor_capacity": 80.0,
-  "capacitor_recharge_s": 25.0,
-  "attack_cycle_s": 2.0,
-  "drone_bandwidth": 0,
-  "function_slots": {
-    "slots": []
-  },
-  "stars": [
-    {
-      "attack_range": 3,
-      "damage": {
-        "emp": 72.0,
-        "thermal": 48.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 0,
-        "structure": 0
-      },
-      "tracking": 0.35,
-      "optimal": 3.0,
-      "falloff": 1.5,
-      "optimal_sig_radius": 35.0,
-      "shield_hp": 40,
-      "armor_hp": 80,
-      "structure_hp": 40,
-      "shield_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "armor_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      }
-    }
-  ],
-  "model_long_axis": 34.0,
-  "sof_hull": "adm1_t1",
-  "_content_dph_mul": 3
+  "weapon_fx": "laser"
 }

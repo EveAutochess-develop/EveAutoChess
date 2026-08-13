@@ -63,7 +63,7 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 			SessionDiagnostics.log("shop.refresh", "fail reason=no_gold")
 			return {"accepted": false, "reason_key": "no_gold"}
 		_match.try_spend(cost)
-	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 7), 7)
+	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 6), 6)
 	_decay_recent_hits(_recent_hits)
 	slots.clear()
 	var seen_counts: Dictionary = {}
@@ -133,6 +133,7 @@ func _roll_ship_id_with_id_pity(
 			var group: String = str(sd.get("ship_group", ""))
 			if (
 				c in cap_costs
+				or c == 37
 				or role == "covert_cyno"
 				or TypedVariant.as_bool(sd.get("requires_cyno_entry", false), false)
 				or group == "capital_industrial"
@@ -158,7 +159,7 @@ func _roll_ship_id_with_id_pity(
 			if TypedVariant.as_int(seen_counts.get(sid_i2, 0), 0) >= max_same:
 				continue
 			var ship_cost: int = TypedVariant.as_int(DataStore.get_ship(sid_i2).get("cost", 1), 1)
-			if ship_cost == want_cost or (want_cost == 7 and ship_cost == 8):
+			if _shop_cost_matches_tier(ship_cost, want_cost):
 				pool.append(sid_i2)
 		if not pool.is_empty():
 			return _pick_pseudo_random_id_pity(pool, recent_hits, titan_race)
@@ -352,6 +353,7 @@ static func roll_ship_id_for_level(
 			## Include cost5 covert cyno + high-cost capitals + capital industrial (Rorqual).
 			if (
 				c in cap_costs
+				or c == 37
 				or role == "covert_cyno"
 				or TypedVariant.as_bool(sd.get("requires_cyno_entry", false), false)
 				or group == "capital_industrial"
@@ -377,8 +379,8 @@ static func roll_ship_id_for_level(
 			if TypedVariant.as_int(seen_counts.get(sid_i, 0), 0) >= max_same:
 				continue
 			var ship_cost: int = TypedVariant.as_int(DataStore.get_ship(sid_i).get("cost", 1), 1)
-			## 7-fee column also includes attack battlecruisers (cost 8).
-			if ship_cost == want_cost or (want_cost == 7 and ship_cost == 8):
+			## Fee-tier aliases: empire costs + faction 3/18/30 (ECONOMY 势力舰).
+			if _shop_cost_matches_tier(ship_cost, want_cost):
 				pool.append(sid_i)
 		if not pool.is_empty():
 			return _pick_pseudo_random(pool, recent_hits, titan_race)
@@ -500,6 +502,23 @@ static func _roll_cost_tier(weights: Array) -> int:
 			return i + 1
 	return 1
 
+
+## Map economy fee-tier costs onto faction/empire price aliases (ECONOMY 势力舰价).
+static func _shop_cost_matches_tier(ship_cost: int, want_cost: int) -> bool:
+	if ship_cost == want_cost:
+		return true
+	## Empire destroyer tier 3 ↔ faction frig 3; empire BC 7/8; battleship 13 ↔ faction 18 / Nestor 30.
+	if want_cost == 2 and ship_cost == 3:
+		return true
+	if want_cost == 3 and ship_cost == 3:
+		return true
+	if want_cost == 7 and ship_cost == 8:
+		return true
+	if want_cost == 13 and ship_cost in [13, 18, 30]:
+		return true
+	return false
+
+
 func try_buy(slot_index: int) -> Dictionary:
 	if slot_index < 0 or slot_index >= slots.size():
 		return {"accepted": false}
@@ -558,13 +577,143 @@ func manual_refresh() -> void:
 	refresh_shop(false)
 
 
+## ECONOMY ship scanner: special pool refresh for  ship_scanner_cost gold.
+func try_ship_scanner() -> bool:
+	if _match == null:
+		return false
+	var cost: int = TypedVariant.as_int(DataStore.economy.get("ship_scanner_cost", 50), 50)
+	if _match.player_gold < cost:
+		_match.notice.emit("黄币不足")
+		return false
+	if not _match.try_spend(cost):
+		_match.notice.emit("黄币不足")
+		return false
+	var halves: Array = _scanner_synth_other_halves()
+	if not halves.is_empty():
+		_fill_equipment_slots_from_pool(halves)
+		## Keep ship slots as-is or clear? Plan: only refresh equip shop when synthables.
+		shop_changed.emit()
+		if _match.has_method("prepare_spend_occurred"):
+			_match.prepare_spend_occurred.emit()
+		_match.request_autosave()
+		SessionDiagnostics.log("shop.scanner", "mode=equip_halves n=%d" % halves.size())
+		return true
+	var owned: Array = _scanner_owned_ship_ids()
+	if owned.is_empty():
+		## Fallback: normal free-style roll without charging again (already paid).
+		_decay_recent_hits(_recent_hits)
+		_fill_ship_slots_random()
+		_roll_equipment_slots()
+		shop_changed.emit()
+		SessionDiagnostics.log("shop.scanner", "mode=fallback_empty_owned")
+		return true
+	_fill_ship_slots_from_pool(owned)
+	shop_changed.emit()
+	if _match.has_method("prepare_spend_occurred"):
+		_match.prepare_spend_occurred.emit()
+	_match.request_autosave()
+	SessionDiagnostics.log("shop.scanner", "mode=owned_ships n=%d" % owned.size())
+	return true
+
+
+func _scanner_owned_ship_ids() -> Array:
+	var out: Array = []
+	if _board == null:
+		return out
+	for s: ShipUnit in _board.all_ships():
+		if s == null or not is_instance_valid(s) or s.is_destroyed or s.is_unmanned:
+			continue
+		if s.team_id != ShipUnit.TEAM_PLAYER:
+			continue
+		if s.slot_type != "field" and s.slot_type != "hangar":
+			continue
+		out.append(s.ship_id)
+	return out
+
+
+func _scanner_synth_other_halves() -> Array:
+	var owned_ids: Dictionary = {}
+	if _match != null:
+		_match.ensure_equipment_inventory_size()
+		for slot_v: Variant in _match.equipment_inventory:
+			var mid: String = str(slot_v)
+			if mid != "":
+				owned_ids[mid] = true
+	if _board != null:
+		for s: ShipUnit in _board.all_ships():
+			if s == null or not is_instance_valid(s) or s.team_id != ShipUnit.TEAM_PLAYER:
+				continue
+			if s.has_method("get_function_fit"):
+				var fit_v: Variant = s.call("get_function_fit")
+				if fit_v is Array:
+					var fit_arr: Array = TypedVariant.as_array(fit_v)
+					for entry_v: Variant in fit_arr:
+						var entry: Dictionary = TypedVariant.as_dict(entry_v)
+						var mid_s: String = str(entry.get("id", ""))
+						if mid_s != "":
+							owned_ids[mid_s] = true
+	return _scanner_halves_from_global_recipes(owned_ids)
+
+
+func _scanner_halves_from_global_recipes(owned_ids: Dictionary) -> Array:
+	var halves: Array = []
+	if owned_ids.is_empty():
+		return halves
+	for id_v: Variant in DataStore.function_modules.keys():
+		var def: Dictionary = TypedVariant.as_dict(DataStore.function_modules.get(id_v))
+		var sf: Array = TypedVariant.as_array(def.get("synth_from", null))
+		if sf.size() < 2:
+			continue
+		var a: String = str(sf[0])
+		var b: String = str(sf[1])
+		if owned_ids.has(a) and b != "":
+			halves.append(b)
+		if owned_ids.has(b) and a != "":
+			halves.append(a)
+	return halves
+
+
+func _fill_ship_slots_from_pool(pool: Array) -> void:
+	slots.clear()
+	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 6), 6)
+	if pool.is_empty():
+		_fill_ship_slots_random()
+		return
+	for _i: int in range(n):
+		var sid: int = TypedVariant.as_int(pool[_randi_range(0, pool.size() - 1)], 0)
+		slots.append({"ship_id": sid, "purchased": false})
+		_recent_hits[sid] = TypedVariant.as_int(_recent_hits.get(sid, 0), 0) + 1
+
+
+func _fill_ship_slots_random() -> void:
+	slots.clear()
+	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 6), 6)
+	var seen_counts: Dictionary = {}
+	for _i: int in range(n):
+		var sid: int = _roll_ship_id(seen_counts)
+		seen_counts[sid] = TypedVariant.as_int(seen_counts.get(sid, 0), 0) + 1
+		slots.append({"ship_id": sid, "purchased": false})
+		_recent_hits[sid] = TypedVariant.as_int(_recent_hits.get(sid, 0), 0) + 1
+
+
+func _fill_equipment_slots_from_pool(pool: Array) -> void:
+	equipment_slots.clear()
+	var count: int = _equipment_shop_slot_count()
+	if pool.is_empty():
+		_roll_equipment_slots()
+		return
+	for _i: int in range(count):
+		var pick: String = str(pool[_randi_range(0, pool.size() - 1)])
+		equipment_slots.append({"id": pick, "purchased": false})
+
+
 func ensure_equipment_slots() -> void:
 	if equipment_slots.is_empty():
 		_roll_equipment_slots()
 
 
 func _equipment_shop_slot_count() -> int:
-	return maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 5), 5))
+	return maxi(1, TypedVariant.as_int(DataStore.economy.get("equipment_shop_slot_count", 4), 4))
 
 
 func _equipment_pity_window() -> int:

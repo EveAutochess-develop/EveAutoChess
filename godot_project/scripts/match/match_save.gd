@@ -114,8 +114,8 @@ static func inject_flagship_test_ai_kit(data: Dictionary) -> Dictionary:
 			"slot_type": "field",
 			"x": cyno_cell.x,
 			"z": cyno_cell.y,
-			## AI covert cyno sits on the player half.
-			"field_side_team": ShipUnit.TEAM_PLAYER,
+			## AI covert cyno sits on its own half (default 己半场).
+			"field_side_team": ShipUnit.TEAM_AI,
 		}
 		kept.append(cyno_entry)
 		occ[_occ_key(cyno_entry)] = true

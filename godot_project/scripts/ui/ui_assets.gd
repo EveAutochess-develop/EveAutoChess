@@ -25,6 +25,10 @@ const ICON_MONEY: String = "res://assets/ui/sprites/Money.png"
 const ICON_POP: String = "res://assets/ui/sprites/Population.png"
 const ICON_LOCK: String = "res://assets/ui/sprites/Lock.png"
 const ICON_COIN: String = "res://assets/ui/sprites/coin 64.png"
+const ICON_SHIP_DETAIL: String = "res://assets/ui/sprites/hud/icon_ship_detail.png"
+const ICON_BATTLE_LOG: String = "res://assets/ui/sprites/hud/icon_battle_log.png"
+const ICON_COMBAT_RANK: String = "res://assets/ui/sprites/hud/icon_combat_rank.png"
+const ICON_PANEL_COLLAPSE: String = "res://assets/ui/sprites/hud/icon_panel_collapse.png"
 const TERRAIN_DIFFUSE: String = "res://assets/textures/terrain diffuse.png"
 const ENTITY_ICON_DIR: String = "E:/game_dev/icon_for_entity"
 const ECHOES_ITEM_ICON_DIR: String = "H:/eve手游/history/asset_library/items/icons"
@@ -172,6 +176,78 @@ static func _tex_from_image_file(path: String) -> Texture2D:
 	if img.load(abs_path) != OK:
 		return null
 	return ImageTexture.create_from_image(img)
+
+## Black-key PNG → alpha 0 on near-black.
+## white_over_color: cyan/core → opaque white; discard filled green aura; thin white fringe.
+## scale_up: optional bake upscale (HUD uses 1 — display size handles ×4).
+static var _hud_icon_cache: Dictionary = {}
+
+static func keyed_black_tex(
+	path: String,
+	black_thresh: float = 0.08,
+	white_over_color: bool = false,
+	scale_up: int = 1
+) -> Texture2D:
+	var abs_path: String = path
+	if path.begins_with("res://"):
+		abs_path = ProjectSettings.globalize_path(path)
+	var img: Image = Image.new()
+	if ResourceLoader.exists(path):
+		var loaded: Variant = load(path)
+		if loaded is Texture2D:
+			@warning_ignore("unsafe_cast")
+			var tex2: Texture2D = loaded as Texture2D
+			img = tex2.get_image()
+	if img == null or img.is_empty():
+		if abs_path == "" or not FileAccess.file_exists(abs_path):
+			return null
+		img = Image.new()
+		if img.load(abs_path) != OK:
+			return null
+	img.convert(Image.FORMAT_RGBA8)
+	var su: int = maxi(1, scale_up)
+	if su > 1:
+		img.resize(img.get_width() * su, img.get_height() * su, Image.INTERPOLATE_TRILINEAR)
+	for y: int in range(img.get_height()):
+		for x: int in range(img.get_width()):
+			var c: Color = img.get_pixel(x, y)
+			if c.r <= black_thresh and c.g <= black_thresh and c.b <= black_thresh:
+				img.set_pixel(x, y, Color(0, 0, 0, 0))
+				continue
+			if not white_over_color or c.a <= 0.001:
+				continue
+			## Source HUD art: cyan glyph (high B) + pure-green baked bloom (B≈0).
+			## Key on blue/red so green fill between bars/grid cells is discarded.
+			var glyph: float = maxf(c.b, c.r) * c.a
+			if glyph >= 0.55:
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, 1.0))
+			elif glyph > 0.04:
+				var t: float = clampf((glyph - 0.04) / 0.51, 0.0, 1.0)
+				t = pow(t, 1.2)
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, t))
+			else:
+				var pure_g: float = 0.0
+				if c.b < 0.10 and c.r < 0.10:
+					pure_g = c.g * c.a
+				if pure_g >= 0.55:
+					var gt: float = clampf((pure_g - 0.55) / 0.45, 0.0, 1.0)
+					var a: float = 0.28 * pow(gt, 2.2)
+					if a < 0.012:
+						img.set_pixel(x, y, Color(0, 0, 0, 0))
+					else:
+						img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+				else:
+					img.set_pixel(x, y, Color(0, 0, 0, 0))
+	return ImageTexture.create_from_image(img)
+
+static func hud_icon(path: String) -> Texture2D:
+	## UI_ICONS §9 — black-key, cyan→white core, discard green aura, display ×4.
+	if _hud_icon_cache.has(path):
+		@warning_ignore("unsafe_cast")
+		return _hud_icon_cache[path] as Texture2D
+	var baked: Texture2D = keyed_black_tex(path, 0.08, true, 1)
+	_hud_icon_cache[path] = baked
+	return baked
 
 static func body_font() -> Font:
 	# Prefer TTF; many Godot builds mishandle .ttc collections → blank glyphs / gray UI.
@@ -367,6 +443,15 @@ static func _normalize_race_key(raw: String) -> String:
 			return "gallente"
 		"minmatar", "m", "min", "mmte":
 			return "minmatar"
+		## Pirate affiliates → empire tips (tips_skybox_faction README; no pirate skybox in pack).
+		"guristas", "mordu":
+			return "caldari"
+		"angel":
+			return "minmatar"
+		"serpentis", "soe":
+			return "gallente"
+		"blood", "sansha":
+			return "amarr"
 		_:
 			return ""
 
@@ -437,6 +522,12 @@ static func fetter_effect_text(eff: Dictionary) -> String:
 		"ShopRaceWeight":
 			## Titan meta only — not a combat mul; sidebar copy (FETTERS §4.2).
 			return "本族商店刷新%s%%" % signed
+		"SensorStrength":
+			what = "感应强度"
+		"CapWarfare":
+			what = "电容战"
+		"EwarCapWarfare":
+			return "电战/电容战%s%%" % signed
 	var amount: String = ""
 	if vt == "Percentage":
 		amount = signed + "%"
@@ -571,6 +662,12 @@ static func function_module_icon(mod: Dictionary) -> Texture2D:
 static func shop_refresh_path() -> String:
 	_ensure_shop_paths()
 	return _shop_refresh
+
+static func shop_scanner_path() -> String:
+	const P: String = "res://assets/ui/sprites/hud/ship_scanner.png"
+	if ResourceLoader.exists(P):
+		return P
+	return shop_refresh_path()
 
 static func shop_exp_path() -> String:
 	_ensure_shop_paths()
