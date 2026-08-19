@@ -1,10 +1,12 @@
 extends Node
 class_name AiController
 ## AI is a rule-following player: same economy/shop/hangar with income ×2 buff.
+## Weight files: WeightDrivenAi (farm stays in EVEautochessAI-main). Unloaded → §2.
 
 var _board: BoardController
 var _match: MatchController
 var endless: bool = false
+var weight_policy: OnnxCpuPolicy = OnnxCpuPolicy.new()
 
 var ai_gold: int = 0
 var ai_level: int = 1
@@ -26,12 +28,44 @@ var _id_pity_seen_ships: Dictionary = {}
 var _id_pity_seen_equips: Dictionary = {}
 ## Cells AI has already deployed onto this match ("x,z"); prefer fresh cells each place/reshuffle.
 var _used_field_cells: Dictionary = {}
+## Prepare-sliced Shop loop (handbook §0.2): infer off main thread.
+var _eco_active: bool = false
+var _eco_guard: int = 0
+var _eco_task_id: int = -1
+var _eco_busy: bool = false
+var _eco_ignore_id: int = -1
+var _eco_logits: PackedFloat32Array = PackedFloat32Array()
+var _eco_obs: PackedFloat32Array = PackedFloat32Array()
+var _eco_filtered: Array = []
+var _eco_actions: int = 0
+var _onnx_shop_prepare: bool = false
 
 func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	_match = match_ctrl
 	_board = board
+	add_to_group("ai_controller")
 	AdminBus.register_handler(&"ai.deploy_ship", _on_deploy)
 	AdminBus.after_handoff.connect(_on_after)
+	weight_policy.try_autoload()
+
+
+func reload_weight_policy() -> bool:
+	if weight_policy == null:
+		weight_policy = OnnxCpuPolicy.new()
+	return weight_policy.try_autoload()
+
+
+func _policy_nets_live() -> bool:
+	return weight_policy != null and weight_policy.nets_ready()
+
+
+func _ai_titan_id() -> String:
+	if _board == null:
+		return "caldari"
+	var race: String = _board.titan_fetter_race(ShipUnit.TEAM_AI)
+	if race.is_empty():
+		return "caldari"
+	return race
 
 func init_economy() -> void:
 	## Seat opening only — no shopping. Nullsec builds the rival hulls per PVP round.
@@ -438,6 +472,10 @@ func _random_distribute_equipment() -> void:
 			if TypedVariant.as_bool(res.get("ok", false), false):
 				equipment_inventory[inv_i] = ""
 				fitted += 1
+				SessionDiagnostics.log(
+					"ai.decide",
+					"net=fit item=%s ship=%d ok=true" % [item_id, s.ship_id]
+				)
 				break
 	if fitted > 0:
 		SessionDiagnostics.log("ai.equipment_fit", "fitted=%d" % fitted)
@@ -476,28 +514,362 @@ func _ai_titan_race() -> String:
 	return _board.titan_fetter_race(ShipUnit.TEAM_AI)
 
 func _run_economy_turn() -> void:
+	begin_economy_turn()
+
+
+func begin_economy_turn() -> void:
 	if not TypedVariant.as_bool(DataStore.ai.get("uses_shop_economy", true), true):
 		_deploy_legacy_quota()
 		return
-	## Spend loop: hangar buy → overflow field → refresh/exp → stop.
-	var guard: int = 40
-	while guard > 0:
-		guard -= 1
-		if not _try_buy_one():
-			break
+	if _eco_busy and _eco_task_id >= 0 and not WorkerThreadPool.is_task_completed(_eco_task_id):
+		_eco_ignore_id = _eco_task_id
+	_eco_active = true
+	_eco_guard = 40
+	_eco_actions = 0
+	_eco_filtered = []
+	_onnx_shop_prepare = _policy_nets_live()
+
+
+func is_economy_busy() -> bool:
+	return _eco_active or _eco_busy
+
+
+func cancel_economy_work() -> void:
+	_eco_active = false
+	if _eco_task_id >= 0:
+		if not WorkerThreadPool.is_task_completed(_eco_task_id):
+			WorkerThreadPool.wait_for_task_completion(_eco_task_id)
+		_eco_task_id = -1
+	_eco_busy = false
+
+
+func force_finish_economy() -> void:
+	if not _eco_active and not _eco_busy:
+		return
+	if _eco_busy and _eco_task_id >= 0:
+		_eco_ignore_id = _eco_task_id
+	_eco_active = false
+	_eco_busy = false
+	_finish_economy_apply()
+
+
+func tick_economy_turn() -> bool:
+	if not _eco_active and not _eco_busy:
+		return false
+	if _policy_nets_live():
+		return _tick_onnx_economy()
+	return _tick_legacy_economy()
+
+
+func _tick_legacy_economy() -> bool:
+	if not _eco_active:
+		return false
+	if _eco_guard <= 0 or not _try_buy_one():
+		_eco_active = false
+		_finish_economy_apply()
+		return true
+	_eco_guard -= 1
+	_eco_actions += 1
+	return false
+
+
+func _tick_onnx_economy() -> bool:
+	if _eco_busy:
+		if _eco_task_id < 0 or not WorkerThreadPool.is_task_completed(_eco_task_id):
+			return false
+		WorkerThreadPool.wait_for_task_completion(_eco_task_id)
+		var tid: int = _eco_task_id
+		_eco_task_id = -1
+		_eco_busy = false
+		if tid == _eco_ignore_id:
+			_eco_ignore_id = -1
+			if not _eco_active:
+				return false
+			return false
+		if not _eco_active:
+			return false
+		var ok: bool = _dispatch_shop_policy(_eco_logits, _eco_obs, _eco_filtered)
+		_eco_actions += 1
+		if _eco_guard <= 0:
+			_eco_active = false
+			_finish_economy_apply()
+			return true
+		if not ok:
+			return false
+		return false
+	if not _eco_active:
+		return false
+	if _eco_guard <= 0:
+		_eco_active = false
+		_finish_economy_apply()
+		return true
+	if InMatchSlowLearn.has_slice_work():
+		return false
+	return _kick_eco_worker()
+
+
+func _kick_eco_worker() -> bool:
+	if _eco_busy or not _eco_active:
+		return false
+	var filtered: Array = _collect_shop_legal()
+	if filtered.is_empty():
+		_eco_active = false
+		_finish_economy_apply()
+		return true
+	_eco_guard -= 1
+	_eco_filtered = filtered
+	var ctx: Dictionary = _policy_obs_ctx().duplicate(true)
+	_eco_busy = true
+	_eco_task_id = WorkerThreadPool.add_task(_eco_infer_worker.bind(ctx))
+	return false
+
+
+func _eco_infer_worker(ctx: Dictionary) -> void:
+	var obs: PackedFloat32Array = PolicyObs.encode_shop(weight_policy, ctx)
+	var logits: PackedFloat32Array = PackedFloat32Array()
+	if weight_policy != null:
+		logits = weight_policy.infer_logits("shop", obs)
+	_eco_obs = obs
+	_eco_logits = logits
+
+
+func _finish_economy_apply() -> void:
 	sync_field_for_prepare()
-	## Random function-module buy + fit after ships are on the field (§2.8).
-	_random_buy_equipment()
-	_random_distribute_equipment()
-	## Do NOT sell here — keep hangar visible during Prepare for AI purchase readability.
+	if not _policy_nets_live():
+		_random_buy_equipment()
+		_random_distribute_equipment()
+
+
+func _collect_shop_legal() -> Array:
+	var seat_state: Dictionary = _seat_state_for_legal()
+	var legal: Array = LegalActions.list_legal_actions("prepare", seat_state)
+	var filtered: Array = []
+	for la_v: Variant in legal:
+		var la: Dictionary = TypedVariant.as_dict(la_v)
+		var at: String = LegalActions.action_type_of(la)
+		if at == "prepare_commit":
+			continue
+		if at == "shop_buy_equip":
+			var ei: int = TypedVariant.as_int(la.get("slot_index", -1), -1)
+			if ei < 0 or ei >= equipment_slots.size():
+				continue
+			var es: Dictionary = TypedVariant.as_dict(equipment_slots[ei])
+			var item_id: String = str(es.get("id", "")).strip_edges()
+			if item_id == "":
+				continue
+			var mod: Dictionary = DataStore.get_function_module(item_id)
+			if mod.is_empty() or TypedVariant.as_bool(mod.get("implant", false), false):
+				continue
+		filtered.append(la)
+	return filtered
+
+func _seat_state_for_legal() -> Dictionary:
+	var hangar: Vector2i = Vector2i(-1, -1)
+	if _board != null:
+		hangar = _board.find_empty_hangar(ShipUnit.TEAM_AI)
+	var on_field: int = 0
+	if _board != null:
+		on_field = _board.count_field(ShipUnit.TEAM_AI)
+	var bag_free: bool = false
+	for id_v: Variant in equipment_inventory:
+		if str(id_v) == "":
+			bag_free = true
+			break
+	return {
+		"seat_id": -1,
+		"gold": ai_gold,
+		"hangar_free": hangar.x >= 0,
+		"field_free": on_field < field_cap(),
+		"bag_free": bag_free,
+		"shop_slots": shop_slots,
+		"equipment_slots": equipment_slots,
+		"refresh_cost": TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 2),
+		"buy_exp_cost": TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 4),
+		"can_prepare_commit": false,
+		"level_capped": false,
+	}
+
+
+func apply_protocol_economy(action: Dictionary) -> Dictionary:
+	## Handbook §0.2: ONNX/LLM shop/exp spend ai_gold and AI hangar, never player shop.
+	var at: String = LegalActions.action_type_of(action)
+	if at == "shop_buy_ship":
+		var si: int = TypedVariant.as_int(action.get("slot_index", -1), -1)
+		if not _buy_ai_shop_slot(si):
+			return {"accepted": false, "reason_key": "buy_failed"}
+		return {"accepted": true}
+	if at == "shop_buy_equip":
+		var ei: int = TypedVariant.as_int(action.get("slot_index", -1), -1)
+		if not _buy_ai_equip_slot(ei):
+			return {"accepted": false, "reason_key": "buy_failed"}
+		return {"accepted": true}
+	if at == "shop_refresh":
+		var free: bool = TypedVariant.as_bool(action.get("free", false), false)
+		var rc: int = TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 2)
+		if not free:
+			if ai_gold < rc:
+				return {"accepted": false, "reason_key": "no_gold"}
+			ai_gold -= rc
+		_refresh_shop()
+		return {"accepted": true}
+	if at == "buy_exp":
+		var ec: int = TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 4)
+		if ai_gold < ec:
+			return {"accepted": false, "reason_key": "no_gold"}
+		ai_gold -= ec
+		_grant_exp(TypedVariant.as_int(DataStore.economy.get("buy_exp_amount", 4), 4))
+		return {"accepted": true}
+	return {"accepted": false, "reason_key": "not_economy"}
+
+
+func _try_policy_economy_action() -> bool:
+	var filtered: Array = _collect_shop_legal()
+	if filtered.is_empty():
+		return false
+	var obs: PackedFloat32Array = PolicyObs.encode_shop(weight_policy, _policy_obs_ctx())
+	var logits: PackedFloat32Array = weight_policy.infer_logits("shop", obs)
+	return _dispatch_shop_policy(logits, obs, filtered)
+
+
+func _dispatch_shop_policy(logits: PackedFloat32Array, obs: PackedFloat32Array, filtered: Array) -> bool:
+	if filtered.is_empty():
+		return false
+	if not logits.is_empty() and not _policy_nets_live():
+		var slice_ships: Dictionary = TypedVariant.as_dict(weight_policy.current_titan_slice(_ai_titan_id()).get("ship", {}))
+		var n_ship: int = mini(6, mini(logits.size(), shop_slots.size()))
+		for i: int in range(n_ship):
+			var sl: Dictionary = TypedVariant.as_dict(shop_slots[i])
+			if TypedVariant.as_bool(sl.get("purchased", false), false):
+				continue
+			var sid: String = str(TypedVariant.as_int(sl.get("ship_id", 0), 0))
+			logits[i] += 2.8 * TypedVariant.as_float(slice_ships.get(sid, 0.5), 0.5)
+		var slice_eq: Dictionary = TypedVariant.as_dict(weight_policy.current_titan_slice(_ai_titan_id()).get("equip", {}))
+		for ei: int in range(mini(4, equipment_slots.size())):
+			var li: int = 6 + ei
+			if li >= logits.size():
+				break
+			var es: Dictionary = TypedVariant.as_dict(equipment_slots[ei])
+			if TypedVariant.as_bool(es.get("purchased", false), false):
+				continue
+			logits[li] += 2.0 * TypedVariant.as_float(slice_eq.get(str(es.get("id", "")), 0.5), 0.5)
+	var pick: int = 14
+	if not logits.is_empty():
+		pick = _shop_argmax_legal(logits, filtered)
+	var action: Dictionary = {}
+	if pick >= 0 and pick <= 5:
+		action = {"action_type": "shop_buy_ship", "seat": -1, "slot_index": pick}
+	elif pick >= 6 and pick <= 9:
+		action = {"action_type": "shop_buy_equip", "seat": -1, "slot_index": pick - 6}
+	elif pick == 10:
+		action = {"action_type": "shop_refresh", "seat": -1, "free": false}
+	elif pick == 12:
+		action = {"action_type": "buy_exp", "seat": -1}
+	elif pick == 14:
+		return false
+	else:
+		return false
+	var chk: Dictionary = LegalActions.validate_action_against_list(action, filtered)
+	if not TypedVariant.as_bool(chk.get("accepted", false), false):
+		var fallback_pick: int = _shop_argmax_legal(logits, filtered, pick)
+		if fallback_pick == 14:
+			return false
+		pick = fallback_pick
+		if pick >= 0 and pick <= 5:
+			action = {"action_type": "shop_buy_ship", "seat": -1, "slot_index": pick}
+		elif pick >= 6 and pick <= 9:
+			action = {"action_type": "shop_buy_equip", "seat": -1, "slot_index": pick - 6}
+		elif pick == 10:
+			action = {"action_type": "shop_refresh", "seat": -1, "free": false}
+		elif pick == 12:
+			action = {"action_type": "buy_exp", "seat": -1}
+		else:
+			return false
+	var at: String = LegalActions.action_type_of(action)
+	if at == "shop_buy_ship":
+		var si: int = TypedVariant.as_int(action.get("slot_index", -1), -1)
+		if si < 0 or si >= shop_slots.size():
+			return false
+		var slot: Dictionary = TypedVariant.as_dict(shop_slots[si])
+		action["ship_id"] = TypedVariant.as_int(slot.get("ship_id", 0), 0)
+		action["cost"] = TypedVariant.as_int(DataStore.get_ship(TypedVariant.as_int(action["ship_id"], 0)).get("cost", 0), 0)
+		action["team"] = ShipUnit.TEAM_AI
+	elif at == "shop_buy_equip":
+		var ei: int = TypedVariant.as_int(action.get("slot_index", -1), -1)
+		if ei < 0 or ei >= equipment_slots.size():
+			return false
+		var es: Dictionary = TypedVariant.as_dict(equipment_slots[ei])
+		action["item_id"] = str(es.get("id", ""))
+		action["cost"] = TypedVariant.as_int(es.get("cost", 0), 0)
+		action["team"] = ShipUnit.TEAM_AI
+	else:
+		action["team"] = ShipUnit.TEAM_AI
+	var res: Dictionary = apply_protocol_economy(action)
+	if TypedVariant.as_bool(res.get("accepted", false), false):
+		var learned: int = pick
+		if at == "shop_buy_ship":
+			learned = TypedVariant.as_int(action.get("slot_index", pick), pick)
+		elif at == "shop_buy_equip":
+			learned = 6 + TypedVariant.as_int(action.get("slot_index", 0), 0)
+		elif at == "shop_refresh":
+			learned = 10
+		elif at == "buy_exp":
+			learned = 12
+		InMatchSlowLearn.note_shop_sample(obs, learned, false)
+	SessionDiagnostics.log(
+		"ai.decide",
+		"net=shop pick=%d at=%s ok=%s gold=%d ship=%s item=%s" % [
+			pick, at, TypedVariant.as_bool(res.get("accepted", false), false),
+			ai_gold, str(action.get("ship_id", "")), str(action.get("item_id", "")),
+		]
+	)
+	return TypedVariant.as_bool(res.get("accepted", false), false)
+
+
+func _shop_argmax_legal(logits: PackedFloat32Array, filtered: Array, exclude_i: int = -1) -> int:
+	## Farm shop mask: only score legal 0-5/6-9/10/12. Empty army: buy_ship only.
+	var empty_army: bool = _count_ai_hangar() + (_board.count_field(ShipUnit.TEAM_AI) if _board else 0) <= 0
+	var legal_i: Dictionary = {}
+	for la_v: Variant in filtered:
+		var la: Dictionary = TypedVariant.as_dict(la_v)
+		var at: String = LegalActions.action_type_of(la)
+		if empty_army and at != "shop_buy_ship":
+			continue
+		if at == "shop_buy_ship":
+			legal_i[TypedVariant.as_int(la.get("slot_index", -1), -1)] = true
+		elif at == "shop_buy_equip":
+			legal_i[6 + TypedVariant.as_int(la.get("slot_index", -1), -1)] = true
+		elif at == "shop_refresh":
+			legal_i[10] = true
+		elif at == "buy_exp":
+			legal_i[12] = true
+	var best_i: int = 14
+	var best_v: float = -1.0e30
+	for i: int in range(logits.size()):
+		if i == 11 or i == 13 or i == 14:
+			continue
+		if i == exclude_i:
+			continue
+		if not TypedVariant.as_bool(legal_i.get(i, false), false):
+			continue
+		var v: float = clampf(logits[i], -32.0, 32.0)
+		if v > best_v:
+			best_v = v
+			best_i = i
+	return best_i
+
 
 func _try_buy_one() -> bool:
+	if _policy_nets_live():
+		return _try_policy_economy_action()
 	var slot_i: int = -1
-	for i: int in range(shop_slots.size()):
-		var slot0: Dictionary = TypedVariant.as_dict(shop_slots[i])
-		if not TypedVariant.as_bool(slot0.get("purchased", false), false):
-			slot_i = i
-			break
+	if weight_policy != null and weight_policy.is_ready():
+		slot_i = weight_policy.pick_unpurchased_shop_index(shop_slots, _ai_titan_id())
+	if slot_i < 0:
+		for i: int in range(shop_slots.size()):
+			var slot0: Dictionary = TypedVariant.as_dict(shop_slots[i])
+			if not TypedVariant.as_bool(slot0.get("purchased", false), false):
+				slot_i = i
+				break
 	if slot_i < 0:
 		## refresh or buy exp
 		var refresh_cost: int = TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 2)
@@ -511,7 +883,15 @@ func _try_buy_one() -> bool:
 			_grant_exp(TypedVariant.as_int(DataStore.economy.get("buy_exp_amount", 4), 4))
 			return true
 		return false
+	return _buy_ai_shop_slot(slot_i)
+
+
+func _buy_ai_shop_slot(slot_i: int) -> bool:
+	if slot_i < 0 or slot_i >= shop_slots.size() or _board == null:
+		return false
 	var slot: Dictionary = TypedVariant.as_dict(shop_slots[slot_i])
+	if TypedVariant.as_bool(slot.get("purchased", false), false):
+		return false
 	var sid: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
 	var cost: int = TypedVariant.as_int(DataStore.get_ship(sid).get("cost", 0), 0)
 	if ai_gold < cost:
@@ -567,6 +947,31 @@ func _try_buy_one() -> bool:
 		return true
 	return false
 
+
+func _buy_ai_equip_slot(idx: int) -> bool:
+	if idx < 0 or idx >= equipment_slots.size():
+		return false
+	var slot: Dictionary = TypedVariant.as_dict(equipment_slots[idx])
+	if TypedVariant.as_bool(slot.get("purchased", false), false):
+		return false
+	var item_id: String = str(slot.get("id", "")).strip_edges()
+	if item_id == "":
+		return false
+	var mod: Dictionary = DataStore.get_function_module(item_id)
+	if mod.is_empty() or TypedVariant.as_bool(mod.get("implant", false), false):
+		return false
+	var cost: int = TypedVariant.as_int(mod.get("cost", 10), 10)
+	if ai_gold < cost:
+		return false
+	var bag: int = _find_empty_equipment_inv()
+	if bag < 0:
+		return false
+	ai_gold -= cost
+	equipment_slots[idx]["purchased"] = true
+	equipment_inventory[bag] = item_id
+	return true
+
+
 func _cell_key(x: int, z: int) -> String:
 	return "%d,%d" % [x, z]
 
@@ -598,7 +1003,65 @@ func _pick_ai_field_cell() -> Vector2i:
 		return used[randi() % used.size()]
 	if unused.is_empty():
 		return Vector2i(-1, -1)
-	return unused[randi() % unused.size()]
+	return _pick_place_cell(unused, 0)
+
+
+func _pick_place_cell(candidates: Array[Vector2i], ship_id: int) -> Vector2i:
+	if candidates.is_empty():
+		return Vector2i(-1, -1)
+	if weight_policy == null or not weight_policy.nets_ready():
+		return candidates[randi() % candidates.size()]
+	var mask: PackedFloat32Array = PackedFloat32Array()
+	mask.resize(PolicyObs.MAX_CELLS)
+	for c: Vector2i in candidates:
+		mask[PolicyObs.flatten_cell(c.x, c.y)] = 1.0
+	var obs: PackedFloat32Array = PolicyObs.encode_place(ship_id, 1, _policy_obs_ctx(), mask)
+	var logits: PackedFloat32Array = weight_policy.infer_logits("place", obs)
+	var best: Vector2i = candidates[0]
+	var best_v: float = -1.0e9
+	for c2: Vector2i in candidates:
+		var idx: int = PolicyObs.flatten_cell(c2.x, c2.y)
+		var v: float = logits[idx] if idx < logits.size() else 0.0
+		if v > best_v:
+			best_v = v
+			best = c2
+	InMatchSlowLearn.note_place_sample(obs, PolicyObs.flatten_cell(best.x, best.y), false)
+	SessionDiagnostics.log(
+		"ai.decide",
+		"net=place ship=%d cell=%d,%d logit=%.3f" % [ship_id, best.x, best.y, best_v]
+	)
+	return best
+
+
+func _policy_obs_ctx() -> Dictionary:
+	var field_n: int = _board.count_field(ShipUnit.TEAM_AI) if _board else 0
+	var hangar_n: int = 0
+	if _board != null:
+		for s: ShipUnit in _board.all_ships():
+			if s != null and is_instance_valid(s) and s.team_id == ShipUnit.TEAM_AI and s.slot_type == "hangar" and not s.is_destroyed:
+				hangar_n += 1
+	var stance: PackedFloat32Array = PackedFloat32Array()
+	if weight_policy != null:
+		stance = weight_policy.stance_mix()
+	return {
+		"gold": ai_gold,
+		"level": ai_level,
+		"xp": ai_exp,
+		"round": _match.battle_game_stage_count if _match else 1,
+		"shop_slots": shop_slots,
+		"equipment_slots": equipment_slots,
+		"piece_count": field_n + hangar_n,
+		"field_count": field_n,
+		"hangar_count": hangar_n,
+		"bag_count": equipment_inventory.size(),
+		"win_streak": win_streak,
+		"loss_streak": loss_streak,
+		"titan": _ai_titan_id(),
+		"stance": stance,
+		"buy_exp_cost": TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 4),
+		"xp_demand": float(up_level_demand),
+		"security_mode": "nullsec" if _match != null and _match.mode == "nullsec" else "nullsec",
+	}
 
 func _reshuffle_ai_field() -> void:
 	## Every prepare: move all manned AI field ships to new random cells (prefer unused).
@@ -646,6 +1109,8 @@ func _deploy_hangar_to_field() -> void:
 			return false
 		var aa: ShipUnit = a
 		var bb: ShipUnit = b
+		if _policy_nets_live() and aa.is_logistic != bb.is_logistic:
+			return not aa.is_logistic
 		return aa.star > bb.star
 	)
 	for s_any: Variant in hangar_ships:
@@ -716,6 +1181,8 @@ func _ensure_one_logistic() -> void:
 func _sell_hangar_remainder() -> void:
 	## AI_PLAYER_HANDBOOK §2.1: sell non-capitals; sell capitals ONLY when
 	## capital hangar count > floor(hangar_slots/2), trimming down to that cap.
+	if _policy_nets_live() or (_onnx_shop_prepare and _eco_actions > 0):
+		return
 	var to_sell: Array = []
 	var capitals: Array[ShipUnit] = []
 	for s: ShipUnit in _board.all_ships():
@@ -774,15 +1241,18 @@ func sync_field_for_prepare() -> void:
 	## Fill field from hangar (same rules as economy turn). Safe after load/resume
 	## when board was overwritten and economy already ran on an empty board.
 	_deploy_hangar_to_field()
-	_ensure_one_logistic()
+	if not _policy_nets_live():
+		_ensure_one_logistic()
 	_reshuffle_ai_field()
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
 
 func finalize_prepare() -> void:
-	## Deploy first, then sell leftover hangar — never sell-before-deploy (leaves empty field).
+	## Deploy first. Six-net ONNX keeps hangar remainder (handbook §0.2 / §2).
 	sync_field_for_prepare()
-	## Last chance to hang leftover bag gear on field ships before hangar sell.
-	_random_distribute_equipment()
+	if not _policy_nets_live():
+		_random_distribute_equipment()
+	if _policy_nets_live() or (_onnx_shop_prepare and _eco_actions > 0):
+		return
 	_sell_hangar_remainder()
 
 func _deploy_legacy_quota() -> void:
@@ -858,3 +1328,13 @@ func _on_deploy(payload: Dictionary) -> Dictionary:
 func _on_after(channel: StringName, _payload: Dictionary, _result: Dictionary) -> void:
 	if endless and String(channel) == "citadel.damage":
 		pass
+
+
+func _count_ai_hangar() -> int:
+	var n: int = 0
+	if _board == null:
+		return 0
+	for s: ShipUnit in _board.all_ships():
+		if s != null and is_instance_valid(s) and s.team_id == ShipUnit.TEAM_AI and s.slot_type == "hangar" and not s.is_destroyed:
+			n += 1
+	return n

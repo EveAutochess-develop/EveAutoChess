@@ -137,6 +137,8 @@ func _try_promote_ship_drag(screen: Vector2) -> void:
 	drag_begin.emit(_press_ship)
 
 func _pointer_drag(screen: Vector2) -> void:
+	if _root != null:
+		_root._note_adapt_pointer(screen)
 	var w: Vector3 = _screen_to_ground(screen)
 	drag_move.emit(w)
 

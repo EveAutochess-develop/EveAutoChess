@@ -1,126 +1,126 @@
 {
-  "id": 17,
-  "name": "狞獾级",
-  "name_en": "Caracal",
-  "type_id": 621,
-  "model_key": "jdl_ninghuan",
-  "cost": 5,
-  "ship_groups": [
-    "cruiser"
-  ],
-  "ship_group": "cruiser",
+  "agility": 0.47,
+  "attack_cycle_s": 15.0,
+  "capacitor_capacity": 1250.0,
+  "capacitor_recharge_s": 445.0,
+  "cost": 5.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10300000005.0,
   "fetter_ids": [
     "caldari",
     "cruiser",
     "firepower"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 7,
+  "id": 17.0,
+  "is_logistic": false,
+  "low_slots": 4.0,
+  "mass": 11910000.0,
+  "med_slots": 5.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "jdl_ninghuan",
+  "model_long_axis": 202.0,
+  "name": "狞獾级",
+  "name_en": "Caracal",
+  "race": "caldari",
+  "scan_resolution": 270.0,
+  "sensor_strength": 16.0,
+  "ship_group": "cruiser",
+  "ship_groups": [
+    "cruiser"
+  ],
+  "signature_radius": 125.0,
+  "sof_hull": "cc3_t1",
+  "source_module_type_id": 501.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 230.0,
+  "stars": [
+    {
+      "armor_hp": 1200.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      },
+      "attack_range": 999.0,
+      "is_logistic": false,
+      "shield_hp": 1700.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1400.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      }
+    },
+    {
+      "armor_hp": 2400.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      },
+      "attack_range": 999.0,
+      "is_logistic": false,
+      "shield_hp": 3400.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 2800.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      }
+    },
+    {
+      "armor_hp": 3600.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      },
+      "attack_range": 999.0,
+      "is_logistic": false,
+      "shield_hp": 5100.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 4200.0,
+      "structure_resist": {
+        "emp": 0.5,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.45
+      }
+    }
   ],
   "tags": [
     "caldari",
     "cruiser",
     "firepower"
   ],
-  "is_logistic": false,
-  "weapon_fx": "missile",
-  "race": "caldari",
-  "signature_radius": 125.0,
-  "sensor_strength": 16.0,
-  "scan_resolution": 270.0,
-  "speed": 230.0,
-  "mass": 11910000.0,
-  "agility": 0.47,
-  "capacitor_capacity": 1250.0,
-  "capacitor_recharge_s": 445.0,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 5,
-  "med_slots": 5,
-  "low_slots": 4,
-  "source_module_type_id": 501,
-  "source_repair_module_type_id": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "echoes_item_id": 10300000005,
-  "attack_cycle_s": 15.0,
-  "stars": [
-    {
-      "attack_range": 999,
-      "shield_hp": 1700.0,
-      "armor_hp": 1200.0,
-      "structure_hp": 1400.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 3400.0,
-      "armor_hp": 2400.0,
-      "structure_hp": 2800.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 5100.0,
-      "armor_hp": 3600.0,
-      "structure_hp": 4200.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.5,
-        "thermal": 0.45,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "is_logistic": false
-    }
-  ],
-  "model_long_axis": 202.0,
-  "sof_hull": "cc3_t1"
+  "type_id": 621.0,
+  "weapon_fx": "missile"
 }

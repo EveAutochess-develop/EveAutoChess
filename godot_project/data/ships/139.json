@@ -1,164 +1,164 @@
 {
-  "id": 139,
+  "attack_cycle_s": 5.0,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "fetter_ids": [
+    "ore"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 2.0,
+  "id": 139.0,
+  "is_logistic": false,
+  "is_mining_ship": false,
+  "is_unmanned": true,
+  "low_slots": 2.0,
+  "med_slots": 2.0,
+  "mining_gold_per_round": 25.0,
+  "model_key": "wrj_ore_excavator",
+  "model_long_axis": 5.0,
   "name": "采掘者采矿无人机",
   "name_en": "Excavator Mining Drone",
-  "type_id": 41030,
-  "model_key": "wrj_ore_excavator",
-  "cost": 0,
+  "race": "ore",
+  "scan_resolution": 100.0,
+  "sensor_strength": 1.0,
+  "ship_group": "drone_heavy",
   "ship_groups": [
     "drone_heavy"
   ],
-  "ship_group": "drone_heavy",
-  "fetter_ids": [
-    "ore"
+  "signature_radius": 200.0,
+  "sof_hull": "oredh2_t1",
+  "source_module_type_id": 0.0,
+  "speed": 250.0,
+  "stars": [
+    {
+      "armor_hp": 1090.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "falloff": 5000.0,
+      "is_logistic": false,
+      "optimal": 10000.0,
+      "optimal_sig_radius": 100.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 1170.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 1440.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      },
+      "tracking": 50.0
+    },
+    {
+      "armor_hp": 2180.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "falloff": 5000.0,
+      "is_logistic": false,
+      "optimal": 10000.0,
+      "optimal_sig_radius": 100.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 2340.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 2880.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      },
+      "tracking": 50.0
+    },
+    {
+      "armor_hp": 3270.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.2,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 3.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "falloff": 5000.0,
+      "is_logistic": false,
+      "optimal": 10000.0,
+      "optimal_sig_radius": 100.0,
+      "repair": {
+        "armor": 0.0,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 3510.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 4320.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      },
+      "tracking": 50.0
+    }
   ],
   "tags": [
     "ore"
   ],
-  "is_logistic": false,
-  "weapon_fx": "mining",
-  "race": "ore",
-  "signature_radius": 200,
-  "sensor_strength": 1,
-  "scan_resolution": 100,
-  "speed": 250,
-  "mining_gold_per_round": 25,
-  "is_mining_ship": false,
-  "is_unmanned": true,
+  "type_id": 41030.0,
   "unmanned_kind": "mining_excavator",
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 2,
-  "med_slots": 2,
-  "low_slots": 2,
-  "source_module_type_id": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "attack_cycle_s": 5.0,
-  "stars": [
-    {
-      "attack_range": 3,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 50.0,
-      "optimal": 10000.0,
-      "falloff": 5000.0,
-      "optimal_sig_radius": 100.0,
-      "shield_hp": 750.0,
-      "armor_hp": 500.0,
-      "structure_hp": 750.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 3,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 50.0,
-      "optimal": 10000.0,
-      "falloff": 5000.0,
-      "optimal_sig_radius": 100.0,
-      "shield_hp": 1500.0,
-      "armor_hp": 1000.0,
-      "structure_hp": 1500.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      },
-      "is_logistic": false
-    },
-    {
-      "attack_range": 3,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0.0,
-        "armor": 0.0,
-        "structure": 0.0
-      },
-      "tracking": 50.0,
-      "optimal": 10000.0,
-      "falloff": 5000.0,
-      "optimal_sig_radius": 100.0,
-      "shield_hp": 2250.0,
-      "armor_hp": 1500.0,
-      "structure_hp": 2250.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      },
-      "is_logistic": false
-    }
-  ],
-  "model_long_axis": 5,
-  "sof_hull": "oredh2_t1"
+  "weapon_fx": "mining"
 }

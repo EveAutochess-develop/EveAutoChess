@@ -16,7 +16,7 @@ static func allowed_sizes_for_ship(ship_data: Dictionary) -> PackedStringArray:
 	]:
 		return PackedStringArray(["S", "M", "L", "XL"])
 	match group:
-		"battleship":
+		"battleship", "industrial_command":
 			return PackedStringArray(["S", "M", "L"])
 		"cruiser", "battlecruiser":
 			return PackedStringArray(["S", "M"])
@@ -464,12 +464,58 @@ static func _try_fire_module(
 			return
 		if ship.grid_dist_to(tgt) > range_cells + 0.001:
 			return
+	if not _module_would_apply(ship, tgt, def):
+		return
 	if cap_need > 0.0:
 		ship.cap_current = maxf(0.0, ship.cap_current - cap_need)
 	_fire_module_effects(ship, tgt, def, sim_time, auth_rng)
 	_play_function_fx(ship, tgt, def)
 	rt["cd"] = cycle
 	ship._function_runtime[fid] = rt
+
+
+static func _repair_layer_has_room(unit: ShipUnit, layer: String) -> bool:
+	if unit == null or not is_instance_valid(unit):
+		return false
+	match layer:
+		"shield":
+			return unit.max_shield > 0.5 and unit.shield_hp < unit.max_shield - 0.5
+		"armor":
+			return unit.max_armor > 0.5 and unit.armor_hp < unit.max_armor - 0.5
+		"structure":
+			return unit.max_structure > 0.5 and unit.structure_hp < unit.max_structure - 0.5
+		_:
+			return true
+
+
+static func _module_would_apply(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) -> bool:
+	var cap_on: bool = TypedVariant.as_bool(DataStore.combat.get("capacitor_combat_enabled", false), false)
+	var any: bool = false
+	for fx: Variant in TypedVariant.as_array(def.get("effects", [])):
+		if typeof(fx) != TYPE_DICTIONARY:
+			continue
+		var fxd: Dictionary = TypedVariant.as_dict(fx)
+		match str(fxd.get("op", "")):
+			"repair":
+				if _repair_layer_has_room(ship, str(fxd.get("layer", "armor"))):
+					any = true
+			"remote_cap":
+				if cap_on and tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed and tgt.cap_capacity > 0.5 and tgt.cap_current < tgt.cap_capacity - 0.5:
+					any = true
+			"nos":
+				if cap_on and tgt != null and is_instance_valid(tgt) and tgt.cap_current > 0.5:
+					any = true
+			"neut":
+				if cap_on and tgt != null and is_instance_valid(tgt) and tgt.cap_current > 0.5:
+					any = true
+			"add_resist_active", "mul_stat_active", "debuff_mul":
+				any = true
+	if any:
+		return true
+	## Modules with no effects list still fire (legacy).
+	if TypedVariant.as_array(def.get("effects", [])).is_empty():
+		return true
+	return false
 
 
 static func resolve_function_fx_kind(def: Dictionary) -> String:

@@ -1,9 +1,12 @@
 {
   "attack_cycle_s": 5.0,
+  "capacitor_capacity": 8000.0,
+  "capacitor_recharge_s": 1200.0,
   "cost": 7.0,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 2.0,
   "drone_count_cap": 2.0,
+  "faction_ship": true,
   "fetter_ids": [
     "ore",
     "industrial_command"
@@ -11,7 +14,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 0,
+  "hi_slots": 0.0,
   "id": 137.0,
   "is_logistic": false,
   "is_mining_ship": true,
@@ -36,7 +39,7 @@
   "speed": 60.0,
   "stars": [
     {
-      "armor_hp": 7000.0,
+      "armor_hp": 45000.0,
       "armor_resist": {
         "emp": 0.5,
         "explosive": 0.2,
@@ -45,14 +48,14 @@
       },
       "attack_range": 3.0,
       "is_logistic": false,
-      "shield_hp": 30000.0,
+      "shield_hp": 13000.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 45000.0,
+      "structure_hp": 119680.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -61,7 +64,7 @@
       }
     },
     {
-      "armor_hp": 14000.0,
+      "armor_hp": 90000.0,
       "armor_resist": {
         "emp": 0.5,
         "explosive": 0.2,
@@ -70,14 +73,14 @@
       },
       "attack_range": 3.0,
       "is_logistic": false,
-      "shield_hp": 60000.0,
+      "shield_hp": 26000.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 90000.0,
+      "structure_hp": 239360.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -86,7 +89,7 @@
       }
     },
     {
-      "armor_hp": 21000.0,
+      "armor_hp": 135000.0,
       "armor_resist": {
         "emp": 0.5,
         "explosive": 0.2,
@@ -95,14 +98,14 @@
       },
       "attack_range": 3.0,
       "is_logistic": false,
-      "shield_hp": 90000.0,
+      "shield_hp": 39000.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 135000.0,
+      "structure_hp": 359040.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -117,8 +120,5 @@
   ],
   "type_id": 28606.0,
   "unmanned_kind": "",
-  "weapon_fx": "mining",
-  "capacitor_capacity": 8000.0,
-  "capacitor_recharge_s": 1200.0,
-  "faction_ship": true
+  "weapon_fx": "mining"
 }

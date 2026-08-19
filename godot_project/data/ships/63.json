@@ -15,7 +15,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 10,
+  "hi_slots": 11,
   "id": 63.0,
   "is_logistic": false,
   "is_unmanned": false,
@@ -40,7 +40,7 @@
   "speed": 230.0,
   "stars": [
     {
-      "armor_hp": 2800.0,
+      "armor_hp": 9085.20375151797,
       "armor_resist": {
         "emp": 0.2,
         "explosive": 0.2,
@@ -48,14 +48,14 @@
         "thermal": 0.2
       },
       "attack_range": 999.0,
-      "shield_hp": 2000.0,
+      "shield_hp": 8753.63072876881,
       "shield_resist": {
         "emp": 0.2,
         "explosive": 0.2,
         "kinetic": 0.2,
         "thermal": 0.2
       },
-      "structure_hp": 1400.0,
+      "structure_hp": 8275.78114007608,
       "structure_resist": {
         "emp": 0.2,
         "explosive": 0.2,
@@ -64,7 +64,7 @@
       }
     },
     {
-      "armor_hp": 5600.0,
+      "armor_hp": 18170.4075030359,
       "armor_resist": {
         "emp": 0.2,
         "explosive": 0.2,
@@ -72,14 +72,14 @@
         "thermal": 0.2
       },
       "attack_range": 999.0,
-      "shield_hp": 4000.0,
+      "shield_hp": 17507.2614575376,
       "shield_resist": {
         "emp": 0.2,
         "explosive": 0.2,
         "kinetic": 0.2,
         "thermal": 0.2
       },
-      "structure_hp": 2800.0,
+      "structure_hp": 16551.5622801522,
       "structure_resist": {
         "emp": 0.2,
         "explosive": 0.2,
@@ -88,7 +88,7 @@
       }
     },
     {
-      "armor_hp": 8400.0,
+      "armor_hp": 27255.6112545539,
       "armor_resist": {
         "emp": 0.2,
         "explosive": 0.2,
@@ -96,14 +96,14 @@
         "thermal": 0.2
       },
       "attack_range": 999.0,
-      "shield_hp": 6000.0,
+      "shield_hp": 26260.8921863064,
       "shield_resist": {
         "emp": 0.2,
         "explosive": 0.2,
         "kinetic": 0.2,
         "thermal": 0.2
       },
-      "structure_hp": 4200.0,
+      "structure_hp": 24827.3434202283,
       "structure_resist": {
         "emp": 0.2,
         "explosive": 0.2,

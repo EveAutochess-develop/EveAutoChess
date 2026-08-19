@@ -11,7 +11,7 @@
   "function_slots": {
     "slots": []
   },
-  "id": 1506,
+  "id": 1506.0,
   "is_logistic": false,
   "is_unmanned": true,
   "mass": 5000.0,
@@ -31,7 +31,7 @@
   "speed": 480.0,
   "stars": [
     {
-      "armor_hp": 100.0,
+      "armor_hp": 140.0,
       "armor_resist": {
         "emp": 0.1,
         "explosive": 0.1,
@@ -53,14 +53,14 @@
         "shield": 0.0,
         "structure": 0.0
       },
-      "shield_hp": 120.0,
+      "shield_hp": 220.0,
       "shield_resist": {
         "emp": 0.1,
         "explosive": 0.1,
         "kinetic": 0.1,
         "thermal": 0.1
       },
-      "structure_hp": 80.0,
+      "structure_hp": 210.0,
       "structure_resist": {
         "emp": 0.1,
         "explosive": 0.1,

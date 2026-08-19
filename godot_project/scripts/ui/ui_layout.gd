@@ -4,6 +4,7 @@ class_name UiLayout
 ## Design reference: 1920×1080; mobile uses denser chrome so HUD is not oversized.
 
 const DESIGN: Vector2 = Vector2(1920.0, 1080.0)
+const DESIGN_ASPECT: float = 16.0 / 9.0
 
 static func viewport_size(from: Node = null) -> Vector2:
 	## HUD canvas size (= window client / stretch visible rect). Frac 1.0 bottom = window bottom.
@@ -53,6 +54,11 @@ static func font_size(design: int, from: Node = null) -> int:
 static func margin_px(design: float, from: Node = null) -> int:
 	var scaled: float = px(design, from)
 	return maxi(4, roundi(scaled))
+
+
+static func shop_polite_gap_px(from: Node = null) -> int:
+	## UI_AND_SHELL §3.2: 5 design-px between left-shop controls (not 6 ship slots).
+	return maxi(5, roundi(px(5.0, from)))
 
 ## Fraction of viewport (0..1). Keeps offsets zero so resize stays correct.
 static func set_rect_frac(c: Control, left: float, top: float, right: float, bottom: float) -> void:
@@ -147,6 +153,45 @@ static func left_shop_width_frac() -> float:
 		return w
 	return hud_frac("LeftShop", "r", 0.161)
 
+
+static func is_wider_than_design(from: Node = null) -> bool:
+	var s: Vector2 = viewport_size(from)
+	return s.y > 1.0 and (s.x / s.y) > DESIGN_ASPECT + 0.01
+
+
+static func left_shop_width_frac_live(from: Node = null) -> float:
+	## UI_AND_SHELL §3.1.2: mobile wider-than-16:9 → 16:9 left share, height-fill.
+	## Pixel width = design_frac * (vh * 16/9); do not stretch shop with vp.x.
+	var base: float = left_shop_width_frac()
+	if not is_mobile():
+		return base
+	var s: Vector2 = viewport_size(from)
+	if s.x <= 1.0 or not is_wider_than_design(from):
+		return base
+	var ref_w: float = s.y * DESIGN_ASPECT
+	return clampf((base * ref_w) / s.x, 0.06, base)
+
+
+static func left_col_width_frac_live(from: Node = null) -> float:
+	## Shop may shrink on mobile ultrawide; fetter/gap keep screen-adaptive fracs.
+	var shop_b: float = left_shop_width_frac()
+	var col_b: float = left_col_width_frac()
+	var shop_l: float = left_shop_width_frac_live(from)
+	if absf(shop_l - shop_b) < 0.0005:
+		return col_b
+	var fetter: float = fetter_col_width_frac()
+	var gap: float = maxf(0.0, col_b - shop_b - fetter)
+	return shop_l + gap + fetter
+
+static func fit_ship_offer_1x6(avail_w: float, avail_h: float, nslots: int = 6) -> Vector2:
+	## UI_AND_SHELL §3.2: 6-offer container is 底:高 = 1:6. Returns (width, height).
+	var n: float = float(maxi(1, nslots))
+	var aw: float = maxf(1.0, avail_w)
+	var ah: float = maxf(1.0, avail_h)
+	var unit: float = minf(aw, ah / n)
+	return Vector2(unit, unit * n)
+
+
 static func fetter_col_width_frac() -> float:
 	var w: float = hud_width("Fetter", -1.0)
 	if w > 0.02:
@@ -210,7 +255,7 @@ static func playfield_safe_rect(
 ) -> Rect2:
 	var top: float = top_bar_height_frac() + 0.01
 	var arrow_pad: float = 0.045
-	var left: float = left_col_width_frac() + 0.012
+	var left: float = left_col_width_frac_live(from) + 0.012
 	var right: float = (1.0 - arrow_pad) if collapse_right else (1.0 - right_col_width_frac() - 0.01)
 	var bottom_band: float = arrow_pad if collapse_bottom else bottom_shop_panel_frac(from)
 	var bottom: float = 1.0 - bottom_band - 0.012

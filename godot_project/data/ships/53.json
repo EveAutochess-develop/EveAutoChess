@@ -1,127 +1,127 @@
 {
-  "id": 53,
-  "name": "特里斯坦级",
-  "name_en": "Tristan",
-  "type_id": 593,
-  "model_key": "glt_telisitan",
-  "cost": 2,
-  "ship_groups": [
-    "frigate"
-  ],
-  "ship_group": "frigate",
+  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
+  "agility": 0.5,
+  "attack_cycle_s": 2.6,
+  "capacitor_capacity": 400.0,
+  "capacitor_recharge_s": 500.0,
+  "cost": 2.0,
+  "drone_bandwidth": 15.0,
+  "drone_bay_slots": 2.0,
+  "drone_count_cap": 2.0,
+  "echoes_item_id": 10101000013.0,
   "fetter_ids": [
     "gallente",
     "frigate",
     "hybrid"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 3,
+  "id": 53.0,
+  "is_logistic": false,
+  "is_unmanned": false,
+  "low_slots": 6.0,
+  "mass": 10000000.0,
+  "med_slots": 4.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "glt_telisitan",
+  "name": "特里斯坦级",
+  "name_en": "Tristan",
+  "race": "gallente",
+  "scan_resolution": 500.0,
+  "sensor_strength": 16.0,
+  "ship_group": "frigate",
+  "ship_groups": [
+    "frigate"
+  ],
+  "signature_radius": 40.0,
+  "sof_hull": "gf3_t1",
+  "source_module_type_id": 561.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 320.0,
+  "stars": [
+    {
+      "armor_hp": 600.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 2.0,
+      "shield_hp": 400.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 300.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 1200.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 2.0,
+      "shield_hp": 800.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 600.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    },
+    {
+      "armor_hp": 1800.0,
+      "armor_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "attack_range": 2.0,
+      "shield_hp": 1200.0,
+      "shield_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      },
+      "structure_hp": 900.0,
+      "structure_resist": {
+        "emp": 0.2,
+        "explosive": 0.2,
+        "kinetic": 0.2,
+        "thermal": 0.2
+      }
+    }
   ],
   "tags": [
     "gallente",
     "frigate",
     "hybrid"
   ],
-  "is_logistic": false,
-  "weapon_fx": "rail",
-  "weapon_tier": "small",
-  "race": "gallente",
-  "signature_radius": 40.0,
-  "sensor_strength": 16.0,
-  "scan_resolution": 500.0,
-  "speed": 320.0,
-  "mass": 10000000.0,
-  "agility": 0.5,
-  "capacitor_capacity": 400.0,
-  "capacitor_recharge_s": 500.0,
-  "mid_battle_leave_allowed": false,
-  "is_unmanned": false,
+  "type_id": 593.0,
   "unmanned_kind": "",
-  "attack_cycle_s": 2.6,
-  "drone_bandwidth": 15.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 7,
-  "med_slots": 4,
-  "low_slots": 6,
-  "source_module_type_id": 561,
-  "source_repair_module_type_id": 0,
-  "stars": [
-    {
-      "attack_range": 2,
-      "shield_hp": 400.0,
-      "armor_hp": 600.0,
-      "structure_hp": 300.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 2,
-      "shield_hp": 800.0,
-      "armor_hp": 1200.0,
-      "structure_hp": 600.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    },
-    {
-      "attack_range": 2,
-      "shield_hp": 1200.0,
-      "armor_hp": 1800.0,
-      "structure_hp": 900.0,
-      "shield_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "armor_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      },
-      "structure_resist": {
-        "emp": 0.2,
-        "thermal": 0.2,
-        "kinetic": 0.2,
-        "explosive": 0.2
-      }
-    }
-  ],
   "visual": {},
-  "_stub_note": "§7.6 EVEMU-ish placeholder; model may be empty until bundle drop-in",
-  "echoes_item_id": 10101000013,
-  "sof_hull": "gf3_t1",
-  "drone_bay_slots": 2,
-  "drone_count_cap": 2
+  "weapon_fx": "rail",
+  "weapon_tier": "small"
 }

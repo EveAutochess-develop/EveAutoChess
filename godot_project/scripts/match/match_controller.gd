@@ -10,6 +10,10 @@ signal hud_refresh()
 signal hud_tick()
 signal notice(text: String)
 signal match_over(summary: String)
+## After deferred in-match slow-learn merge (HUD already on Prepare).
+signal slow_learn_applied()
+## AI Shop loop finished one Prepare slice (handbook §0.2).
+signal ai_economy_finished()
 ## Nullsec R1 Prepare: any successful gold spend (buy/refresh/exp/equip).
 signal prepare_spend_occurred()
 ## Nullsec MP: Prepare timer hit dur but waiting for peers (SEMI_ASYNC §3.0a).
@@ -78,6 +82,8 @@ var _battle_clock_diag_s: float = 0.0
 var _battle_opened_empty: bool = false
 ## MatchRoot sets true when rival Prepare fleet was synced (empty OK) before Battle — skip 12s phantom hold.
 var _empty_open_fleet_trusted: bool = false
+var _concede_lock: bool = false
+var _slow_learn_needs_followup: bool = false
 
 func bind(board: BoardController, shop: ShopController, combat: CombatResolver, ai: AiController) -> void:
 	_board = board
@@ -87,6 +93,10 @@ func bind(board: BoardController, shop: ShopController, combat: CombatResolver, 
 	_cyno = CynoController.new()
 	_cyno.bind(board, self, combat)
 	AdminBus.after_handoff.connect(_on_admin_after)
+
+
+func local_ai() -> AiController:
+	return _ai
 
 func bind_cyno_rng(rng: MatchRng, serial: int = 1) -> void:
 	if _cyno:
@@ -125,6 +135,14 @@ func start_match(p_mode: String) -> void:
 func _process(delta: float) -> void:
 	if not _running or stage == Stage.GAME_END:
 		return
+	if stage == Stage.PREPARE:
+		InMatchSlowLearn.tick_pending(_ai, InMatchSlowLearn.SLICE_PREPARE_MS)
+		var eco_busy: bool = _ai != null and _ai.has_method("is_economy_busy") and _ai.is_economy_busy()
+		if InMatchSlowLearn.has_queued() and not eco_busy:
+			InMatchSlowLearn.begin_pending(self, _ai, _board)
+		if _ai != null and _ai.has_method("tick_economy_turn"):
+			if _ai.tick_economy_turn():
+				ai_economy_finished.emit()
 	var t0: int = Time.get_ticks_usec()
 	## 倍速只放大仿真步长；禁止用 Engine.time_scale / 抬 max_fps 冒充加速。
 	var sim_delta: float = delta * speed_multiplier
@@ -201,6 +219,9 @@ func _process(delta: float) -> void:
 			if timer >= bdur:
 				notice.emit("战斗未能在时限内结束")
 				_on_combat_complete("timeout")
+			elif _board.salvage_objective_lost():
+				## FREIGHTER §1.5: destroying the salvage target ends Battle immediately.
+				_on_combat_complete("salvage_freighter_lost")
 			elif timer >= min_b and _board.is_one_side_cleared():
 				## Cleared field ends the round at once (CAPITAL_AND_CYNO §2): channels never hold it open.
 				_on_combat_complete("wipe")
@@ -222,6 +243,8 @@ func _process(delta: float) -> void:
 			)
 	hud_tick.emit()
 	SessionDiagnostics.add_usec(&"match_ctrl", Time.get_ticks_usec() - t0)
+	if stage == Stage.BATTLE:
+		InMatchSlowLearn.tick_pending(_ai, InMatchSlowLearn.SLICE_BATTLE_MS)
 
 func _init_speed_multiplier() -> void:
 	_load_preferred_battle_speed()
@@ -348,8 +371,23 @@ func _enter_prepare() -> void:
 	hud_refresh.emit()
 	## Single rolling snapshot at prepare open (开局前), not mid-buy / mid-drag.
 	_autosave_match()
+	call_deferred("_deferred_apply_slow_learn")
+
+
+func _deferred_apply_slow_learn() -> void:
+	InMatchSlowLearn.begin_pending(self, _ai, _board)
+	if mode != "nullsec" and _ai != null:
+		_ai.after_round()
+	var follow: bool = _slow_learn_needs_followup
+	_slow_learn_needs_followup = false
+	_concede_lock = false
+	if follow:
+		slow_learn_applied.emit()
+
 
 func _on_prepare_complete() -> void:
+	if _ai and _ai.has_method("force_finish_economy"):
+		_ai.force_finish_economy()
 	if mode != "nullsec" and _ai and _ai.has_method("finalize_prepare"):
 		_ai.finalize_prepare()
 	## Nullsec PVE: re-lock creeps with current gold before combat opens (MATCH_FLOW §5.1.2).
@@ -372,6 +410,7 @@ func _on_prepare_complete() -> void:
 			break
 	_board.set_prepare_mode(false)
 	_combat.start_combat()
+	InMatchSlowLearn.begin_battle(_board)
 	if _cyno:
 		_cyno.on_battle_start(0.0)
 	_battle_opened_empty = _board.is_one_side_cleared()
@@ -439,6 +478,8 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 		round_phase_value = 1
 		battle_phase_value += 1
 	_snapshot_round_outcome()
+	InMatchSlowLearn.queue_round(self, _board)
+	_slow_learn_needs_followup = true
 	print("[mp.diag] round_result=%s p_field=%d a_field=%d" % [
 		last_round_result, last_round_player_field, last_round_ai_field
 	])
@@ -457,7 +498,6 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 	## Star merges wait for Prepare (`try_upgrades_all` is prepare-gated).
 	## No automatic shop refresh at round end (ECONOMY_AND_SHOP §3).
 	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-	_ai.after_round()
 	_empty_open_fleet_trusted = false
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
 		_end_match()
@@ -469,10 +509,14 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 func concede_current_round() -> void:
 	if not _running or stage == Stage.GAME_END:
 		return
+	if _concede_lock:
+		return
+	_concede_lock = true
 	if stage == Stage.BATTLE:
 		force_authority_combat_complete("lose", "concede")
 		return
 	if stage != Stage.PREPARE:
+		_concede_lock = false
 		return
 	## Prepare: skip the fight and settle the same lose path as a combat wipe.
 	_combat.stop_combat()
@@ -493,6 +537,8 @@ func concede_current_round() -> void:
 		last_round_ai_field = 1
 	last_round_result = "lose"
 	last_round_freighter_alive = false
+	InMatchSlowLearn.queue_round(self, _board)
+	_slow_learn_needs_followup = true
 	_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
 	_board.force_full_hp_all_ships()
@@ -500,9 +546,9 @@ func concede_current_round() -> void:
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
 	_board.force_full_hp_all_ships()
 	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-	_ai.after_round()
 	_empty_open_fleet_trusted = false
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
+		_concede_lock = false
 		_end_match()
 		return
 	_enter_prepare()
@@ -536,6 +582,8 @@ func force_authority_combat_complete(mapped_result: String, reason: String = "au
 			if not s.is_destroyed and float(s.structure_hp) > 0.01:
 				last_round_freighter_alive = true
 				break
+	InMatchSlowLearn.queue_round(self, _board)
+	_slow_learn_needs_followup = true
 	## MATCH_FLOW §4.2: empty-open still settles (authority result already mapped).
 	_resolve_citadel_and_income()
 	_board.reset_ships_after_round()
@@ -544,9 +592,9 @@ func force_authority_combat_complete(mapped_result: String, reason: String = "au
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
 	_board.force_full_hp_all_ships()
 	_grant_exp(TypedVariant.as_int(DataStore.economy.get("base_exp_income", 4), 4))
-	_ai.after_round()
 	_empty_open_fleet_trusted = false
 	if player_hp <= 0 or (mode != "endless" and ai_hp <= 0):
+		_concede_lock = false
 		_end_match()
 		return
 	_enter_prepare()
@@ -588,6 +636,7 @@ func resume_combat_after_empty_fleet() -> void:
 	_sim_accum = 0.0
 	if _combat:
 		_combat.start_combat()
+		InMatchSlowLearn.begin_battle(_board)
 	if _cyno:
 		_cyno.on_battle_start(0.0)
 	print("[mp.diag] resume_combat_after_empty_fleet")
@@ -732,7 +781,10 @@ func _compute_round_income_parts(team: int, won: bool) -> Dictionary:
 	if won:
 		var streak: int = win_streak if team == ShipUnit.TEAM_PLAYER else (_ai.win_streak if _ai else 0)
 		streak_g = _streak_bonus(streak)
-	var mining_g: int = _mining_gold_for_team(team)
+	var mine_lines: Array = _mining_gold_lines_for_team(team)
+	var mining_g: int = 0
+	for line_v: Variant in mine_lines:
+		mining_g += TypedVariant.as_int(TypedVariant.as_dict(line_v).get("amount", 0), 0)
 	var income: int = base + interest + win_g + streak_g + mining_g
 	if team == ShipUnit.TEAM_PLAYER and GameSession and (PlayerSettings.instance() as PlayerSettings).player_ai_double_economy_active():
 		var mul: float = TypedVariant.as_float(DataStore.ai.get("ai_gold_income_buff_mul", 2.0), 2.0)
@@ -748,6 +800,7 @@ func _compute_round_income_parts(team: int, won: bool) -> Dictionary:
 		"win": win_g,
 		"streak": streak_g,
 		"mining": mining_g,
+		"mining_lines": mine_lines,
 		"income": income,
 	}
 
@@ -815,12 +868,10 @@ func _grant_income_from_parts(
 	var p2: Dictionary = TypedVariant.as_dict(r.get("payload", payload))
 	var final_income: int = TypedVariant.as_int(p2.get("income", income), income)
 	if team == ShipUnit.TEAM_PLAYER:
-		player_gold += final_income
-		player_gold_earned += maxi(0, final_income)
-		if final_income > 0:
-			var tree: SceneTree = get_tree()
-			if tree:
-				tree.call_group("match_root", "on_gold_income_float", final_income, mining_g)
+		var mine_lines: Array = TypedVariant.as_array(parts.get("mining_lines", []))
+		if mine_lines.is_empty() and mining_g > 0:
+			mine_lines = _mining_gold_lines_for_team(team)
+		add_gold(final_income, mining_g, mine_lines)
 		if loss_comp > 0:
 			notice.emit("你收入了%d黄币（含连输补偿%d）" % [final_income, loss_comp])
 		elif mining_g > 0:
@@ -832,20 +883,23 @@ func _grant_income_from_parts(
 
 
 func _mining_gold_for_team(team: int) -> int:
-	## MINING_AND_DUST §3–4: Field survivors; ★k × base; Porpoise command +20% on other sources (floor).
-	## FETTERS §2: each extra Porpoise beyond base_need adds +1 percentage point.
-	if _board == null:
-		return 0
+	var n: int = 0
+	for line_v: Variant in _mining_gold_lines_for_team(team):
+		n += TypedVariant.as_int(TypedVariant.as_dict(line_v).get("amount", 0), 0)
+	return n
+
+
+func mining_command_state(team: int) -> Dictionary:
+	## MINING §3 / FETTERS §2: Field Porpoise ≥1 → other sources ×(1.2 + extra porpoise pp).
 	var porpoise_n: int = 0
-	for s0: ShipUnit in _board.field_ships(team):
-		if s0 == null or s0.is_destroyed or s0.is_unmanned:
-			continue
-		var sd0: Dictionary = DataStore.get_ship(s0.ship_id)
-		var fids0: Array = TypedVariant.as_array(sd0.get("fetter_ids", []))
-		if "mining_command" in fids0 or int(s0.ship_id) == 136:
-			porpoise_n += 1
+	if _board != null:
+		for s0: ShipUnit in _board.field_ships(team):
+			if s0 == null or not is_instance_valid(s0) or s0.is_destroyed or s0.is_unmanned:
+				continue
+			if _is_mining_command_hull(s0.ship_id):
+				porpoise_n += 1
 	var has_command: bool = porpoise_n > 0
-	var cmd_mul: float = 1.2
+	var cmd_mul: float = 1.0
 	if has_command:
 		var mc: Dictionary = DataStore.fetters.get("mining_command", {})
 		var effects: Array = TypedVariant.as_array(mc.get("effects", []))
@@ -856,37 +910,73 @@ func _mining_gold_for_team(team: int) -> int:
 		for e_v: Variant in effects:
 			if typeof(e_v) != TYPE_DICTIONARY:
 				continue
-			var e: Dictionary = e_v
+			var e: Dictionary = TypedVariant.as_dict(e_v)
 			if str(e.get("effect_type", "")) == "MiningGoldBonus":
 				base_pct = TypedVariant.as_float(e.get("value", 20.0), 20.0)
 				break
 		var step: int = maxi(0, porpoise_n - base_need)
 		cmd_mul = 1.0 + (base_pct + float(step)) / 100.0
-	var total: int = 0
+	return {"has_command": has_command, "mul": cmd_mul, "porpoise_n": porpoise_n}
+
+
+func _is_mining_command_hull(ship_id: int) -> bool:
+	if ship_id == 136:
+		return true
+	var sd: Dictionary = DataStore.get_ship(ship_id)
+	return "mining_command" in TypedVariant.as_array(sd.get("fetter_ids", []))
+
+
+func mining_gold_amount_for_ship(ship: ShipUnit, state: Dictionary = {}) -> int:
+	## Same integer as settlement / gold float (MINING §3–4). Porpoise itself does not eat command.
+	if ship == null or not is_instance_valid(ship) or ship.is_destroyed:
+		return 0
+	var sd: Dictionary = DataStore.get_ship(ship.ship_id)
+	var base_g: int = TypedVariant.as_int(sd.get("mining_gold_per_round", 0), 0)
+	if base_g <= 0:
+		return 0
+	if ship.is_unmanned and str(ship.unmanned_kind) == "mining_excavator":
+		@warning_ignore("unsafe_cast")
+		var mother: ShipUnit = instance_from_id(ship.mother_ship_id) as ShipUnit
+		if mother == null or not is_instance_valid(mother) or mother.is_destroyed:
+			return 0
+	var starred: int = base_g * maxi(int(ship.star), 1)
+	var st: Dictionary = state
+	if st.is_empty():
+		st = mining_command_state(ship.team_id)
+	var is_porpoise: bool = (not ship.is_unmanned) and _is_mining_command_hull(ship.ship_id)
+	if TypedVariant.as_bool(st.get("has_command", false), false) and not is_porpoise:
+		return floori(float(starred) * TypedVariant.as_float(st.get("mul", 1.2), 1.2))
+	return starred
+
+
+func mining_gold_amount_for_base(team: int, ship_id: int, starred_base: int, unmanned: bool = false) -> int:
+	## HUD preview when we only have table ids (Rorqual excavator square).
+	var st: Dictionary = mining_command_state(team)
+	var is_porpoise: bool = (not unmanned) and _is_mining_command_hull(ship_id)
+	if TypedVariant.as_bool(st.get("has_command", false), false) and not is_porpoise:
+		return floori(float(starred_base) * TypedVariant.as_float(st.get("mul", 1.2), 1.2))
+	return starred_base
+
+
+func _mining_gold_lines_for_team(team: int) -> Array:
+	var lines: Array = []
+	if _board == null:
+		return lines
+	var st: Dictionary = mining_command_state(team)
 	for s: ShipUnit in _board.field_ships(team):
-		if s == null or s.is_destroyed:
+		if s == null or not is_instance_valid(s) or s.is_destroyed:
+			continue
+		var amt: int = mining_gold_amount_for_ship(s, st)
+		if amt <= 0:
 			continue
 		var sd: Dictionary = DataStore.get_ship(s.ship_id)
-		var base_g: int = TypedVariant.as_int(sd.get("mining_gold_per_round", 0), 0)
-		if base_g <= 0:
-			continue
-		## Excavators only pay while mother still alive (orphan cull runs in stop_combat).
-		if s.is_unmanned and str(s.unmanned_kind) == "mining_excavator":
-			@warning_ignore("unsafe_cast")
-			var mother: ShipUnit = instance_from_id(s.mother_ship_id) as ShipUnit
-			if mother == null or not is_instance_valid(mother) or mother.is_destroyed:
-				continue
-		var star_mul: int = maxi(int(s.star), 1)
-		var starred: int = base_g * star_mul
-		var is_porpoise: bool = false
-		if not s.is_unmanned:
-			var fids: Array = TypedVariant.as_array(sd.get("fetter_ids", []))
-			is_porpoise = int(s.ship_id) == 136 or ("mining_command" in fids)
-		if has_command and not is_porpoise:
-			total += floori(float(starred) * cmd_mul)
-		else:
-			total += starred
-	return total
+		lines.append({
+			"ship_id": s.ship_id,
+			"name": str(sd.get("name", s.ship_id)),
+			"amount": amt,
+			"unmanned": s.is_unmanned,
+		})
+	return lines
 
 func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionary) -> void:
 	if String(channel) != "combat.hit":
@@ -907,10 +997,8 @@ func _on_admin_after(channel: StringName, payload: Dictionary, result: Dictionar
 		## `_apply_income` forces kill_g=0 at round-end so this is never re-paid.
 		var kill_gold: int = TypedVariant.as_int(DataStore.economy.get("kill_gold_per_ship", 1), 1)
 		if kill_gold > 0:
-			player_gold += kill_gold
-			player_gold_earned += kill_gold
+			add_gold(kill_gold)
 			notice.emit("击毁获得 %d 黄币" % kill_gold)
-			hud_refresh.emit()
 	elif src.team_id == ShipUnit.TEAM_AI:
 		kills_this_round_ai += 1
 
@@ -979,6 +1067,7 @@ func buy_exp() -> void:
 	player_gold -= cost
 	_grant_exp(amt)
 	prepare_spend_occurred.emit()
+	InMatchSlowLearn.note_revealed({"kind": "buy_exp", "cost": cost})
 	request_autosave()
 
 func try_spend(amount: int) -> bool:
@@ -986,7 +1075,7 @@ func try_spend(amount: int) -> bool:
 		return false
 	player_gold -= amount
 	prepare_spend_occurred.emit()
-	hud_refresh.emit()
+	## ECONOMY: gold-only. Full adaptive HUD on spend was the refresh hitch.
 	return true
 
 func arm_prepare_clock() -> void:
@@ -1019,10 +1108,13 @@ func commit_prepare_complete() -> void:
 func is_prepare_peer_hold() -> bool:
 	return hold_prepare_to_battle and _prepare_hold_reported
 
-func add_gold(amount: int) -> void:
+func add_gold(amount: int, mining_part: int = 0, mining_lines: Array = []) -> void:
 	player_gold += amount
 	if amount > 0:
 		player_gold_earned += amount
+		var tree: SceneTree = get_tree()
+		if tree:
+			tree.call_group("match_root", "on_gold_income_float", amount, mining_part, mining_lines)
 	hud_refresh.emit()
 
 func population_limit() -> int:

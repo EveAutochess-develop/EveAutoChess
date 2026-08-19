@@ -1,6 +1,6 @@
 {
   "attack_cycle_s": 10.0,
-  "attack_weapon_slots": 4,
+  "attack_weapon_slots": 7.0,
   "capacitor_capacity": 54500.0,
   "capacitor_recharge_s": 4000.0,
   "capital_role": "dreadnought",
@@ -15,7 +15,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 4,
+  "hi_slots": 7.0,
   "hull_morph": "siege",
   "hull_morph_duration_s": 10.0,
   "id": 112.0,
@@ -25,6 +25,7 @@
   "med_slots": 4.0,
   "model_key": "glt_moluo",
   "model_long_axis": 571.7,
+  "model_size_compensate": 1.1,
   "name": "摩洛级",
   "name_en": "Moros",
   "portrait": "res://assets/ui/ship_portraits_capital/moros.png",

@@ -356,6 +356,8 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 			"x": s.grid_x,
 			"z": s.grid_z,
 			"field_side_team": s.field_side_team,
+			"hangar_home_x": s.hangar_home_x,
+			"hangar_home_z": s.hangar_home_z,
 		})
 	var shop_slots: Array = []
 	if mc._shop != null:

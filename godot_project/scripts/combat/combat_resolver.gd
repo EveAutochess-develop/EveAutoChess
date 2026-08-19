@@ -17,6 +17,7 @@ var _atk_diag_gate_cd: Dictionary = {}
 var _atk_diag_stats_done: Dictionary = {}
 var _debris: Array = []  # {node: Node3D, cooldown: Dictionary}
 var _drone_orbit_phase: Dictionary = {}  # instance_id -> float
+var _mining_freed_logs: int = 0
 ## Orbit tangent sign: +1 / -1 (reverse when stuck ~2s).
 var _drone_orbit_dir: Dictionary = {}  # instance_id -> float
 ## Orbit plane tilt degrees [20, 89] vs horizontal; seeded via orbit_tilt.
@@ -1348,8 +1349,10 @@ func _spawn_combat_drones() -> void:
 	for s: ShipUnit in _board.all_ships():
 		if s.slot_type != "field" or s.is_destroyed or s.is_unmanned:
 			continue
-		## Capitals use fighter / heavy-repair spawn path instead of race light drones.
+		## Capitals / Nestor FAX-repair use fighter / heavy-repair spawn path instead of race drones.
 		if str(s.capital_role) in ["carrier", "force_auxiliary", "dreadnought"]:
+			continue
+		if not _heavy_repair_drone_unit_ids(DataStore.get_ship(s.ship_id)).is_empty():
 			continue
 		var policy: Dictionary = _drone_spawn_policy_for_ship(s)
 		if TypedVariant.as_int(policy.get("count", 0), 0) <= 0:
@@ -1390,7 +1393,10 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 	var ship_data: Dictionary = DataStore.get_ship(s.ship_id)
 	var group: String = str(ship_data.get("ship_group", "")).to_lower()
 	var sid: int = int(s.ship_id)
-	## Explicit multi-id list (Guristas C×2, Nestor logistics 1421–1424).
+	## FAX / Nestor heavy repair: combat-drone path stays empty (auxiliaries spawn 1411–1414).
+	if not _heavy_repair_drone_unit_ids(ship_data).is_empty():
+		return {"count": 0, "drone_id": 0}
+	## Explicit multi-id list (Guristas C×2). Never overwrite with empire 1001–1014.
 	@warning_ignore("unsafe_cast")
 	var unit_ids: Array = ship_data.get("drone_unit_ids", []) as Array
 	if unit_ids.size() > 0:
@@ -1408,8 +1414,7 @@ func _drone_spawn_policy_for_ship(s: ShipUnit) -> Dictionary:
 		if mcount <= 0:
 			mcount = TypedVariant.as_int(ship_data.get("mining_drone_count", 4), 4)
 		return {"count": mcount, "drone_id": mining_drone_id}
-	## COMBAT §14C: logistic cruiser / BC never launch combat drones (FAX still uses auxiliaries).
-	## Nestor battleship with drone_unit_ids already returned above.
+	## COMBAT §14C: logistic cruiser / BC never launch combat drones (FAX / Nestor auxiliaries above).
 	if TypedVariant.as_bool(s.is_logistic, false) and group in ["cruiser", "battlecruiser"]:
 		return {"count": 0, "drone_id": 0}
 	if DRONE_COUNT_EXCEPTIONS.has(sid):
@@ -1475,14 +1480,21 @@ func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 	if s.capital_role == "carrier" or fighter_ids.size() > 0:
 		_ensure_carrier_fighter_squadrons(s, data)
 		return
-	if s.capital_role == "force_auxiliary" or TypedVariant.as_int(data.get("heavy_repair_drone_id", 0), 0) > 0:
-		var drone_id: int = TypedVariant.as_int(data.get("heavy_repair_drone_id", 0), 0)
-		if drone_id <= 0:
+	var repair_ids: Array = _heavy_repair_drone_unit_ids(data)
+	if s.capital_role == "force_auxiliary" or repair_ids.size() > 0:
+		if repair_ids.is_empty():
 			return
-		var need2: int = TypedVariant.as_int(data.get("heavy_repair_drone_count", 4), 4)
-		var have2: int = _count_children_of(s)
-		for j: int in range(have2, need2):
-			var ang2: float = float(j) * TAU / float(maxi(1, need2))
+		var have_by_id: Dictionary = _count_children_by_ship_id(s)
+		var n_slots: int = repair_ids.size()
+		for j: int in range(n_slots):
+			var drone_id: int = TypedVariant.as_int(repair_ids[j], 0)
+			if drone_id <= 0:
+				continue
+			var have_n: int = TypedVariant.as_int(have_by_id.get(drone_id, 0), 0)
+			if have_n > 0:
+				have_by_id[drone_id] = have_n - 1
+				continue
+			var ang2: float = float(j) * TAU / float(maxi(1, n_slots))
 			var offset2: Vector3 = Vector3(cos(ang2) * 1.6, 0.25, sin(ang2) * 1.6)
 			## Repair drones always ★1 heal (reload_stats ignores star for repair).
 			var d: ShipUnit = _board.spawn_unmanned(drone_id, s.team_id, s.global_position + offset2, s, 1)
@@ -1491,6 +1503,37 @@ func _spawn_auxiliaries_for_ship(s: ShipUnit) -> void:
 			_drone_orbit_phase[did2] = ang2
 			_drone_orbit_dir[did2] = 1.0 if _auth_randf("orbit_dir") < 0.5 else -1.0
 		_board.recalculate_fetters(s.team_id)
+
+
+func _heavy_repair_drone_unit_ids(data: Dictionary) -> Array:
+	## Multi-type (Nestor): heavy_repair_drone_ids[] one of each FAX race.
+	## Else expand heavy_repair_drone_id × count (Apostle etc.).
+	@warning_ignore("unsafe_cast")
+	var arr: Array = data.get("heavy_repair_drone_ids", []) as Array
+	var out: Array = []
+	for v: Variant in arr:
+		var rid: int = TypedVariant.as_int(v, 0)
+		if rid > 0:
+			out.append(rid)
+	if out.size() > 0:
+		return out
+	var one: int = TypedVariant.as_int(data.get("heavy_repair_drone_id", 0), 0)
+	if one <= 0:
+		return out
+	var n: int = maxi(TypedVariant.as_int(data.get("heavy_repair_drone_count", 4), 4), 0)
+	out.resize(n)
+	out.fill(one)
+	return out
+
+
+func _count_children_by_ship_id(mother: ShipUnit) -> Dictionary:
+	var counts: Dictionary = {}
+	var mid: int = mother.get_instance_id()
+	for s: ShipUnit in _board.all_ships():
+		if s.is_unmanned and not s.is_destroyed and s.mother_ship_id == mid:
+			var sid: int = int(s.ship_id)
+			counts[sid] = TypedVariant.as_int(counts.get(sid, 0), 0) + 1
+	return counts
 
 
 func _carrier_fighter_unit_ids(data: Dictionary) -> Array:
@@ -1683,6 +1726,17 @@ func _orbit_drone(s: ShipUnit, tgt: ShipUnit, delta: float) -> void:
 	_orbit_around_3d(s, tgt.global_position, delta, radius, true)
 
 
+func _as_live_node3d(v: Variant) -> Node3D:
+	if typeof(v) != TYPE_OBJECT:
+		return null
+	@warning_ignore("unsafe_cast")
+	var obj: Object = v as Object
+	if obj == null or not is_instance_valid(obj):
+		return null
+	@warning_ignore("unsafe_cast")
+	return obj as Node3D
+
+
 func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
 	## Excavators orbit a random central MiningAnchor; periodically re-pick (MINING §2.1).
 	var id: int = s.get_instance_id()
@@ -1691,25 +1745,26 @@ func _wander_mining_drone(s: ShipUnit, delta: float) -> void:
 		EngineBoosterTrail.set_emitting_on(s, false)
 		return
 	var cd: float = TypedVariant.as_float(_mining_wander_cd.get(id, 0.0), 0.0) - delta
-	var anchor_v: Variant = _mining_wander_anchor.get(id)
-	var anchor: Node3D = null
-	if anchor_v is Node3D:
-		@warning_ignore("unsafe_cast")
-		anchor = anchor_v as Node3D
-	var need_pick: bool = anchor == null or not is_instance_valid(anchor) or cd <= 0.0
+	var anchor: Node3D = _as_live_node3d(_mining_wander_anchor.get(id))
+	var need_pick: bool = anchor == null or cd <= 0.0
 	if need_pick:
 		var pick_i: int = _auth_randi_range("mining_pick", 0, belt.mining_anchors.size() - 1)
 		var pick_v: Variant = belt.mining_anchors[pick_i]
-		if pick_v is Node3D:
-			@warning_ignore("unsafe_cast")
-			anchor = pick_v as Node3D
+		anchor = _as_live_node3d(pick_v)
+		if anchor == null:
+			if _mining_freed_logs < 5 and typeof(pick_v) == TYPE_OBJECT:
+				_mining_freed_logs += 1
+			for av: Variant in belt.mining_anchors:
+				anchor = _as_live_node3d(av)
+				if anchor != null:
+					break
 		_mining_wander_anchor[id] = anchor
 		var cd_min: float = TypedVariant.as_float(DataStore.visual.get("mining_drone_wander_cd_min_s", 4.0), 4.0)
 		var cd_max: float = TypedVariant.as_float(DataStore.visual.get("mining_drone_wander_cd_max_s", 12.0), 12.0)
 		_mining_wander_cd[id] = _auth_randf_range("mining_wander", maxf(1.0, cd_min), maxf(cd_min + 0.1, cd_max))
 	else:
 		_mining_wander_cd[id] = cd
-	if anchor == null or not is_instance_valid(anchor):
+	if anchor == null:
 		EngineBoosterTrail.set_emitting_on(s, false)
 		return
 	var radius: float = TypedVariant.as_float(DataStore.visual.get("mining_drone_orbit_radius_wu", 1.35), 1.35)

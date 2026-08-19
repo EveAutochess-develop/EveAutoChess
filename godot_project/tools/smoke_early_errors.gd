@@ -12,6 +12,10 @@ const PARSE_GLOBS: PackedStringArray = [
 	"res://scripts/ui",
 	"res://scripts/boot",
 ]
+const DATA_SUBS: PackedStringArray = [
+	"ships",
+	"equipment",
+]
 
 
 func _initialize() -> void:
@@ -28,25 +32,25 @@ func _run() -> void:
 		print("[smoke] OK")
 		quit(0)
 		return
-	for e in errors:
+	for e: String in errors:
 		push_error("[smoke] %s" % e)
 		print("[smoke] FAIL: %s" % e)
 	quit(1)
 
 
 func _parse_script_trees(errors: PackedStringArray) -> void:
-	for root in PARSE_GLOBS:
-		_parse_dir(root, errors)
+	for glob_path: String in PARSE_GLOBS:
+		_parse_dir(glob_path, errors)
 
 
 func _parse_dir(dir_path: String, errors: PackedStringArray) -> void:
-	var dir := DirAccess.open(dir_path)
+	var dir: DirAccess = DirAccess.open(dir_path)
 	if dir == null:
 		return
 	dir.list_dir_begin()
-	var fn := dir.get_next()
+	var fn: String = dir.get_next()
 	while fn != "":
-		var full := dir_path.path_join(fn)
+		var full: String = dir_path.path_join(fn)
 		if dir.current_is_dir():
 			if fn != "." and fn != "..":
 				_parse_dir(full, errors)
@@ -55,11 +59,11 @@ func _parse_dir(dir_path: String, errors: PackedStringArray) -> void:
 			if scr == null:
 				errors.append("cannot load script %s" % full)
 			elif scr is GDScript:
-				var gds := scr as GDScript
+				var gds: GDScript = scr as GDScript
 				if not gds.can_instantiate() and gds.get_instance_base_type() != "":
 					## Abstract / tool-only still counts as parsed if load succeeded.
 					pass
-				var src := gds.source_code
+				var src: String = gds.source_code
 				if src.is_empty() and FileAccess.file_exists(full):
 					errors.append("empty GDScript %s" % full)
 		fn = dir.get_next()
@@ -67,21 +71,21 @@ func _parse_dir(dir_path: String, errors: PackedStringArray) -> void:
 
 
 func _check_data_json(errors: PackedStringArray) -> void:
-	for sub in ["ships", "equipment"]:
-		var dpath := "res://data".path_join(sub)
-		var dir := DirAccess.open(dpath)
+	for sub: String in DATA_SUBS:
+		var dpath: String = "res://data".path_join(sub)
+		var dir: DirAccess = DirAccess.open(dpath)
 		if dir == null:
 			errors.append("missing data dir %s" % dpath)
 			continue
-		var count := 0
+		var count: int = 0
 		dir.list_dir_begin()
-		var fn := dir.get_next()
+		var fn: String = dir.get_next()
 		while fn != "":
 			if not dir.current_is_dir() and fn.ends_with(".json"):
 				count += 1
-				var full := dpath.path_join(fn)
-				var text := FileAccess.get_file_as_string(full)
-				var parsed = JSON.parse_string(text)
+				var full: String = dpath.path_join(fn)
+				var text: String = FileAccess.get_file_as_string(full)
+				var parsed: Variant = JSON.parse_string(text)
 				if parsed == null:
 					errors.append("bad JSON %s" % full)
 			fn = dir.get_next()
@@ -91,10 +95,10 @@ func _check_data_json(errors: PackedStringArray) -> void:
 
 
 func _load_entries(errors: PackedStringArray) -> void:
-	for path in ENTRY_SCENES:
-		if not ResourceLoader.exists(path):
-			errors.append("missing entry %s" % path)
+	for scene_path: String in ENTRY_SCENES:
+		if not ResourceLoader.exists(scene_path):
+			errors.append("missing entry %s" % scene_path)
 			continue
-		var packed = ResourceLoader.load(path)
+		var packed: Resource = ResourceLoader.load(scene_path)
 		if packed == null:
-			errors.append("cannot load entry %s" % path)
+			errors.append("cannot load entry %s" % scene_path)

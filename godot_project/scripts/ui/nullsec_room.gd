@@ -22,6 +22,7 @@ var _kick_btns: Array = [] ## seat_id -> 功能 button (short gutter columns)
 var _func_menus: Array = [] ## seat_id -> PopupMenu
 var _ready_btn: Button
 var _ai_btn: Button
+var _llm_btn: Button
 var _sec_opt: OptionButton
 var _wait_lbl: Label
 var _code_lbl: Label
@@ -151,9 +152,16 @@ func _build() -> void:
 	_ai_btn.text = "加人机"
 	_ai_btn.pressed.connect(func() -> void:
 		if session:
-			session.add_ai_player()
+			session.add_onnx_seat()
 	)
 	host_row.add_child(_ai_btn)
+	_llm_btn = Button.new()
+	_llm_btn.text = "接入大语言模型"
+	_llm_btn.pressed.connect(func() -> void:
+		if session:
+			session.add_llm_seat()
+	)
+	host_row.add_child(_llm_btn)
 	_copy_share_btn = Button.new()
 	_copy_share_btn.text = "复制房间码"
 	_copy_share_btn.custom_minimum_size = Vector2(108, 30)
@@ -230,6 +238,8 @@ func _code_text() -> String:
 	if session == null:
 		return "房间"
 	var sec: String = "低安" if NullsecNetSession.is_lowsec(session.security_mode) else "负安"
+	if session.offline_drill:
+		return "本机演练 · %s · 版本 %s" % [sec, session.rules_hash]
 	var verbal: String = "私密房" if (not session.room_password.is_empty() or session.room_has_password) else "公开房"
 	## SEMI_ASYNC §7.5 — do not show room_code (internal / may differ after claim).
 	return "%s · %s · 版本 %s" % [verbal, sec, session.rules_hash]
@@ -326,7 +336,7 @@ func _popup_func_menu(seat_idx: int, btn: Button, menu: PopupMenu) -> void:
 	var row: Dictionary = {}
 	if seat_idx >= 0 and seat_idx < session.seats.size():
 		row = TypedVariant.as_dict(session.seats[seat_idx])
-	var is_ai: bool = TypedVariant.as_bool(row.get("is_ai", false), false)
+	var is_ai: bool = NullsecNetSession.seat_is_proxy(row)
 	var is_ready: bool = TypedVariant.as_bool(row.get("ready", false), false)
 	var spectate: bool = NullsecNetSession.is_spectate_race(str(row.get("titan_race", "")))
 	## 0 转移房主 — humans only; 1 踢出 — always; 2 催促 — unready contestants.
@@ -444,7 +454,7 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 		elif session.is_room_host():
 			var row_v: Variant = session.seats[idx] if idx < session.seats.size() else {}
 			var row_d: Dictionary = TypedVariant.as_dict(row_v)
-			if TypedVariant.as_bool(row_d.get("is_ai", false), false):
+			if NullsecNetSession.seat_is_proxy(row_d):
 				session.set_seat_titan(idx, pick_race)
 	)
 	row.add_child(opt)
@@ -485,14 +495,30 @@ func _on_seats(seats: Array) -> void:
 	if _host_bar:
 		_host_bar.visible = is_host
 	if _copy_share_btn:
-		_copy_share_btn.visible = is_host
-		_copy_share_btn.disabled = not is_host
+		var show_share: bool = is_host and session != null and not session.offline_drill
+		_copy_share_btn.visible = show_share
+		_copy_share_btn.disabled = not show_share
 	if _copy_key_btn:
-		_copy_key_btn.visible = is_host and not session.room_password.is_empty()
+		_copy_key_btn.visible = is_host and session != null and not session.offline_drill and not session.room_password.is_empty()
 		_copy_key_btn.disabled = not _copy_key_btn.visible
 	if _ai_btn:
-		_ai_btn.visible = is_host and not session.match_started
-		_ai_btn.disabled = not _ai_btn.visible
+		var started: bool = session != null and session.match_started
+		var pc_host: bool = is_host and not started and NullsecNetSession.detect_local_platform() == "pc"
+		var onnx_ok: bool = session != null and session.onnx_bundle_ready()
+		_ai_btn.visible = is_host and not started
+		_ai_btn.disabled = not pc_host or not onnx_ok
+		if not pc_host:
+			_ai_btn.tooltip_text = "仅 PC 主持可加人机"
+		elif not onnx_ok:
+			_ai_btn.tooltip_text = "模型包未加载，无法加人机"
+		else:
+			_ai_btn.tooltip_text = ""
+	if _llm_btn:
+		var started_llm: bool = session != null and session.match_started
+		var pc_host_llm: bool = is_host and not started_llm and NullsecNetSession.detect_local_platform() == "pc"
+		_llm_btn.visible = is_host and not started_llm
+		_llm_btn.disabled = not pc_host_llm
+		_llm_btn.tooltip_text = "" if pc_host_llm else "仅 PC 主持可接入大语言模型"
 	_on_security_mode(session.security_mode if session else NullsecNetSession.SECURITY_NULLSEC)
 	var local_race: String = ""
 	var local_ready: bool = false
@@ -544,7 +570,7 @@ func _on_seats(seats: Array) -> void:
 		var slash: ColorRect = slash_node
 		slash.visible = false
 		var occupied: bool = TypedVariant.as_bool(s.get("occupied", false), false)
-		var is_ai: bool = TypedVariant.as_bool(s.get("is_ai", false), false)
+		var is_ai: bool = NullsecNetSession.seat_is_proxy(s)
 		var can_edit_titan: bool = occupied and (
 			session.local_seat == i or (session.is_room_host() and is_ai)
 		) and not session.match_started
@@ -577,7 +603,15 @@ func _on_seats(seats: Array) -> void:
 		var mark: String = "✓" if TypedVariant.as_bool(s.get("ready", false), false) else "…"
 		if NullsecNetSession.is_spectate_race(race):
 			mark = "观"
-		var ai: String = " [人机]" if is_ai else ""
+		var ai: String = ""
+		if is_ai:
+			var ctrl: String = NullsecNetSession.seat_controller_of(s)
+			var owner_n: String = str(s.get("owner_nick", ""))
+			var tag: String = "ONNX" if ctrl == "onnx" else ("LLM" if ctrl == "llm" else "人机")
+			if owner_n != "":
+				ai = " [%s·由%s模拟]" % [tag, owner_n]
+			else:
+				ai = " [%s]" % tag
 		var ghost: String = "（分身）" if TypedVariant.as_bool(s.get("ghost", false), false) else ""
 		var raw_nick: String = str(s.get("nick", ""))
 		var shown: String = NickCodec.display_short(raw_nick)

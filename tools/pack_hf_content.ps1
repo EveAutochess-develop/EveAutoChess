@@ -400,7 +400,7 @@ foreach ($def in $packDefs) {
 
 Write-Fingerprints $nextFp
 
-$ver = "202608.11.3"
+$ver = "202608.14.1"
 $publishedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:sszzz")
 
 $versionObj = [ordered]@{
@@ -410,7 +410,7 @@ $versionObj = [ordered]@{
   baseUrl              = "https://huggingface.co/buckets/liketocode789/eveautochess/resolve/"
   entry                = "res://scenes/main_menu.tscn"
   shellCompatibilityId = "eveac-shell-v1"
-  notes                = "202608.11.3: Battle HUD/timer shares drained sim clock with cyno (no 1710 desync under high speed/low FPS)"
+  notes                = "202608.14.1: rattlesnake 1512 drones; nestor FAX repair 1411-1414; HP chart LineEdit; smoke WTAE"
 }
 $manifestObj = [ordered]@{
   version = $ver

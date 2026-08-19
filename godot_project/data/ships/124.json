@@ -1,126 +1,126 @@
 {
-  "id": 124,
-  "name": "尼铎格尔级",
-  "name_en": "Nidhoggur",
-  "type_id": 24483,
-  "model_key": "mmte_niyigeer",
-  "portrait": "res://assets/ui/ship_portraits_capital/nidhoggur.png",
-  "cost": 22,
-  "ship_groups": [
-    "carrier"
-  ],
-  "ship_group": "carrier",
+  "attack_cycle_s": 3.5,
+  "capacitor_capacity": 48000.0,
+  "capacitor_recharge_s": 3690.0,
   "capital_role": "carrier",
+  "cost": 22.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 50201000328.0,
   "fetter_ids": [
     "minmatar",
     "carrier",
     "firepower"
   ],
+  "fighter_key": "gram",
+  "fighter_squadron_pool": 10.0,
+  "fighter_squadrons": 3.0,
+  "fighter_tubes_per_squadron": 3.0,
+  "fighter_unit_id": 1404.0,
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0,
+  "id": 124.0,
+  "is_logistic": false,
+  "low_slots": 6.0,
+  "med_slots": 4.0,
+  "model_key": "mmte_niyigeer",
+  "model_long_axis": 493.0,
+  "name": "尼铎格尔级",
+  "name_en": "Nidhoggur",
+  "portrait": "res://assets/ui/ship_portraits_capital/nidhoggur.png",
+  "race": "minmatar",
+  "requires_cyno_entry": true,
+  "scan_resolution": 75.0,
+  "sensor_strength": 68.0,
+  "ship_group": "carrier",
+  "ship_groups": [
+    "carrier"
+  ],
+  "signature_radius": 9865.0,
+  "sof_hull": "mca2_t1",
+  "source_module_type_id": 0.0,
+  "source_repair_module_type_id": 0.0,
+  "speed": 85.0,
+  "stars": [
+    {
+      "armor_hp": 66000.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "shield_hp": 67000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 62500.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 132000.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "shield_hp": 134000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 125000.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    },
+    {
+      "armor_hp": 198000.0,
+      "armor_resist": {
+        "emp": 0.6,
+        "explosive": 0.1,
+        "kinetic": 0.25,
+        "thermal": 0.35
+      },
+      "attack_range": 999.0,
+      "shield_hp": 201000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.5,
+        "kinetic": 0.4,
+        "thermal": 0.2
+      },
+      "structure_hp": 187500.0,
+      "structure_resist": {
+        "emp": 0.33,
+        "explosive": 0.33,
+        "kinetic": 0.33,
+        "thermal": 0.33
+      }
+    }
+  ],
   "tags": [
     "minmatar",
     "carrier"
   ],
-  "is_logistic": false,
+  "type_id": 24483.0,
   "weapon_fx": "missile",
-  "weapon_tier": "capital",
-  "race": "minmatar",
-  "signature_radius": 9865.0,
-  "speed": 85.0,
-  "attack_cycle_s": 3.5,
-  "drone_bandwidth": 0.0,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 5,
-  "med_slots": 4,
-  "low_slots": 6,
-  "source_module_type_id": 0,
-  "source_repair_module_type_id": 0,
-  "requires_cyno_entry": true,
-  "fighter_squadrons": 3,
-  "fighter_tubes_per_squadron": 3,
-  "fighter_unit_id": 1404,
-  "fighter_key": "gram",
-  "stars": [
-    {
-      "attack_range": 999,
-      "shield_hp": 67000.0,
-      "armor_hp": 66000.0,
-      "structure_hp": 62500.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 134000.0,
-      "armor_hp": 132000.0,
-      "structure_hp": 125000.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    },
-    {
-      "attack_range": 999,
-      "shield_hp": 201000.0,
-      "armor_hp": 198000.0,
-      "structure_hp": 187500.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.2,
-        "kinetic": 0.4,
-        "explosive": 0.5
-      },
-      "armor_resist": {
-        "emp": 0.6,
-        "thermal": 0.35,
-        "kinetic": 0.25,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.33,
-        "thermal": 0.33,
-        "kinetic": 0.33,
-        "explosive": 0.33
-      }
-    }
-  ],
-  "scan_resolution": 75.0,
-  "sensor_strength": 68.0,
-  "capacitor_capacity": 48000.0,
-  "capacitor_recharge_s": 3690.0,
-  "model_long_axis": 493.0,
-  "echoes_item_id": 50201000328,
-  "fighter_squadron_pool": 10,
-  "sof_hull": "mca2_t1"
+  "weapon_tier": "capital"
 }

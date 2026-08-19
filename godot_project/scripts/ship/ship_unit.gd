@@ -14,8 +14,9 @@ var net_uid: String = ""
 var is_destroyed: bool = false
 var is_logistic: bool = false
 var is_mining_ship: bool = false
-## Protected neutral (pve_salvage freighter): nobody targets it, it never counts as a field
-## combatant (FREIGHTER_AND_TITAN §1.2.1).
+## Salvage freighter: player-team objective. It never locks/moves/fires.
+## Sleepers target it by normal enemy rules; it is not a field combatant count
+## (FREIGHTER_AND_TITAN §1.2.1). Do not skip it in everyone else's lock search.
 var is_protect_target: bool = false
 var is_unmanned: bool = false
 var unmanned_kind: String = ""
@@ -32,6 +33,13 @@ var _heal_received_mul_until: float = -1.0
 
 func set_lance_suppress(v: bool) -> void:
 	lance_suppress_weapons = v
+
+
+func stamp_hangar_home() -> void:
+	if slot_type != "hangar":
+		return
+	hangar_home_x = grid_x
+	hangar_home_z = grid_z
 
 
 func is_lance_suppressing() -> bool:
@@ -65,6 +73,9 @@ var allow_enemy_cell_overlap: bool = false
 var immobile_in_combat: bool = false
 var unlimited_weapon_range: bool = false
 var field_side_team: int = -1  ## which half's world coords; -1 = team_id
+## Hangar cell to restore after cyno warp (CAPITAL §6.1 / BOARD 原格). -1 = unset.
+var hangar_home_x: int = -1
+var hangar_home_z: int = 0
 var cyno_channel_ends_at: float = -1.0
 var cyno_completed: bool = false
 ## True while CapitalJumpFx is descending the hull onto the field.
@@ -177,6 +188,9 @@ var _stat_modifiers: Array = []
 var _mesh: MeshInstance3D
 var _mat: StandardMaterial3D
 var _model_root: Node3D
+## Mesh-local triangle soup for pick (AABB is only broadphase).
+var _pick_tri_mi: Array[MeshInstance3D] = []
+var _pick_tri_local: Array[PackedVector3Array] = []
 var _health_bar: Node3D  # ShipHealthBar (avoid class_name cycle with ShipUnit)
 var _tactical_stem: Node3D
 ## Bow muzzle in ShipUnit local space (after model normalize). Forward = −Z.
@@ -192,6 +206,7 @@ var _engine_locals: Array[Vector3] = []
 var _engine_outlines: Array = []
 ## Normalized display longest edge (world units) after scale curve — for load precision.
 var _model_display_size: float = -1.0
+var _applied_size_compensate: float = -1.0
 ## Combat aim (Variant so null clear is valid).
 var combat_target: Variant = null
 ## Combat-entry hull glow remaining (sim seconds); <0 = off.
@@ -231,6 +246,7 @@ func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 		field_side_team = team_id
 	_ensure_mesh()
 	_ensure_health_bar()
+	add_to_group("ship_units")
 	var yaw: float = TypedVariant.as_float(DataStore.visual.get("player_yaw_deg" if team_id == TEAM_PLAYER else "ai_yaw_deg", 0.0))
 	rotation_degrees = Vector3(0, yaw, 0)
 	## Soft-follow runs only while Battle has armed it (COMBAT §3.2).
@@ -558,6 +574,8 @@ func refresh_visual_for_no_model_mode() -> void:
 		_model_root.queue_free()
 	_model_root = null
 	_mesh = null
+	_pick_tri_mi.clear()
+	_pick_tri_local.clear()
 	_ensure_mesh()
 	rebuild_health_bar()
 
@@ -877,7 +895,10 @@ func _normalize_model_scale(root: Node3D) -> void:
 	var ratio: float = axis / ref_l
 	var display: float = target * pow(ratio, power)
 	display = clampf(display, target * min_mul, target * max_mul)
-	_model_display_size = display
+	var compensate: float = clampf(
+		TypedVariant.as_float(ship_data.get("model_size_compensate", 1.0), 1.0), 0.15, 4.0
+	)
+	_model_display_size = display * compensate
 	var sc: float = display / mesh_longest
 	sc *= TypedVariant.as_float(DataStore.visual.get("ship_visual_scale", 1.0))
 	if is_unmanned:
@@ -894,6 +915,8 @@ func _normalize_model_scale(root: Node3D) -> void:
 				sc *= TypedVariant.as_float(DataStore.visual.get("drone_light_visual_scale_mul", 0.25))
 			else:
 				sc *= TypedVariant.as_float(DataStore.visual.get("unmanned_visual_scale_mul", 0.25))
+	sc *= compensate
+	_applied_size_compensate = compensate
 	root.scale = Vector3.ONE * sc
 	aabb = _aabb_in_ship_space(root)
 	var center: Vector3 = aabb.get_center()
@@ -907,6 +930,24 @@ func _normalize_model_scale(root: Node3D) -> void:
 	_resolve_engine_local(root, aabb)
 	## Soft-follow / visual_to_global treat this as the glued mesh seat.
 	_model_rest_local = root.position
+
+
+## Re-run display scale from current DataStore (model_size_compensate live preview).
+## Pick tris stay mesh-local; world AABB / triangle tests use updated global_transform.
+func apply_model_size_from_data() -> void:
+	if _model_root == null or not is_instance_valid(_model_root):
+		return
+	var ship_data: Dictionary = DataStore.get_ship(ship_id) if DataStore else {}
+	var compensate: float = clampf(
+		TypedVariant.as_float(ship_data.get("model_size_compensate", 1.0), 1.0), 0.15, 4.0
+	)
+	if _applied_size_compensate >= 0.0 and is_equal_approx(compensate, _applied_size_compensate):
+		return
+	_normalize_model_scale(_model_root)
+	_cache_model_rest_pose()
+	sync_tactical_stem()
+	if _health_bar != null and is_instance_valid(_health_bar) and _health_bar.has_method("refresh"):
+		_health_bar.call("refresh")
 
 func _aabb_mesh_local(root: Node3D) -> AABB:
 	## Mesh AABB in root's local space via local transforms (safe before/after scale; ignores root.scale).
@@ -957,15 +998,51 @@ func visual_radius_world() -> float:
 		return maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z)) * 0.5
 	return 1.0
 
-## Camera ray vs visible hull meshes (EQUIPMENT.md · 拖到舰落点).
-## Returns distance along dir to the nearest AABB entry, or -1 if miss.
-## Uses live mesh globals (soft-follow offset included). No soft sphere / cell inflate.
+## Camera ray vs visible hull (BOARD_AND_INPUT §4 · EQUIPMENT.md).
+## AABB broadphase, then triangle soup — empty AABB air does not block ships behind.
+## Returns distance along dir to the nearest triangle, or -1 if miss.
 func ray_hit_model_distance(origin: Vector3, dir: Vector3) -> float:
 	if _model_root == null or not is_instance_valid(_model_root):
 		return -1.0
 	var nd: Vector3 = dir.normalized()
 	if nd.length_squared() < 1e-12:
 		return -1.0
+	if _ray_hit_model_aabb_distance(origin, nd) < 0.0:
+		return -1.0
+	_ensure_pick_tris()
+	var best_t: float = -1.0
+	var n_sets: int = _pick_tri_mi.size()
+	for si: int in range(n_sets):
+		var mi: MeshInstance3D = _pick_tri_mi[si]
+		if mi == null or not is_instance_valid(mi) or not mi.is_visible_in_tree():
+			continue
+		var xf: Transform3D = mi.global_transform
+		var inv: Transform3D = xf.affine_inverse()
+		var o_l: Vector3 = inv * origin
+		var d_l: Vector3 = inv.basis * nd
+		if d_l.length_squared() < 1e-20:
+			continue
+		var tris: PackedVector3Array = _pick_tri_local[si]
+		var ti: int = 0
+		var tn: int = tris.size()
+		while ti + 2 < tn:
+			var hit_v: Variant = Geometry3D.ray_intersects_triangle(
+				o_l, d_l, tris[ti], tris[ti + 1], tris[ti + 2]
+			)
+			ti += 3
+			if typeof(hit_v) != TYPE_VECTOR3:
+				continue
+			@warning_ignore("unsafe_cast")
+			var hit_w: Vector3 = xf * (hit_v as Vector3)
+			var t: float = (hit_w - origin).dot(nd)
+			if t < 0.0:
+				continue
+			if best_t < 0.0 or t < best_t:
+				best_t = t
+	return best_t
+
+
+func _ray_hit_model_aabb_distance(origin: Vector3, nd: Vector3) -> float:
 	var best_t: float = -1.0
 	for mi: MeshInstance3D in _find_meshes(_model_root):
 		if mi == null or not is_instance_valid(mi) or not mi.is_visible_in_tree():
@@ -980,6 +1057,50 @@ func ray_hit_model_distance(origin: Vector3, dir: Vector3) -> float:
 		if best_t < 0.0 or t < best_t:
 			best_t = t
 	return best_t
+
+
+func _ensure_pick_tris() -> void:
+	if not _pick_tri_local.is_empty():
+		return
+	if _model_root == null or not is_instance_valid(_model_root):
+		return
+	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if mi == null or mi.mesh == null:
+			continue
+		var packed: PackedVector3Array = PackedVector3Array()
+		var mesh: Mesh = mi.mesh
+		for s: int in range(mesh.get_surface_count()):
+			if mesh is ArrayMesh:
+				@warning_ignore("unsafe_cast")
+				if (mesh as ArrayMesh).surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES:
+					continue
+			var arr: Array = mesh.surface_get_arrays(s)
+			if arr.is_empty() or arr[Mesh.ARRAY_VERTEX] == null:
+				continue
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var indices: Variant = arr[Mesh.ARRAY_INDEX]
+			if indices is PackedInt32Array:
+				@warning_ignore("unsafe_cast")
+				var i32: PackedInt32Array = indices as PackedInt32Array
+				var k: int = 0
+				var nidx: int = i32.size()
+				while k + 2 < nidx:
+					packed.append(verts[i32[k]])
+					packed.append(verts[i32[k + 1]])
+					packed.append(verts[i32[k + 2]])
+					k += 3
+			else:
+				var nvert: int = verts.size()
+				var j: int = 0
+				while j + 2 < nvert:
+					packed.append(verts[j])
+					packed.append(verts[j + 1])
+					packed.append(verts[j + 2])
+					j += 3
+		if packed.size() >= 3:
+			_pick_tri_mi.append(mi)
+			_pick_tri_local.append(packed)
+
 
 ## Slab AABB ray enter distance; -1 on miss. Avoids Variant cast from AABB.intersects_ray.
 func _ray_aabb_enter_t(origin: Vector3, dir: Vector3, box: AABB) -> float:

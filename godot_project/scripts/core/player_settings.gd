@@ -7,11 +7,14 @@ const NODE_NAME: StringName = &"PlayerSettings"
 const SETTINGS_PATH: String = "user://player_settings.cfg"
 const _SELF: String = "res://scripts/core/player_settings.gd"
 const SFX_BUS: StringName = &"SFX"
+## Bump when shipping a new graphics default so old cfg (default-on) migrates once.
+const CAMERA_ADAPT_DEFAULT_REV: int = 2
 
 var target_fps: int = 60
 var no_model_perf_mode: bool = false
 var weapon_fx_simplified: bool = false
 var camera_breathe_enabled: bool = true
+var camera_adapt_enabled: bool = false
 var health_bar_style: String = "ring"
 var health_bar_visible: bool = true
 var developer_debug_enabled: bool = false
@@ -20,6 +23,8 @@ var player_ai_double_economy: bool = false
 var enemy_layout_adjust: bool = false
 var sfx_enabled: bool = true
 var sfx_volume_pct: float = 80.0
+## Handbook §0.2 — in-match slow learn (default on).
+var in_match_slow_learn: bool = true
 
 
 static func instance() -> Node:
@@ -66,6 +71,12 @@ func _load_settings() -> void:
 	no_model_perf_mode = TypedVariant.as_bool(cf.get_value("graphics", "no_model_perf_mode", false), false)
 	weapon_fx_simplified = TypedVariant.as_bool(cf.get_value("graphics", "weapon_fx_simplified", false), false)
 	camera_breathe_enabled = TypedVariant.as_bool(cf.get_value("graphics", "camera_breathe_enabled", true), true)
+	var adapt_rev: int = TypedVariant.as_int(cf.get_value("graphics", "camera_adapt_default_rev", 0), 0)
+	var migrated_adapt: bool = adapt_rev < CAMERA_ADAPT_DEFAULT_REV
+	if migrated_adapt:
+		camera_adapt_enabled = false
+	else:
+		camera_adapt_enabled = TypedVariant.as_bool(cf.get_value("graphics", "camera_adapt_enabled", false), false)
 	health_bar_visible = TypedVariant.as_bool(cf.get_value("graphics", "health_bar_visible", true), true)
 	health_bar_style = str(cf.get_value("graphics", "health_bar_style", health_bar_style))
 	if health_bar_style != "bars":
@@ -76,6 +87,9 @@ func _load_settings() -> void:
 	enemy_layout_adjust = TypedVariant.as_bool(cf.get_value("developer", "enemy_layout_adjust", false), false)
 	sfx_enabled = TypedVariant.as_bool(cf.get_value("audio", "sfx_enabled", true), true)
 	sfx_volume_pct = TypedVariant.as_float(cf.get_value("audio", "sfx_volume", sfx_volume_pct), sfx_volume_pct)
+	in_match_slow_learn = TypedVariant.as_bool(cf.get_value("ai", "in_match_slow_learn", true), true)
+	if migrated_adapt:
+		save_settings()
 
 
 func save_settings() -> void:
@@ -85,6 +99,8 @@ func save_settings() -> void:
 	cf.set_value("graphics", "no_model_perf_mode", no_model_perf_mode)
 	cf.set_value("graphics", "weapon_fx_simplified", weapon_fx_simplified)
 	cf.set_value("graphics", "camera_breathe_enabled", camera_breathe_enabled)
+	cf.set_value("graphics", "camera_adapt_enabled", camera_adapt_enabled)
+	cf.set_value("graphics", "camera_adapt_default_rev", CAMERA_ADAPT_DEFAULT_REV)
 	cf.set_value("graphics", "health_bar_visible", health_bar_visible)
 	cf.set_value("graphics", "health_bar_style", health_bar_style)
 	cf.set_value("developer", "debug_enabled", developer_debug_enabled)
@@ -93,6 +109,7 @@ func save_settings() -> void:
 	cf.set_value("developer", "enemy_layout_adjust", enemy_layout_adjust)
 	cf.set_value("audio", "sfx_enabled", sfx_enabled)
 	cf.set_value("audio", "sfx_volume", sfx_volume_pct)
+	cf.set_value("ai", "in_match_slow_learn", in_match_slow_learn)
 	cf.save(SETTINGS_PATH)
 
 
@@ -142,6 +159,12 @@ func set_camera_breathe_enabled(on: bool) -> void:
 	_diag("settings", "breathe=%d" % (1 if on else 0))
 
 
+func set_camera_adapt_enabled(on: bool) -> void:
+	camera_adapt_enabled = on
+	save_settings()
+	_diag("settings", "adapt=%d" % (1 if on else 0))
+
+
 func set_health_bar_style(style: String) -> void:
 	health_bar_style = "bars" if str(style) == "bars" else "ring"
 	save_settings()
@@ -189,6 +212,12 @@ func set_sfx_volume_pct(pct: float) -> void:
 	sfx_volume_pct = clampf(pct, 0.0, 100.0)
 	_apply_sfx_bus()
 	save_settings()
+
+
+func set_in_match_slow_learn(on: bool) -> void:
+	in_match_slow_learn = on
+	save_settings()
+	_diag("settings", "in_match_slow_learn=%d" % (1 if on else 0))
 
 
 func _apply_sfx_bus() -> void:

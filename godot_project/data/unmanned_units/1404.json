@@ -39,7 +39,7 @@
       "attack_range": 999.0,
       "damage": {
         "emp": 0.0,
-        "explosive": 491.5,
+        "explosive": 722.499999999999,
         "kinetic": 0.0,
         "thermal": 0.0
       },
@@ -82,7 +82,7 @@
       "attack_range": 999.0,
       "damage": {
         "emp": 0.0,
-        "explosive": 983.0,
+        "explosive": 1445.0,
         "kinetic": 0.0,
         "thermal": 0.0
       },
@@ -125,7 +125,7 @@
       "attack_range": 999.0,
       "damage": {
         "emp": 0.0,
-        "explosive": 1474.5,
+        "explosive": 2167.5,
         "kinetic": 0.0,
         "thermal": 0.0
       },

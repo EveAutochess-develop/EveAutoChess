@@ -7,7 +7,7 @@ class_name ShipDataEditor
 ## even when no ship JSON moved.
 signal closed(changed_ids: Array, equipment_changed: bool)
 
-enum Tab { SHIPS, MODULES, FUNCTION_MODULES, DAMAGE, HEALTH, MATCH_CONTROL, COMBAT_EVAL }
+enum Tab { SHIPS, MODEL_SCALE, MODULES, FUNCTION_MODULES, DAMAGE, HEALTH, MATCH_CONTROL, COMBAT_EVAL }
 
 const _CANCEL_HINT: String = "退出即自动保存；改动写入 content_runtime，删除该文件即回滚基线。"
 const EXPORT_SHIPS_FILE: String = "eveac_ships_table.csv"
@@ -28,7 +28,7 @@ const _LOCKED_MODULE_ROOTS: Dictionary = {
 }
 const _CHART_BAR_MIN_W: float = 260.0
 const _CHART_ROW_H: float = 34.0
-const _CHART_INFO_W: float = 410.0
+const _CHART_INFO_W: float = 480.0
 const _REPEAT_DELAY_S: float = 0.5
 const _REPEAT_INTERVAL_S: float = 0.05
 const _UNMANNED_RATE_STEP: float = 1.0
@@ -37,9 +37,21 @@ const _COLOR_HULL_HPS: Color = Color(0.28, 0.9, 0.48, 0.94)
 const _COLOR_WING: Color = Color(0.78, 0.28, 1.0, 0.96)  ## drone / fighter segment — distinct purple
 const _COLOR_UNMANNED_DPS: Color = Color(0.7, 0.38, 1.0, 0.94)
 const _DRONE_BW_COST: float = 5.0
-const _RACE_DRONE_LIGHT: Dictionary = {"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004}
-const _RACE_DRONE_MEDIUM: Dictionary = {"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008}
-const _RACE_DRONE_HEAVY: Dictionary = {"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014}
+const _RACE_DRONE_LIGHT: Dictionary = {
+	"amarr": 1001, "caldari": 1002, "gallente": 1003, "minmatar": 1004,
+	"blood": 1001, "sansha": 1001, "mordu": 1002, "serpentis": 1003, "soe": 1003, "angel": 1004,
+	"guristas": 1502,
+}
+const _RACE_DRONE_MEDIUM: Dictionary = {
+	"amarr": 1005, "caldari": 1006, "gallente": 1007, "minmatar": 1008,
+	"blood": 1005, "sansha": 1005, "mordu": 1006, "serpentis": 1007, "soe": 1007, "angel": 1008,
+	"guristas": 1506,
+}
+const _RACE_DRONE_HEAVY: Dictionary = {
+	"amarr": 1011, "caldari": 1012, "gallente": 1013, "minmatar": 1014,
+	"blood": 1011, "sansha": 1011, "mordu": 1012, "serpentis": 1013, "soe": 1013, "angel": 1014,
+	"guristas": 1512,
+}
 const _DRONE_COUNT_EXCEPTIONS: Dictionary = {42: 5, 44: 4, 55: 4, 56: 5}
 const _CAPITAL_GROUPS: Dictionary = {
 	"dreadnought": true,
@@ -102,6 +114,13 @@ var _left_panel: VBoxContainer
 var _field_scroll: ScrollContainer
 var _chart_entries: Array = []
 var _chart_kind: Tab = Tab.DAMAGE
+var _shade: ColorRect
+var _frame: PanelContainer
+var _frame_sb: StyleBoxFlat
+var _scale_accum_s: float = 0.0
+var _scale_slider: HSlider
+var _scale_edit: LineEdit
+var _scale_syncing: bool = false
 ## Cancel stale async builds when switching tabs / reopening.
 var _load_gen: int = 0
 const _STEP_BUDGET_MS: int = 10 ## Wall-clock budget per frame while building lists (SEMI_ASYNC §E).
@@ -280,6 +299,7 @@ func _force_pull_default_data() -> Dictionary:
 
 func _finish_close(changed: Array) -> void:
 	_load_gen += 1
+	_apply_see_through(false)
 	visible = false
 	if _pause_owner:
 		get_tree().paused = _was_paused
@@ -292,30 +312,30 @@ static func _can_export_table() -> bool:
 
 
 func _build() -> void:
-	var shade: ColorRect = ColorRect.new()
-	shade.color = Color(0, 0, 0, 0.72)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(shade)
+	_shade = ColorRect.new()
+	_shade.color = Color(0, 0, 0, 0.72)
+	_shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_shade)
 
-	var frame: PanelContainer = PanelContainer.new()
-	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
-	frame.offset_left = 60
-	frame.offset_top = 40
-	frame.offset_right = -60
-	frame.offset_bottom = -40
-	var sb: StyleBoxFlat = StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.1, 0.14, 0.98)
-	sb.border_color = Color(0.35, 0.72, 0.95, 0.9)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(4)
-	frame.add_theme_stylebox_override("panel", sb)
-	add_child(frame)
+	_frame = PanelContainer.new()
+	_frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_frame.offset_left = 60
+	_frame.offset_top = 40
+	_frame.offset_right = -60
+	_frame.offset_bottom = -40
+	_frame_sb = StyleBoxFlat.new()
+	_frame_sb.bg_color = Color(0.08, 0.1, 0.14, 0.98)
+	_frame_sb.border_color = Color(0.35, 0.72, 0.95, 0.9)
+	_frame_sb.set_border_width_all(2)
+	_frame_sb.set_corner_radius_all(4)
+	_frame.add_theme_stylebox_override("panel", _frame_sb)
+	add_child(_frame)
 
 	var margin: MarginContainer = MarginContainer.new()
 	for side: String in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_%s" % side, UiLayout.margin_px(14, self))
-	frame.add_child(margin)
+	_frame.add_child(margin)
 
 	var col: VBoxContainer = VBoxContainer.new()
 	col.add_theme_constant_override("separation", UiLayout.margin_px(8, self))
@@ -352,6 +372,7 @@ func _build() -> void:
 	_tab_btns.clear()
 	for pair: Array in [
 		[Tab.SHIPS, "舰船"],
+		[Tab.MODEL_SCALE, "模型尺寸补偿"],
 		[Tab.MODULES, "主装备"],
 		[Tab.FUNCTION_MODULES, "副装备"],
 		[Tab.DAMAGE, "伤害"],
@@ -442,11 +463,14 @@ func _set_tab(tab: Tab, force: bool) -> void:
 	_tab = tab
 	for i: int in range(_tab_btns.size()):
 		_tab_btns[i].button_pressed = (i == int(tab))
+	_apply_see_through(tab == Tab.MODEL_SCALE)
+	if tab == Tab.MODEL_SCALE:
+		_scale_accum_s = 1.0
 	var visual: bool = tab == Tab.DAMAGE or tab == Tab.HEALTH
 	_left_panel.visible = not visual and tab != Tab.MATCH_CONTROL and tab != Tab.COMBAT_EVAL
 	## Visualization tables are vertical so a normal mouse wheel traverses all hulls.
 	_field_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_grid.columns = 1 if visual or tab == Tab.FUNCTION_MODULES or tab == Tab.MATCH_CONTROL or tab == Tab.COMBAT_EVAL else 2
+	_grid.columns = 1 if visual or tab == Tab.FUNCTION_MODULES or tab == Tab.MATCH_CONTROL or tab == Tab.COMBAT_EVAL or tab == Tab.MODEL_SCALE else 2
 	_search.text = ""
 	if tab == Tab.MATCH_CONTROL:
 		_current_id = -1
@@ -540,7 +564,7 @@ func _reload_ids() -> void:
 	_ids.clear()
 	_fn_ids.clear()
 	match _tab:
-		Tab.SHIPS:
+		Tab.SHIPS, Tab.MODEL_SCALE:
 			var keys: Array = DataStore.ships.keys()
 			keys.sort()
 			for k: Variant in keys:
@@ -609,7 +633,7 @@ func _set_title_icon(tex: Texture2D) -> void:
 
 func _list_label(sid: int) -> String:
 	match _tab:
-		Tab.SHIPS:
+		Tab.SHIPS, Tab.MODEL_SCALE:
 			var d: Dictionary = DataStore.get_ship(sid)
 			var label: String = "%d · %s" % [sid, str(d.get("name", "?"))]
 			if TypedVariant.as_bool(d.get("is_unmanned", false)):
@@ -626,7 +650,7 @@ func _list_label(sid: int) -> String:
 
 func _list_en(sid: int) -> String:
 	match _tab:
-		Tab.SHIPS:
+		Tab.SHIPS, Tab.MODEL_SCALE:
 			return str(DataStore.get_ship(sid).get("name_en", ""))
 		Tab.MODULES:
 			var m: Dictionary = TypedVariant.as_dict(_working_modules.get(sid, DataStore.get_module(sid)))
@@ -870,19 +894,22 @@ func _select_id(item_id: int) -> void:
 	var d: Dictionary = _ensure_working(item_id)
 	_set_title_icon(null)
 	match _tab:
-		Tab.SHIPS:
+		Tab.SHIPS, Tab.MODEL_SCALE:
 			_title.text = "%d · %s（%s）" % [item_id, str(d.get("name", "?")), str(d.get("name_en", ""))]
 		Tab.MODULES:
 			_title.text = "主装备 %d · %s" % [item_id, str(d.get("nameEN", d.get("nameSDE", "?")))]
 	var sel: int = _filtered.find(item_id)
 	if _list and sel >= 0 and not _list.is_selected(sel):
 		_list.select(sel)
-	_rebuild_fields(d)
+	if _tab == Tab.MODEL_SCALE:
+		_rebuild_model_scale_fields(d)
+	else:
+		_rebuild_fields(d)
 
 
 func _ensure_working(item_id: int) -> Dictionary:
 	match _tab:
-		Tab.SHIPS:
+		Tab.SHIPS, Tab.MODEL_SCALE:
 			if not _working_ships.has(item_id):
 				_working_ships[item_id] = DataStore.get_ship(item_id).duplicate(true)
 			return _working_ships[item_id]
@@ -894,6 +921,153 @@ func _ensure_working(item_id: int) -> Dictionary:
 			return {}
 
 
+func _process(delta: float) -> void:
+	if not visible or _tab != Tab.MODEL_SCALE:
+		return
+	_scale_accum_s += delta
+	if _scale_accum_s >= 1.0:
+		_scale_accum_s = 0.0
+		_apply_scale_live()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and visible and _tab == Tab.MODEL_SCALE:
+		_apply_see_through(true)
+
+
+func _apply_see_through(on: bool) -> void:
+	if _shade == null or _frame == null or _frame_sb == null:
+		return
+	if on:
+		_shade.color = Color(0, 0, 0, 0.04)
+		_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_frame_sb.bg_color = Color(0.08, 0.1, 0.14, 0.55)
+		_frame.set_anchors_preset(Control.PRESET_TOP_LEFT)
+		_frame.anchor_right = 0.0
+		_frame.anchor_bottom = 0.0
+		var vp: Vector2 = get_viewport_rect().size
+		_frame.offset_left = 10.0
+		_frame.offset_top = 10.0
+		_frame.offset_right = 360.0
+		_frame.offset_bottom = minf(vp.y * 0.62, 720.0)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_frame.mouse_filter = Control.MOUSE_FILTER_STOP
+	else:
+		_shade.color = Color(0, 0, 0, 0.72)
+		_shade.mouse_filter = Control.MOUSE_FILTER_STOP
+		_frame_sb.bg_color = Color(0.08, 0.1, 0.14, 0.98)
+		_frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_frame.offset_left = 60.0
+		_frame.offset_top = 40.0
+		_frame.offset_right = -60.0
+		_frame.offset_bottom = -40.0
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		_frame.mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _apply_scale_live() -> void:
+	if DataStore == null:
+		return
+	for sid: int in _ids:
+		var d: Dictionary = _working_ships.get(sid, DataStore.get_ship(sid))
+		if d.is_empty():
+			continue
+		var comp: float = clampf(TypedVariant.as_float(d.get("model_size_compensate", 1.0), 1.0), 0.15, 4.0)
+		var live: Dictionary = DataStore.get_ship(sid)
+		if live.is_empty():
+			continue
+		live["model_size_compensate"] = comp
+	var tree: SceneTree = get_tree()
+	if tree:
+		tree.call_group("ship_units", "apply_model_size_from_data")
+
+
+func _rebuild_model_scale_fields(data: Dictionary) -> void:
+	for c: Node in _grid.get_children():
+		c.queue_free()
+	_scale_slider = null
+	_scale_edit = null
+	var hint: Label = Label.new()
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.text = "现架构显示尺寸上的额外倍率（1=不补偿）。本页透明挖洞看棋盘/候席；每秒应用到场上模型。"
+	UiAssets.apply_label_font(hint, false, UiLayout.font_size(13, self))
+	_grid.add_child(hint)
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	_grid.add_child(row)
+	var name_l: Label = Label.new()
+	name_l.text = "补偿"
+	UiAssets.apply_label_font(name_l, false, UiLayout.font_size(14, self))
+	row.add_child(name_l)
+	_scale_slider = HSlider.new()
+	_scale_slider.min_value = 0.15
+	_scale_slider.max_value = 4.0
+	_scale_slider.step = 0.1
+	_scale_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var start: float = clampf(TypedVariant.as_float(data.get("model_size_compensate", 1.0), 1.0), 0.15, 4.0)
+	_scale_slider.value = start
+	_scale_slider.value_changed.connect(_on_scale_slider)
+	row.add_child(_scale_slider)
+	_scale_edit = LineEdit.new()
+	_scale_edit.custom_minimum_size = Vector2(UiLayout.px(72, self), 0)
+	_apply_edit_font(_scale_edit, 14)
+	_scale_edit.text = String.num(start, 2)
+	_scale_edit.text_submitted.connect(_on_scale_edit_submit)
+	_scale_edit.focus_exited.connect(func() -> void: _on_scale_edit_submit(_scale_edit.text))
+	row.add_child(_scale_edit)
+	row.add_child(_make_arrow_row(
+		func() -> void: _nudge_scale_compensate(-0.1),
+		func() -> void: _nudge_scale_compensate(0.1)
+	))
+	if _status:
+		_status.text = "模型尺寸补偿 · 每秒应用到场上 · " + _CANCEL_HINT
+
+
+func _nudge_scale_compensate(delta: float) -> void:
+	var cur: float = 1.0
+	if _current_id >= 0:
+		var d: Dictionary = _ensure_working(_current_id)
+		cur = TypedVariant.as_float(d.get("model_size_compensate", 1.0), 1.0)
+	_write_scale_compensate(cur + delta)
+
+
+func _on_scale_slider(v: float) -> void:
+	if _scale_syncing:
+		return
+	_write_scale_compensate(v)
+
+
+func _on_scale_edit_submit(t: String) -> void:
+	if _scale_syncing:
+		return
+	_write_scale_compensate(TypedVariant.as_float(t, 1.0))
+
+
+func _write_scale_compensate(raw: float) -> void:
+	if _current_id < 0:
+		return
+	var v: float = clampf(raw, 0.15, 4.0)
+	var d: Dictionary = _ensure_working(_current_id)
+	if d.is_empty():
+		return
+	if is_equal_approx(TypedVariant.as_float(d.get("model_size_compensate", 1.0), 1.0), v):
+		_scale_syncing = true
+		if _scale_slider:
+			_scale_slider.value = v
+		if _scale_edit:
+			_scale_edit.text = String.num(v, 2)
+		_scale_syncing = false
+		return
+	d["model_size_compensate"] = v
+	_dirty_ships[_current_id] = true
+	_scale_syncing = true
+	if _scale_slider:
+		_scale_slider.value = v
+	if _scale_edit:
+		_scale_edit.text = String.num(v, 2)
+	_scale_syncing = false
+
+
 func _build_visualization_stepwise(kind: Tab, gen: int) -> void:
 	for c: Node in _grid.get_children():
 		c.queue_free()
@@ -902,7 +1076,7 @@ func _build_visualization_stepwise(kind: Tab, gen: int) -> void:
 	_title.text = (
 		"伤害可视化 · 蓝/绿=船体 · 紫=无人机/舰载机 · 无人可调DPS→DPH"
 		if kind == Tab.DAMAGE
-		else "血量可视化 · 纵向滚轮表 · 盾 / 甲 / 结构"
+		else "血量可视化 · 盾/甲/构与总血可直接输入 · 箭头 ±10"
 	)
 	_set_title_icon(null)
 	var root: VBoxContainer = VBoxContainer.new()
@@ -1108,17 +1282,20 @@ func _build_chart_row(list: VBoxContainer, sid: int, capital: bool) -> void:
 		]:
 			var hp_field: String = str(spec[1])
 			var layer_group: HBoxContainer = HBoxContainer.new()
-			layer_group.add_theme_constant_override("separation", UiLayout.px(1, self))
-			var layer_label: Label = Label.new()
-			layer_label.text = spec[0]
-			layer_label.custom_minimum_size.x = UiLayout.px(48, self)
-			layer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-			UiAssets.apply_label_font(layer_label, false, UiLayout.font_size(10, self))
-			layer_group.add_child(layer_label)
-			hp_labels[hp_field] = layer_label
+			layer_group.add_theme_constant_override("separation", UiLayout.px(2, self))
+			var prefix: Label = Label.new()
+			prefix.text = str(spec[0])
+			prefix.custom_minimum_size.x = UiLayout.px(18, self)
+			prefix.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			UiAssets.apply_label_font(prefix, false, UiLayout.font_size(10, self))
+			layer_group.add_child(prefix)
+			var hp_edit: LineEdit = _make_chart_hp_edit(sid, hp_field, false)
+			layer_group.add_child(hp_edit)
+			hp_labels[hp_field] = hp_edit
+			var field_cap: String = hp_field
 			layer_group.add_child(_make_arrow_row(
-				func() -> void: _adjust_chart_hp(sid, hp_field, -10.0),
-				func() -> void: _adjust_chart_hp(sid, hp_field, 10.0)
+				func() -> void: _adjust_chart_hp(sid, field_cap, -10.0),
+				func() -> void: _adjust_chart_hp(sid, field_cap, 10.0)
 			))
 			top_line.add_child(layer_group)
 	var bar_space: Control = Control.new()
@@ -1128,16 +1305,21 @@ func _build_chart_row(list: VBoxContainer, sid: int, capital: bool) -> void:
 	bar_space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar_space.clip_contents = true
 	row.add_child(bar_space)
-	var value_label: Label = Label.new()
-	value_label.custom_minimum_size.x = UiLayout.px(110, self)
-	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	UiAssets.apply_label_font(value_label, true, UiLayout.font_size(12, self))
-	row.add_child(value_label)
+	var value_ctrl: Control = null
+	if _chart_kind == Tab.HEALTH:
+		value_ctrl = _make_chart_hp_edit(sid, "total", true)
+	else:
+		var value_label: Label = Label.new()
+		value_label.custom_minimum_size.x = UiLayout.px(110, self)
+		value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		UiAssets.apply_label_font(value_label, true, UiLayout.font_size(12, self))
+		value_ctrl = value_label
+	row.add_child(value_ctrl)
 	var entry: Dictionary = {
 		"sid": sid,
 		"capital": capital,
-		"value_label": value_label,
+		"value_label": value_ctrl,
 		"bar_space": bar_space,
 		"slots_label": slots_label,
 		"hp_labels": hp_labels,
@@ -1223,6 +1405,99 @@ func _adjust_chart_slots(sid: int, delta: int) -> void:
 		ship["attack_weapon_slots"] = clampi(old_attack + delta, 0, new_hi)
 	_dirty_ships[sid] = true
 	_refresh_chart_values()
+
+
+func _sync_hp_edit(ctrl_v: Variant, amount: float) -> void:
+	if not (ctrl_v is LineEdit):
+		return
+	var edit: LineEdit = ctrl_v
+	if edit.has_focus():
+		return
+	edit.text = "%.0f" % amount
+
+
+func _make_chart_hp_edit(sid: int, field: String, is_total: bool) -> LineEdit:
+	var edit: LineEdit = LineEdit.new()
+	edit.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	edit.custom_minimum_size = Vector2(
+		UiLayout.px(110.0 if is_total else 64.0, self),
+		UiLayout.px(26, self)
+	)
+	edit.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_NUMBER
+	edit.select_all_on_focus = true
+	_apply_edit_font(edit, 12 if is_total else 11)
+	var sid_n: int = sid
+	var edit_n: LineEdit = edit
+	if is_total:
+		edit.text_submitted.connect(func(t: String) -> void: _commit_chart_hp_total(sid_n, t, edit_n))
+		edit.focus_exited.connect(func() -> void: _commit_chart_hp_total(sid_n, edit_n.text, edit_n))
+	else:
+		var field_n: String = field
+		edit.text_submitted.connect(func(t: String) -> void: _commit_chart_hp_layer(sid_n, field_n, t, edit_n))
+		edit.focus_exited.connect(func() -> void: _commit_chart_hp_layer(sid_n, field_n, edit_n.text, edit_n))
+	return edit
+
+
+func _parse_hp_edit(text: String) -> float:
+	var t: String = text.strip_edges()
+	if t.is_empty() or not t.is_valid_float():
+		return -1.0
+	return maxf(0.0, float(t))
+
+
+func _commit_chart_hp_layer(sid: int, field: String, text: String, edit: LineEdit) -> void:
+	var parsed: float = _parse_hp_edit(text)
+	if parsed < 0.0:
+		_refresh_chart_values()
+		return
+	_set_chart_hp_absolute(sid, field, parsed)
+	if is_instance_valid(edit) and edit.has_focus():
+		edit.text = "%.0f" % parsed
+
+
+func _commit_chart_hp_total(sid: int, text: String, edit: LineEdit) -> void:
+	var parsed: float = _parse_hp_edit(text)
+	if parsed < 0.0:
+		_refresh_chart_values()
+		return
+	var ship: Dictionary = _chart_ship(sid)
+	var hp: Dictionary = _ship_hp(ship)
+	var old_total: float = maxf(0.0, TypedVariant.as_float(hp.get("total", 0.0), 0.0))
+	var sh: float = maxf(0.0, TypedVariant.as_float(hp.get("shield", 0.0), 0.0))
+	var ar: float = maxf(0.0, TypedVariant.as_float(hp.get("armor", 0.0), 0.0))
+	var st: float = maxf(0.0, TypedVariant.as_float(hp.get("structure", 0.0), 0.0))
+	if old_total <= 0.001:
+		_set_star0_hp_scaled(sid, 0.0, 0.0, parsed)
+	else:
+		var mul: float = parsed / old_total
+		_set_star0_hp_scaled(sid, sh * mul, ar * mul, st * mul)
+	if is_instance_valid(edit) and edit.has_focus():
+		edit.text = "%.0f" % parsed
+
+
+func _set_chart_hp_absolute(sid: int, field: String, value_1star: float) -> void:
+	var ship: Dictionary = _chart_ship(sid)
+	var stars: Array = ship.get("stars", [])
+	if stars.is_empty():
+		return
+	var target: float = maxf(0.0, value_1star)
+	var changed: bool = false
+	for i: int in range(stars.size()):
+		var star_v: Variant = stars[i]
+		if not star_v is Dictionary:
+			continue
+		var star: Dictionary = star_v
+		if not star.has(field):
+			continue
+		var next_v: float = target * float(i + 1)
+		var old: float = TypedVariant.as_float(star.get(field, 0.0), 0.0)
+		if not is_equal_approx(old, next_v):
+			star[field] = next_v
+			changed = true
+	if changed:
+		ship["stars"] = stars
+		_dirty_ships[sid] = true
+		_refresh_chart_values()
 
 
 func _adjust_chart_hp(sid: int, field: String, delta_1star: float) -> void:
@@ -1396,6 +1671,11 @@ func _ship_weapon_name(ship: Dictionary) -> String:
 			"mining": "露天采矿器",
 		}.get(str(ship.get("weapon_fx", "")), "武器"))
 		return "内置%s" % family
+	var wing: String = _ship_wing_name(ship)
+	## Nestor hi_slots=0: do not invent a racial remote-rep name with 0 HPS.
+	var hi: int = TypedVariant.as_int(ship.get("hi_slots", 0), 0)
+	if hi <= 0:
+		return wing if wing != "" else "无武器"
 	var module_id: int = (
 		ShipWeaponDerive.resolve_repair_module_id(ship)
 		if _is_logistic_ship(ship)
@@ -1405,7 +1685,6 @@ func _ship_weapon_name(ship: Dictionary) -> String:
 	var base: String = str(module.get("nameZH", "")).strip_edges()
 	if base == "":
 		base = str(module.get("nameEN", module.get("nameSDE", ""))).strip_edges()
-	var wing: String = _ship_wing_name(ship)
 	if wing == "":
 		return base if base != "" else "无武器"
 	return wing if base == "" else "%s + %s" % [base, wing]
@@ -1454,6 +1733,35 @@ func _unmanned_star_rate(ship: Dictionary, key: String, fields: Array) -> float:
 	return total / maxf(TypedVariant.as_float(ship.get("attack_cycle_s", 1.0), 1.0), 0.001)
 
 
+func _chart_heavy_repair_ids(ship: Dictionary) -> Array:
+	## Nestor: heavy_repair_drone_ids[] one each. FAX: expand id × count.
+	@warning_ignore("unsafe_cast")
+	var raw: Array = ship.get("heavy_repair_drone_ids", []) as Array
+	var out: Array = []
+	for v: Variant in raw:
+		var rid: int = TypedVariant.as_int(v, 0)
+		if rid > 0:
+			out.append(rid)
+	if out.size() > 0:
+		return out
+	var one: int = TypedVariant.as_int(ship.get("heavy_repair_drone_id", 0), 0)
+	if one <= 0:
+		return out
+	var n: int = maxi(TypedVariant.as_int(ship.get("heavy_repair_drone_count", 4), 4), 0)
+	out.resize(n)
+	out.fill(one)
+	return out
+
+
+func _is_repair_unmanned(drone: Dictionary) -> bool:
+	if drone.is_empty():
+		return false
+	if _is_logistic_ship(drone):
+		return true
+	var kind: String = str(drone.get("unmanned_kind", ""))
+	return kind == "heavy_repair_drone" or kind == "repair_drone" or kind == "logistic_drone"
+
+
 ## Same launch policy as CombatResolver._drone_spawn_policy_for_ship / capital aux.
 func _drone_spawn_policy(ship: Dictionary) -> Dictionary:
 	var mining_drone_id: int = TypedVariant.as_int(ship.get("mining_drone_id", 0), 0)
@@ -1470,19 +1778,30 @@ func _drone_spawn_policy(ship: Dictionary) -> Dictionary:
 			TypedVariant.as_int(ship.get("fighter_tubes_per_squadron", 3), 3), 1
 		)
 		return {"count": tubes, "drone_id": fighter_id}
-	var repair_id: int = TypedVariant.as_int(ship.get("heavy_repair_drone_id", 0), 0)
-	if repair_id > 0 or str(ship.get("capital_role", "")) == "force_auxiliary":
-		if repair_id <= 0:
-			return {"count": 0, "drone_id": 0}
+	var repair_ids: Array = _chart_heavy_repair_ids(ship)
+	if repair_ids.size() > 0:
 		return {
-			"count": maxi(TypedVariant.as_int(ship.get("heavy_repair_drone_count", 4), 4), 0),
-			"drone_id": repair_id,
+			"count": repair_ids.size(),
+			"drone_ids": repair_ids,
+			"drone_id": TypedVariant.as_int(repair_ids[0], 0),
 		}
+	if str(ship.get("capital_role", "")) == "force_auxiliary":
+		return {"count": 0, "drone_id": 0}
+	## Explicit list wins (Guristas 1502/1506/1512). Never fall back to empire 1001–1014.
+	@warning_ignore("unsafe_cast")
+	var unit_ids: Array = ship.get("drone_unit_ids", []) as Array
+	var ids_out: Array = []
+	for u: Variant in unit_ids:
+		var uid: int = TypedVariant.as_int(u, 0)
+		if uid > 0:
+			ids_out.append(uid)
+	if ids_out.size() > 0:
+		return {"count": ids_out.size(), "drone_ids": ids_out, "drone_id": TypedVariant.as_int(ids_out[0], 0)}
 	var race: String = str(ship.get("race", "amarr")).to_lower()
 	var group: String = str(ship.get("ship_group", "")).to_lower()
 	var sid: int = TypedVariant.as_int(ship.get("id", 0), 0)
-	## COMBAT §14C: logistic cruiser / BC — no combat drones (FAX handled above).
-	if TypedVariant.as_bool(ship.get("is_logistic", false), false) and group in ["cruiser", "battlecruiser"]:
+	## COMBAT §14C: logistic cruiser / BC / battleship — no combat drones (Nestor/FAX above).
+	if TypedVariant.as_bool(ship.get("is_logistic", false), false) and group in ["cruiser", "battlecruiser", "battleship"]:
 		return {"count": 0, "drone_id": 0}
 	if _DRONE_COUNT_EXCEPTIONS.has(sid):
 		var cnt: int = TypedVariant.as_int(_DRONE_COUNT_EXCEPTIONS[sid], 0)
@@ -1517,6 +1836,18 @@ func _is_combat_wing_unit(drone: Dictionary) -> bool:
 ## Capitals / bay ships whose combat/logistics output comes from launched units.
 func _ship_wing_name(ship: Dictionary) -> String:
 	var wing: Dictionary = _drone_spawn_policy(ship)
+	@warning_ignore("unsafe_cast")
+	var id_list: Array = wing.get("drone_ids", []) as Array
+	if id_list.size() > 1:
+		var names: PackedStringArray = PackedStringArray()
+		for v: Variant in id_list:
+			var uid: int = TypedVariant.as_int(v, 0)
+			var d0: Dictionary = _chart_ship(uid)
+			if not _is_mining_unmanned(d0):
+				names.append(str(d0.get("name", "僚机")))
+		if names.is_empty():
+			return ""
+		return "%s 各1" % "、".join(names)
 	var unit_id: int = TypedVariant.as_int(wing.get("drone_id", 0), 0)
 	var count: int = TypedVariant.as_int(wing.get("count", 0), 0)
 	if unit_id <= 0 or count <= 0:
@@ -1532,12 +1863,21 @@ func _ship_wing_hps(ship: Dictionary) -> float:
 	if TypedVariant.as_bool(ship.get("is_unmanned", false)):
 		return 0.0
 	var wing: Dictionary = _drone_spawn_policy(ship)
+	@warning_ignore("unsafe_cast")
+	var id_list: Array = wing.get("drone_ids", []) as Array
+	if id_list.size() > 0:
+		var total: float = 0.0
+		for v: Variant in id_list:
+			var drone: Dictionary = _chart_ship(TypedVariant.as_int(v, 0))
+			if _is_repair_unmanned(drone):
+				total += _unmanned_hps(drone)
+		return total
 	var drone_id: int = TypedVariant.as_int(wing.get("drone_id", 0), 0)
 	var count: int = TypedVariant.as_int(wing.get("count", 0), 0)
 	if drone_id <= 0 or count <= 0:
 		return 0.0
 	var drone: Dictionary = _chart_ship(drone_id)
-	if not _is_logistic_ship(drone):
+	if not _is_repair_unmanned(drone):
 		return 0.0
 	return _unmanned_hps(drone) * float(count)
 
@@ -1670,28 +2010,28 @@ func _refresh_chart_values() -> void:
 				if TypedVariant.as_bool(ship.get("is_unmanned", false), false):
 					slots_label.text = "%.0f %s" % [value, unit]
 				else:
-					slots_label.text = "高槽 %d" % TypedVariant.as_int(ship.get("hi_slots", 0), 0)
+					var hi_n: int = TypedVariant.as_int(ship.get("hi_slots", 0), 0)
+					var repair_n: int = _chart_heavy_repair_ids(ship).size()
+					if hi_n <= 0 and repair_n > 0:
+						slots_label.text = "维修 ×%d" % repair_n
+					else:
+						slots_label.text = "高槽 %d" % hi_n
 		else:
 			var value_label_v: Variant = entry["value_label"]
-			if value_label_v is Label:
+			if value_label_v is LineEdit:
+				var total_edit: LineEdit = value_label_v
+				if not total_edit.has_focus():
+					total_edit.text = "%.0f" % value
+			elif value_label_v is Label:
 				var value_label_else: Label = value_label_v
 				value_label_else.text = "%.0f" % value
 			var hp: Dictionary = _ship_hp(ship)
 			var hp_labels_v: Variant = entry.get("hp_labels")
 			if hp_labels_v is Dictionary:
 				var hp_labels: Dictionary = hp_labels_v
-				var shield_l_v: Variant = hp_labels.get("shield_hp")
-				var armor_l_v: Variant = hp_labels.get("armor_hp")
-				var struct_l_v: Variant = hp_labels.get("structure_hp")
-				if shield_l_v is Label:
-					var shield_l: Label = shield_l_v
-					shield_l.text = "盾 %.0f" % TypedVariant.as_float(hp["shield"], 0.0)
-				if armor_l_v is Label:
-					var armor_l: Label = armor_l_v
-					armor_l.text = "甲 %.0f" % TypedVariant.as_float(hp["armor"], 0.0)
-				if struct_l_v is Label:
-					var struct_l: Label = struct_l_v
-					struct_l.text = "构 %.0f" % TypedVariant.as_float(hp["structure"], 0.0)
+				_sync_hp_edit(hp_labels.get("shield_hp"), TypedVariant.as_float(hp["shield"], 0.0))
+				_sync_hp_edit(hp_labels.get("armor_hp"), TypedVariant.as_float(hp["armor"], 0.0))
+				_sync_hp_edit(hp_labels.get("structure_hp"), TypedVariant.as_float(hp["structure"], 0.0))
 			var layers_v: Variant = entry.get("layers")
 			if layers_v is Dictionary:
 				var layers: Dictionary = layers_v

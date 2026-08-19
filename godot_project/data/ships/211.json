@@ -1,19 +1,68 @@
 {
-  "id": 211,
+  "_stub_note": "pve_salvage target; FREIGHTER_AND_TITAN; not shoppable",
+  "agility": 0.1,
+  "attack_cycle_s": 0.0,
+  "capacitor_capacity": 3500.0,
+  "capacitor_recharge_s": 215.577,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
+  "echoes_item_id": 10705000101.0,
+  "fetter_ids": [
+    "caldari",
+    "freighter"
+  ],
+  "function_slots": {
+    "slots": []
+  },
+  "hi_slots": 0.0,
+  "id": 211.0,
+  "is_logistic": false,
+  "low_slots": 0.0,
+  "mass": 960000000.0,
+  "med_slots": 0.0,
+  "mid_battle_leave_allowed": false,
+  "model_key": "tq_freighter_cfr1",
   "name": "渡神级",
   "name_en": "Charon",
-  "type_id": 20185,
-  "echoes_item_id": 10705000101,
-  "cost": 0,
   "race": "caldari",
+  "scan_resolution": 0.0,
+  "sensor_strength": 0.0,
   "ship_group": "freighter",
   "ship_groups": [
     "freighter"
   ],
-  "model_key": "tq_freighter_cfr1",
-  "fetter_ids": [
-    "caldari",
-    "freighter"
+  "shop_eligible": false,
+  "signature_radius": 10660.0,
+  "sof_hull": "cfr1_t1",
+  "speed": 60.0,
+  "stars": [
+    {
+      "armor_hp": 21270.0,
+      "armor_resist": {
+        "emp": 0.5,
+        "explosive": 0.5,
+        "kinetic": 0.5,
+        "thermal": 0.5
+      },
+      "attack_range": 0.0,
+      "is_logistic": false,
+      "shield_hp": 60000.0,
+      "shield_resist": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "structure_hp": 93360.0,
+      "structure_resist": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      }
+    }
   ],
   "tags": [
     "caldari",
@@ -21,55 +70,6 @@
     "pve_salvage",
     "shop_ineligible"
   ],
-  "is_logistic": false,
-  "weapon_fx": "missile",
-  "shop_eligible": false,
-  "signature_radius": 10660,
-  "sensor_strength": 0.0,
-  "scan_resolution": 0.0,
-  "speed": 60,
-  "mass": 960000000,
-  "agility": 0.1,
-  "capacitor_capacity": 3500,
-  "capacitor_recharge_s": 215.577,
-  "mid_battle_leave_allowed": false,
-  "function_slots": {
-    "slots": []
-  },
-  "hi_slots": 0,
-  "med_slots": 0,
-  "low_slots": 0,
-  "drone_bandwidth": 0.0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
-  "attack_cycle_s": 0.0,
-  "stars": [
-    {
-      "attack_range": 0,
-      "shield_hp": 60000.0,
-      "armor_hp": 18000.0,
-      "structure_hp": 93000.0,
-      "shield_resist": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "armor_resist": {
-        "emp": 0.5,
-        "thermal": 0.5,
-        "kinetic": 0.5,
-        "explosive": 0.5
-      },
-      "structure_resist": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "is_logistic": false
-    }
-  ],
-  "_stub_note": "pve_salvage target; FREIGHTER_AND_TITAN; not shoppable",
-  "sof_hull": "cfr1_t1"
+  "type_id": 20185.0,
+  "weapon_fx": "missile"
 }

@@ -6,6 +6,7 @@
   "cost": 37.0,
   "drone_bandwidth": 0.0,
   "echoes_item_id": 0.0,
+  "faction_ship": true,
   "fetter_ids": [
     "sansha",
     "carrier",
@@ -16,6 +17,12 @@
   "fighter_squadrons": 4.0,
   "fighter_tubes_per_squadron": 3.0,
   "fighter_unit_id": 0.0,
+  "fighter_unit_ids": [
+    1401.0,
+    1402.0,
+    1403.0,
+    1404.0
+  ],
   "function_slots": {
     "slots": []
   },
@@ -23,9 +30,12 @@
   "id": 822.0,
   "is_logistic": false,
   "low_slots": 6.0,
+  "mass": 1240000000.0,
   "med_slots": 4.0,
+  "mid_battle_leave_allowed": false,
   "model_key": "ss_yueshengzhe",
   "model_long_axis": 1100.0,
+  "model_size_compensate": 1.5,
   "name": "跃升者级",
   "name_en": "Delirium",
   "portrait": "res://assets/ui/portraits/ss_yueshengzhe.png",
@@ -37,6 +47,7 @@
   "ship_groups": [
     "carrier"
   ],
+  "shop_min_level": 16.0,
   "signature_radius": 10065.0,
   "sof_hull": "sca1_t1",
   "source_module_type_id": 0.0,
@@ -52,7 +63,7 @@
         "thermal": 0.45
       },
       "attack_range": 999.0,
-      "shield_hp": 68000.0,
+      "shield_hp": 109140.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
@@ -76,7 +87,7 @@
         "thermal": 0.45
       },
       "attack_range": 999.0,
-      "shield_hp": 136000.0,
+      "shield_hp": 218280.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
@@ -100,7 +111,7 @@
         "thermal": 0.45
       },
       "attack_range": 999.0,
-      "shield_hp": 204000.0,
+      "shield_hp": 327420.0,
       "shield_resist": {
         "emp": 0.0,
         "explosive": 0.5,
@@ -123,15 +134,5 @@
   ],
   "type_id": 0.0,
   "weapon_fx": "missile",
-  "weapon_tier": "capital",
-  "mass": 1240000000.0,
-  "shop_min_level": 16.0,
-  "faction_ship": true,
-  "fighter_unit_ids": [
-    1401,
-    1402,
-    1403,
-    1404
-  ],
-  "mid_battle_leave_allowed": false
+  "weapon_tier": "capital"
 }
