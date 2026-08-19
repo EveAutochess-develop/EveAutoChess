@@ -1,10 +1,13 @@
 {
   "attack_cycle_s": 5.0,
+  "capacitor_capacity": 67500.0,
+  "capacitor_recharge_s": 4500.0,
   "capital_role": "capital_industrial",
   "cost": 22.0,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 4.0,
   "drone_count_cap": 4.0,
+  "faction_ship": true,
   "fetter_ids": [
     "ore",
     "capital_industrial"
@@ -12,7 +15,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 0,
+  "hi_slots": 0.0,
   "hull_morph": "industrial",
   "hull_morph_duration_s": 10.0,
   "hull_morph_requires_fetter": "mining_command",
@@ -32,6 +35,7 @@
   "name_en": "Rorqual",
   "portrait": "res://assets/ui/ship_portraits_capital/rorqual.png",
   "race": "ore",
+  "requires_cyno_entry": false,
   "scan_resolution": 75.0,
   "sensor_strength": 115.0,
   "ship_group": "capital_industrial",
@@ -60,7 +64,7 @@
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 300000.0,
+      "structure_hp": 130000.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -85,7 +89,7 @@
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 600000.0,
+      "structure_hp": 260000.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -110,7 +114,7 @@
         "kinetic": 0.4,
         "thermal": 0.2
       },
-      "structure_hp": 900000.0,
+      "structure_hp": 390000.0,
       "structure_resist": {
         "emp": 0.33,
         "explosive": 0.33,
@@ -125,9 +129,5 @@
   ],
   "type_id": 28352.0,
   "unmanned_kind": "",
-  "weapon_fx": "mining",
-  "capacitor_capacity": 67500.0,
-  "capacitor_recharge_s": 4500.0,
-  "faction_ship": true,
-  "requires_cyno_entry": false
+  "weapon_fx": "mining"
 }

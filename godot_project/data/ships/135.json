@@ -1,9 +1,12 @@
 {
   "attack_cycle_s": 5.0,
+  "capacitor_capacity": 350.0,
+  "capacitor_recharge_s": 187.5,
   "cost": 3.0,
   "drone_bandwidth": 0.0,
   "drone_bay_slots": 1.0,
   "drone_count_cap": 1.0,
+  "faction_ship": true,
   "fetter_ids": [
     "ore",
     "mining_barge"
@@ -117,8 +120,5 @@
   ],
   "type_id": 17478.0,
   "unmanned_kind": "",
-  "weapon_fx": "mining",
-  "capacitor_capacity": 350.0,
-  "capacitor_recharge_s": 187.5,
-  "faction_ship": true
+  "weapon_fx": "mining"
 }

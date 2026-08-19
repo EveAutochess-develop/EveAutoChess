@@ -168,14 +168,22 @@ def fit(model_key: str, sof_hull: str, res_path: str, hulls: dict, verbose: bool
 
     ## 3. Stern in mesh space → yaw that puts it on ShipUnit +Z.
     stern_mesh = m @ stern_gr2
-    ## Same rigid map carries the nozzles themselves onto the GLB (uniform scale).
-    c_gr2 = (lo + hi) * 0.5
-    s_gr2 = max(float(np.max(hi - lo)), 1e-6)
+    ## Permute then per-axis AABB (GR2 extents ≠ GLB; uniform scale misses bells).
+    gr2_m = gr2_verts @ m.T
+    noz_m = noz @ m.T
+    lo_s, hi_s = gr2_m.min(0), gr2_m.max(0)
     mlo, mhi = mesh.min(0), mesh.max(0)
-    c_mesh = (mlo + mhi) * 0.5
-    s_mesh = max(float(np.max(mhi - mlo)), 1e-6)
-    noz_mesh = ((noz - c_gr2) * (s_mesh / s_gr2)) @ m.T + c_mesh
-    radii = np.array([float(it.get("radius", 0.0) or 0.0) for it in items]) * (s_mesh / s_gr2)
+    span_s = np.maximum(hi_s - lo_s, 1e-6)
+    span_d = np.maximum(mhi - mlo, 1e-6)
+    noz_mesh = (noz_m - lo_s) * (span_d / span_s) + mlo
+    radii = np.array([float(it.get("radius", 0.0) or 0.0) for it in items]) * float(np.mean(span_d / span_s))
+    dirs_gr2 = []
+    for it in items:
+        xf = it["transform"]
+        z = np.array([float(xf[0][2]), float(xf[1][2]), float(xf[2][2])], dtype=float)
+        nrm = float(np.linalg.norm(z))
+        dirs_gr2.append(z / nrm if nrm > 1e-9 else np.array([0.0, 0.0, 1.0]))
+    dirs_mesh = np.array(dirs_gr2, dtype=float) @ m.T
     flat = np.array([stern_mesh[0], 0.0, stern_mesh[2]])
     if float(np.linalg.norm(flat)) < 1e-6:
         print(f"{model_key:22s} SKIP (stern is vertical in mesh space)")
@@ -190,6 +198,15 @@ def fit(model_key: str, sof_hull: str, res_path: str, hulls: dict, verbose: bool
     ry = np.array([[math.cos(a), 0.0, math.sin(a)], [0.0, 1.0, 0.0], [-math.sin(a), 0.0, math.cos(a)]])
     mesh_rot = mesh @ ry.T
     noz_rot = noz_mesh @ ry.T
+    dirs_rot = dirs_mesh @ ry.T
+    for i in range(len(dirs_rot)):
+        nrm = float(np.linalg.norm(dirs_rot[i]))
+        if nrm < 1e-9:
+            dirs_rot[i] = np.array([0.0, 0.0, 1.0])
+        else:
+            dirs_rot[i] = dirs_rot[i] / nrm
+        if float(dirs_rot[i][2]) < 0.0:
+            dirs_rot[i] = -dirs_rot[i]
     rlo, rhi = mesh_rot.min(0), mesh_rot.max(0)
     rsize = np.maximum(rhi - rlo, 1e-6)
     noz_norm = (noz_rot - rlo) / rsize
@@ -207,6 +224,7 @@ def fit(model_key: str, sof_hull: str, res_path: str, hulls: dict, verbose: bool
         "yaw_raw_deg": round(yaw, 1),
         "nozzles_ship_norm": [[round(float(c), 6) for c in p] for p in noz_norm],
         "nozzle_radius_norm": [round(float(r), 6) for r in radii_norm],
+        "nozzle_dirs_ship": [[round(float(c), 6) for c in p] for p in dirs_rot],
         "rule": "nozzle end = stern; yaw rotates stern onto ShipUnit +Z (bow = -Z)",
     }
     if verbose:

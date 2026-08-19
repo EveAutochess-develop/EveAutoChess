@@ -160,8 +160,8 @@ func _compute_menu_fit_scale() -> float:
 	var budget_w: float = maxf(vp.x - edge - origin_x, 1.0)
 	if chain_w > budget_w:
 		s = minf(s, budget_w / chain_w)
-	## 单机列第 4 钮为读档；再加一行「单机模式」在开始游戏二级内。
-	var load_y_off: float = bh + sep + 3.0 * (bh + sep)
+	## 单机列第 5 钮为读档；再加一行「单机模式」在开始游戏二级内。
+	var load_y_off: float = bh + sep + 4.0 * (bh + sep)
 	var chain_h: float = load_y_off + th
 	var budget_h: float = maxf(vp.y - edge - origin_y, 1.0)
 	if chain_h > budget_h:
@@ -447,6 +447,7 @@ func _build_solo_secondary() -> Control:
 	root.add_child(box)
 	box.add_child(_menu_btn("开始无尽模式", _on_endless))
 	box.add_child(_menu_btn("开始对战模式", _on_versus))
+	box.add_child(_menu_btn("多人联机演练", func() -> void: _start_offline_drill(NullsecNetSession.SECURITY_NULLSEC)))
 	_btn_continue = _menu_btn("继续上次对局", _on_continue)
 	_btn_continue.disabled = not _usable_local_last_match_exists()
 	box.add_child(_btn_continue)
@@ -648,7 +649,7 @@ func _apply_branch_host_sizes() -> void:
 	var gap: float = _branch_secondary_gap()
 	var sep: float = _menu_px(8.0)
 	var pad: float = _menu_px(10.0) * 2.0
-	var host_h_solo: float = bh * 4.0 + sep * 3.0 + pad + 4.0
+	var host_h_solo: float = bh * 5.0 + sep * 4.0 + pad + 4.0
 	var host_h_opt: float = bh * 2.0 + sep + pad + 4.0
 	## Online width ×1.5 (UI_AND_SHELL §1.0). Chrome height = lobby; host adds框外历史钮.
 	var host_w_online: float = host_w * 1.5
@@ -790,6 +791,7 @@ func _layout_load_tertiary() -> void:
 	if _load_list:
 		## Force row width so long name buttons fill the plate.
 		_load_list.custom_minimum_size = Vector2(maxf(tw - _menu_px(36.0), 200.0 * _menu_fit_scale), 0.0)
+
 
 func _setup_history_tertiary() -> void:
 	## History tertiary — chrome + scroll. Parent = MainMenu so z/hit never covers 联机二级钮.
@@ -1050,6 +1052,17 @@ func _build_options() -> Control:
 	breathe_row.add_child(breathe)
 	box.add_child(breathe_row)
 
+	var adapt_row: HBoxContainer = HBoxContainer.new()
+	adapt_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var adapt: CheckBox = CheckBox.new()
+	adapt.text = "镜头跟随指针"
+	adapt.tooltip_text = "关闭后镜头不再跟随鼠标或拖动触点。PC 跟鼠标；移动跟拖舰/装备触点。"
+	adapt.button_pressed = (PlayerSettings.instance() as PlayerSettings).camera_adapt_enabled
+	UiAssets.apply_button_font(adapt, UiLayout.font_size(16, self))
+	adapt.toggled.connect(_on_camera_adapt_toggled)
+	adapt_row.add_child(adapt)
+	box.add_child(adapt_row)
+
 	var hp_vis_row: HBoxContainer = HBoxContainer.new()
 	var hp_vis: CheckBox = CheckBox.new()
 	hp_vis.text = "显示血条"
@@ -1075,6 +1088,36 @@ func _build_options() -> Control:
 	hp_opt.item_selected.connect(_on_health_bar_style_selected)
 	hp_row.add_child(hp_opt)
 	box.add_child(hp_row)
+
+	var slow_row: HBoxContainer = HBoxContainer.new()
+	var slow: CheckBox = CheckBox.new()
+	slow.text = "局内慢学"
+	slow.tooltip_text = "每回合战斗结束后本机人机适应你已揭晓的购舰/姿态；关则只推理不更新。默认开。"
+	slow.button_pressed = (PlayerSettings.instance() as PlayerSettings).in_match_slow_learn
+	UiAssets.apply_button_font(slow, UiLayout.font_size(16, self))
+	slow.toggled.connect(_on_slow_learn_toggled)
+	slow_row.add_child(slow)
+	box.add_child(slow_row)
+
+	var onnx_row: HBoxContainer = HBoxContainer.new()
+	onnx_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
+	var import_onnx: Button = Button.new()
+	import_onnx.text = "导入人机对手包"
+	import_onnx.tooltip_text = "导入 zip：六网+基因组+局内适应 delta。别人导出的对手包可打同一对手。"
+	import_onnx.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
+	import_onnx.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_button_font(import_onnx, UiLayout.font_size(16, self))
+	import_onnx.pressed.connect(_on_import_onnx_weights)
+	onnx_row.add_child(import_onnx)
+	var export_onnx: Button = Button.new()
+	export_onnx.text = "导出人机对手包"
+	export_onnx.tooltip_text = "把当前人机对手（基线六网+基因组+本机适应 delta）打成 zip，路径复制到剪贴板。"
+	export_onnx.custom_minimum_size = Vector2(0, UiLayout.px(40, self))
+	export_onnx.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	UiAssets.apply_button_font(export_onnx, UiLayout.font_size(16, self))
+	export_onnx.pressed.connect(_on_export_onnx_weights)
+	onnx_row.add_child(export_onnx)
+	box.add_child(onnx_row)
 
 	var bgm_vol_row: HBoxContainer = HBoxContainer.new()
 	bgm_vol_row.add_theme_constant_override("separation", UiLayout.margin_px(10, self))
@@ -1341,6 +1384,9 @@ func _on_weapon_fx_simplified_toggled(on: bool) -> void:
 func _on_camera_breathe_toggled(on: bool) -> void:
 	(PlayerSettings.instance() as PlayerSettings).set_camera_breathe_enabled(on)
 
+func _on_camera_adapt_toggled(on: bool) -> void:
+	(PlayerSettings.instance() as PlayerSettings).set_camera_adapt_enabled(on)
+
 func _on_health_bar_visible_toggled(on: bool) -> void:
 	if GameSession.has_method("set_health_bar_visible"):
 		(PlayerSettings.instance() as PlayerSettings).set_health_bar_visible(on)
@@ -1359,6 +1405,11 @@ func _on_health_bar_style_selected(idx: int) -> void:
 		if GameSession.has_method("save_settings"):
 			(PlayerSettings.instance() as PlayerSettings).save_settings()
 	get_tree().call_group("match_root", "rebuild_all_ship_health_bars")
+
+
+func _on_slow_learn_toggled(on: bool) -> void:
+	(PlayerSettings.instance() as PlayerSettings).set_in_match_slow_learn(on)
+
 
 func _on_nullsec_open() -> void:
 	await _ensure_play_mode_open(BRANCH_ONLINE)
@@ -2040,6 +2091,23 @@ func _open_history_detail(entry: Dictionary, mid: String) -> void:
 	var detail_rows: Array = TypedVariant.as_array(entry.get("players", entry.get("rows", [])))
 	panel.show_rows(detail_rows, false)
 
+
+func _start_offline_drill(mode: String) -> void:
+	## UI_AND_SHELL / MATCH_FLOW §2：进同一房间，不直接开战。
+	if not DataStore.host_ships_override.is_empty():
+		DataStore.clear_host_ships_override()
+	GameSession.resume_save = false
+	GameSession.resume_slot_id = ""
+	GameSession.resume_payload = {}
+	var net: NullsecNetSession = _ensure_nullsec_net()
+	## Panel has no class_name (hot-update cache); same preload as lobby chrome.
+	var nick: String = str(_LobbyPanel.call("_ensure_default_nick"))
+	if not net.begin_offline_drill(mode, nick):
+		return
+	_collapse_all_secondaries()
+	_show_nullsec_room()
+
+
 func _on_versus() -> void:
 	if not DataStore.host_ships_override.is_empty():
 		DataStore.clear_host_ships_override()
@@ -2707,6 +2775,26 @@ func _on_export_debug_log() -> void:
 			msg = "导出失败（%s）" % reason
 	if _options_export_status:
 		_options_export_status.text = msg
+
+
+func _on_import_onnx_weights() -> void:
+	OnnxBundleIo.prompt_import(self, _on_onnx_bundle_done)
+
+
+func _on_export_onnx_weights() -> void:
+	OnnxBundleIo.prompt_export(self, _on_onnx_bundle_done)
+
+
+func _on_onnx_bundle_done(res: Dictionary) -> void:
+	var msg: String = OnnxBundleIo.status_text(res)
+	if _options_export_status:
+		_options_export_status.text = msg
+	SessionDiagnostics.log("onnx.bundle", "%s ok=%s reason=%s" % [
+		str(res.get("op", "")), str(res.get("ok", false)), str(res.get("reason", "")),
+	])
+	if TypedVariant.as_bool(res.get("ok", false), false) and str(res.get("op", "")) == "import":
+		if _nullsec_net:
+			_nullsec_net.invalidate_onnx_bundle_cache()
 
 
 func _on_verify_content_version() -> void:

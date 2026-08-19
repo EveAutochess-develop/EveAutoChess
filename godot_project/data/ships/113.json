@@ -1,6 +1,6 @@
 {
   "attack_cycle_s": 25.65,
-  "attack_weapon_slots": 3,
+  "attack_weapon_slots": 6,
   "capacitor_capacity": 52500.0,
   "capacitor_recharge_s": 3850.0,
   "capital_role": "dreadnought",
@@ -15,7 +15,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 3,
+  "hi_slots": 6,
   "hull_morph": "siege",
   "hull_morph_duration_s": 10.0,
   "id": 113.0,

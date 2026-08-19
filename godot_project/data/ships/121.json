@@ -19,13 +19,14 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 0,
+  "hi_slots": 0.0,
   "id": 121.0,
   "is_logistic": false,
   "low_slots": 6.0,
   "med_slots": 4.0,
   "model_key": "am_zhizhengguan",
   "model_long_axis": 529.6,
+  "model_size_compensate": 1.3,
   "name": "执政官级",
   "name_en": "Archon",
   "portrait": "res://assets/ui/ship_portraits_capital/archon.png",

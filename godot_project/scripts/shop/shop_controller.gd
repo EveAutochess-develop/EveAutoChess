@@ -22,6 +22,8 @@ var _id_pity_seen_equips: Dictionary = {}  # equip id -> true
 ## SEMI_ASYNC §2 — shop rolls on match_seed stream (not global randi).
 static var _auth_rng: MatchRng = null
 static var _auth_stream: String = "shop"
+var _eligible_cache: Array = []
+var _eligible_cache_level: int = -1
 
 
 func bind(match_ctrl: MatchController, board: BoardController) -> void:
@@ -54,7 +56,15 @@ func refresh_shop(free: bool, persist: bool = true) -> void:
 	var payload: Dictionary = {"free": free, "team": ShipUnit.TEAM_PLAYER, "persist": persist}
 	AdminBus.request(&"shop.refresh", payload)
 
+func _player_shop_payload(payload: Dictionary) -> bool:
+	if str(payload.get("via", "")) == "ai_dispatcher":
+		return false
+	return TypedVariant.as_int(payload.get("team", ShipUnit.TEAM_PLAYER), ShipUnit.TEAM_PLAYER) != ShipUnit.TEAM_AI
+
+
 func _on_refresh(payload: Dictionary) -> Dictionary:
+	if not _player_shop_payload(payload):
+		return {"accepted": false, "reason_key": "player_shop_only"}
 	var free: bool = TypedVariant.as_bool(payload.get("free", false), false)
 	var persist: bool = TypedVariant.as_bool(payload.get("persist", true), true)
 	var cost: int = TypedVariant.as_int(DataStore.economy.get("refresh_cost", 2), 2)
@@ -65,13 +75,13 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 		_match.try_spend(cost)
 	var n: int = TypedVariant.as_int(DataStore.economy.get("shop_slot_count", 6), 6)
 	_decay_recent_hits(_recent_hits)
-	slots.clear()
+	var next_slots: Array = []
 	var seen_counts: Dictionary = {}
 	var force_tonnages: Array = _pity_force_tonnages_for_this_refresh()
 	var force_ids: Array = _id_pity_force_ship_ids(n)
 	var force_i: int = 0
 	var force_id_i: int = 0
-	for i: int in range(n):
+	for _slot_i: int in range(n):
 		var sid: int = 0
 		if force_id_i < force_ids.size():
 			sid = TypedVariant.as_int(force_ids[force_id_i], 0)
@@ -87,7 +97,8 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 			sid = 1
 		seen_counts[sid] = TypedVariant.as_int(seen_counts.get(sid, 0), 0) + 1
 		_recent_hits[sid] = TypedVariant.as_int(_recent_hits.get(sid, 0), 0) + 1
-		slots.append({"ship_id": sid, "purchased": false})
+		next_slots.append({"ship_id": sid, "purchased": false})
+	slots = next_slots
 	_roll_equipment_slots()
 	_pity_record_refresh(slots)
 	_id_pity_record_ship_refresh(slots)
@@ -96,6 +107,8 @@ func _on_refresh(payload: Dictionary) -> Dictionary:
 	if persist and _match and _match.has_method("request_autosave"):
 		_match.request_autosave()
 	SessionDiagnostics.log("shop.refresh", "ok free=%s" % free)
+	if not free:
+		_note_slow_learn("refresh", {"cost": cost, "slot_index": 10})
 	return {"accepted": true}
 
 func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
@@ -115,7 +128,7 @@ func _roll_ship_id_with_id_pity(
 	if ids.is_empty():
 		return 1
 	var max_same: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2))
-	var eligible_ids: Array = _eligible_ship_ids_for_level(level, ids)
+	var eligible_ids: Array = _eligible_ids_cached(level, ids)
 	if eligible_ids.is_empty():
 		return TypedVariant.as_int(ids[0], 1)
 	var cap_lv: int = TypedVariant.as_int(DataStore.economy.get("shop_capital_min_level", 15), 15)
@@ -188,7 +201,7 @@ func _id_pity_force_ship_ids(slot_count: int) -> Array:
 	var window: int = _id_pity_window()
 	if _id_pity_refresh_count < window:
 		return []
-	var eligible: Array = _eligible_ship_ids_for_level(_match.player_level, DataStore.ship_ids())
+	var eligible: Array = _eligible_ids_cached(_match.player_level, DataStore.ship_ids())
 	var missing: Array = []
 	for sid_v: Variant in eligible:
 		var sid: int = TypedVariant.as_int(sid_v, 0)
@@ -247,7 +260,7 @@ func _pick_pseudo_random_id_pity(pool: Array, recent_hits: Dictionary, titan_rac
 
 func _roll_ship_id_for_tonnage(tonnage_key: String, seen_counts: Dictionary) -> int:
 	var ids: Array = DataStore.ship_ids()
-	var eligible: Array = _eligible_ship_ids_for_level(_match.player_level, ids)
+	var eligible: Array = _eligible_ids_cached(_match.player_level, ids)
 	var max_same: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2))
 	var pool: Array = []
 	for sid_v: Variant in eligible:
@@ -392,6 +405,15 @@ static func roll_ship_id_for_level(
 		return sid2
 	return TypedVariant.as_int(eligible_ids[0], 0)
 
+
+func _eligible_ids_cached(level: int, ids: Array) -> Array:
+	if _eligible_cache_level == level and not _eligible_cache.is_empty():
+		return _eligible_cache
+	_eligible_cache = _eligible_ship_ids_for_level(level, ids)
+	_eligible_cache_level = level
+	return _eligible_cache
+
+
 static func _eligible_ship_ids_for_level(level: int, ids: Array) -> Array:
 	var out: Array = []
 	var unlocks: Dictionary = TypedVariant.as_dict(DataStore.economy.get("shop_unlock_level_by_group", {}))
@@ -424,7 +446,7 @@ static func _shop_eligible(ship: Dictionary) -> bool:
 	var tags: Array = TypedVariant.as_array(ship.get("tags", []))
 	for t: Variant in tags:
 		var ts: String = str(t)
-		if ts == "shop_ineligible" or ts == "sleeper" or ts == "freighter" or ts == "titan" or ts == "pve_creep":
+		if ts == "shop_ineligible" or ts == "sleeper" or ts == "freighter" or ts == "titan" or ts == "wreck" or ts == "pve_creep":
 			return false
 	var group: String = str(ship.get("ship_group", ""))
 	if group == "titan" or group == "freighter" or group == "sleeper":
@@ -535,6 +557,8 @@ func try_buy(slot_index: int) -> Dictionary:
 	})
 
 func _on_purchase(payload: Dictionary) -> Dictionary:
+	if not _player_shop_payload(payload):
+		return {"accepted": false, "reason_key": "player_shop_only"}
 	var idx: int = TypedVariant.as_int(payload.get("slot_index", -1), -1)
 	var ship_id: int = TypedVariant.as_int(payload.get("ship_id", 0), 0)
 	var cost: int = TypedVariant.as_int(payload.get("cost", 0), 0)
@@ -566,6 +590,16 @@ func _on_purchase(payload: Dictionary) -> Dictionary:
 	if _match and _match.has_method("request_autosave"):
 		_match.request_autosave()
 	SessionDiagnostics.log("shop.buy", "ok ship=%d cost=%d" % [ship_id, cost])
+	var sd: Dictionary = DataStore.get_ship(ship_id)
+	_note_slow_learn("buy_ship", {
+		"ship_id": ship_id,
+		"cost": cost,
+		"slot_index": idx,
+		"race": str(sd.get("race", "")).to_lower(),
+		"is_logistic": TypedVariant.as_bool(sd.get("is_logistic", false), false),
+		"is_cyno": TypedVariant.as_bool(sd.get("requires_cyno_entry", false), false),
+		"speed": TypedVariant.as_float(sd.get("speed", 0.0), 0.0),
+	})
 	return {
 		"accepted": true,
 		"ship_id": ship_id,
@@ -721,7 +755,8 @@ func _equipment_pity_window() -> int:
 
 
 func _roll_equipment_slots() -> void:
-	equipment_slots.clear()
+	var prev: Array = equipment_slots.duplicate(true)
+	var next: Array = []
 	var level: int = 1
 	if _match != null:
 		level = _match.player_level
@@ -742,7 +777,15 @@ func _roll_equipment_slots() -> void:
 			force_i += 1
 		if pick == "":
 			pick = _pick_equipment_from_pool_id_pity(pool)
-		equipment_slots.append({"id": pick, "purchased": false})
+		next.append({"id": pick, "purchased": false})
+	var empty_n: int = 0
+	for e_v: Variant in next:
+		if str(TypedVariant.as_dict(e_v).get("id", "")) == "":
+			empty_n += 1
+	if empty_n == next.size() and not prev.is_empty():
+		equipment_slots = prev
+		return
+	equipment_slots = next
 	_equip_pity_record_refresh(equipment_slots, by_cat)
 
 
@@ -891,6 +934,8 @@ func try_buy_equipment(slot_index: int) -> void:
 
 
 func _on_equipment_purchase(payload: Dictionary) -> Dictionary:
+	if not _player_shop_payload(payload):
+		return {"accepted": false, "reason_key": "player_shop_only"}
 	var idx: int = TypedVariant.as_int(payload.get("slot_index", -1), -1)
 	var item_id: String = str(payload.get("item_id", ""))
 	var cost: int = TypedVariant.as_int(payload.get("cost", 0), 0)
@@ -919,4 +964,45 @@ func _on_equipment_purchase(payload: Dictionary) -> Dictionary:
 	if _match and _match.has_method("request_autosave"):
 		_match.request_autosave()
 	SessionDiagnostics.log("shop.equipment_buy", "ok item=%s cost=%d" % [item_id, cost])
+	_note_slow_learn("buy_equip", {"item_id": item_id, "cost": cost, "slot_index": idx})
 	return {"accepted": true}
+
+
+func _note_slow_learn(kind: String, extra: Dictionary) -> void:
+	var cmd: Dictionary = extra.duplicate(true)
+	cmd["kind"] = kind
+	InMatchSlowLearn.note_revealed(cmd)
+	var act: int = -1
+	if kind == "buy_ship":
+		act = clampi(TypedVariant.as_int(extra.get("slot_index", 0), 0), 0, 5)
+	elif kind == "buy_equip":
+		act = 6 + clampi(TypedVariant.as_int(extra.get("slot_index", 0), 0), 0, 3)
+	elif kind == "refresh":
+		act = 10
+	if act < 0 or _match == null:
+		return
+	var field_n: int = _board.count_field(ShipUnit.TEAM_PLAYER) if _board else 0
+	var ctx: Dictionary = {
+		"gold": _match.player_gold,
+		"level": _match.player_level,
+		"xp": _match.player_exp,
+		"round": _match.battle_game_stage_count,
+		"shop_slots": slots,
+		"equipment_slots": equipment_slots,
+		"piece_count": field_n,
+		"field_count": field_n,
+		"hangar_count": 0,
+		"bag_count": _match.equipment_inventory.size(),
+		"win_streak": _match.win_streak,
+		"loss_streak": _match.loss_streak,
+		"titan": _shop_titan_race(),
+		"buy_exp_cost": TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 4),
+	}
+	var policy: OnnxCpuPolicy = null
+	var ai: AiController = null
+	if _match.has_method("local_ai"):
+		ai = _match.local_ai()
+	if ai != null:
+		policy = ai.weight_policy
+	var obs: PackedFloat32Array = PolicyObs.encode_shop(policy, ctx)
+	InMatchSlowLearn.note_shop_sample(obs, act, true)

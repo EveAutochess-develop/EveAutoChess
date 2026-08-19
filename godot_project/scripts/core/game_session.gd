@@ -100,3 +100,32 @@ func _ensure_desktop_maximized() -> void:
 		return
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MAXIMIZED)
 	print("[GameSession] desktop window maximized")
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST \
+			or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
+			or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_EXIT_TREE:
+		release_os_side_effects()
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_EXIT_TREE:
+		InMatchSlowLearn.cancel_pending()
+		var loop: MainLoop = Engine.get_main_loop()
+		if loop is SceneTree:
+			for n: Node in (loop as SceneTree).get_nodes_in_group("ai_controller"):
+				if n.has_method("cancel_economy_work"):
+					n.call("cancel_economy_work")
+
+
+func release_os_side_effects() -> void:
+	## PROCESS_LIFETIME: no OS pointer capture / GUI drag after quit or focus loss.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var root_vp: Viewport = tree.root
+	if root_vp:
+		root_vp.gui_release_focus()
+		if root_vp.has_method("gui_cancel_drag"):
+			root_vp.gui_cancel_drag()
+	tree.call_group("match_root", "force_release_pointer_grabs")

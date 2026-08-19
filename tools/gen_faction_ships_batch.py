@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Generate faction ship JSON 801-822 + Guristas C drones + logistic drones 1421-1424."""
+"""Generate faction ship JSON 801-822 + Guristas C drones.
+Nestor uses heavy_repair_drone_ids=[1411,1412,1413,1414] (one of each FAX race).
+"""
 from __future__ import annotations
 
 import json
@@ -910,7 +912,13 @@ def build_ship(d: dict) -> dict:
         out["drone_count_cap"] = 2.0
     if d.get("nestor"):
         out["battle_equip_aura"] = True  # 后编
-        out["drone_unit_ids"] = [1421, 1422, 1423, 1424]
+        # Delirium-style multi-id: one of each FAX heavy repair drone (1411–1414).
+        out["heavy_repair_drone_id"] = 0.0
+        out["heavy_repair_drone_ids"] = [1411, 1412, 1413, 1414]
+        out["heavy_repair_drone_count"] = 4.0
+        out["heavy_repair_drone_key"] = "multi"
+        out["drone_bay_slots"] = 4.0
+        out["drone_count_cap"] = 4.0
         out["source_module_type_id"] = 0.0
     return out
 

@@ -65,7 +65,7 @@ func refresh_list(seats: Array) -> void:
 		var spd: float = 1.0
 		if controller and controller.human_votes.has(seat_id):
 			spd = TypedVariant.as_float(controller.human_votes[seat_id], 1.0)
-		elif TypedVariant.as_bool(seat.get("is_ai", false), false) and controller:
+		elif NullsecNetSession.seat_is_proxy(seat) and controller:
 			spd = controller.ai_follow_majority()
 		row.text = "%s  %s" % [nick, _label(spd)]
 		_list_box.add_child(row)

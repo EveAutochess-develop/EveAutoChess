@@ -451,6 +451,8 @@ func spawn_ship(ship_id: int, star: int, team: int, slot_type: String, x: int, z
 	if not ship.is_unmanned:
 		var occ: Dictionary = _hangar_occupied if slot_type == "hangar" else _field_occupied
 		occ[_key(slot_type, team, x, z)] = ship
+	if slot_type == "hangar":
+		ship.stamp_hangar_home()
 	if _visual_follow_armed:
 		ship.arm_visual_follow()
 	board_changed.emit()
@@ -569,6 +571,8 @@ func move_ship_to_field_side(ship: ShipUnit, x: int, z: int, side_team: int) -> 
 	## Place hangar/field ship onto field at (x,z) using side_team world coords (cyno warp).
 	if ship == null:
 		return
+	if ship.slot_type == "hangar":
+		ship.stamp_hangar_home()
 	var occ_from: Dictionary = _hangar_occupied if ship.slot_type == "hangar" else _field_occupied
 	occ_from.erase(_key(ship.slot_type, ship.team_id, ship.grid_x, ship.grid_z))
 	ship.slot_type = "field"
@@ -758,6 +762,18 @@ func disarm_visual_follow() -> void:
 func is_one_side_cleared() -> bool:
 	return count_alive_field(ShipUnit.TEAM_PLAYER) == 0 or count_alive_field(ShipUnit.TEAM_AI) == 0
 
+
+func salvage_objective_lost() -> bool:
+	## True when a salvage freighter was on the board and none remain alive.
+	var had: bool = false
+	for s: ShipUnit in _ships:
+		if s == null or not is_instance_valid(s) or not s.is_protect_target:
+			continue
+		had = true
+		if not s.is_destroyed and float(s.structure_hp) > 0.01:
+			return false
+	return had
+
 ## True when neither side can ever finish the other off: both still have ≥1 alive
 ## manned field ship, but none of those ships carry offensive damage (e.g. all pure
 ## logistics/utility). Freighters and unmanned hulls are excluded like `count_alive_field`.
@@ -926,7 +942,7 @@ func recall_cyno_entry_ships_to_hangar() -> int:
 			continue
 		if s.slot_type != "field":
 			continue
-		var hang: Vector2i = find_empty_hangar(s.team_id)
+		var hang: Vector2i = _recall_hangar_cell(s)
 		if hang.x < 0:
 			var gold: int = s.get_sell_price()
 			var sold_id: int = s.ship_id
@@ -949,6 +965,7 @@ func recall_cyno_entry_ships_to_hangar() -> int:
 		s.field_side_team = s.team_id
 		s.global_position = cell_to_world("hangar", s.team_id, hang.x, hang.y)
 		s.restore_team_yaw()
+		s.stamp_hangar_home()
 		_hangar_occupied[_key("hangar", s.team_id, hang.x, hang.y)] = s
 		moved += 1
 	if moved > 0 or sold > 0:
@@ -956,6 +973,24 @@ func recall_cyno_entry_ships_to_hangar() -> int:
 		refresh_cross_team_cell_offsets()
 		board_changed.emit()
 	return moved
+
+
+func _hangar_cell_free_for(team: int, x: int, z: int, ignore: ShipUnit) -> bool:
+	if not _in_bounds("hangar", x, z):
+		return false
+	var occ_any: Variant = _hangar_occupied.get(_key("hangar", team, x, z))
+	if occ_any == null:
+		return true
+	if not is_instance_valid(occ_any):
+		_hangar_occupied.erase(_key("hangar", team, x, z))
+		return true
+	return occ_any == ignore
+
+
+func _recall_hangar_cell(s: ShipUnit) -> Vector2i:
+	if s.hangar_home_x >= 0 and _hangar_cell_free_for(s.team_id, s.hangar_home_x, s.hangar_home_z, s):
+		return Vector2i(s.hangar_home_x, s.hangar_home_z)
+	return find_empty_hangar(s.team_id)
 
 
 func _on_deploy(payload: Dictionary) -> Dictionary:
@@ -1017,6 +1052,8 @@ func _on_move(payload: Dictionary) -> Dictionary:
 	var from_type: String = ship.slot_type
 	var from_x: int = ship.grid_x
 	var from_z: int = ship.grid_z
+	if from_type == "hangar":
+		ship.stamp_hangar_home()
 	var from_side: int = ship.field_side_team if ship.field_side_team >= 0 else ship.team_id
 	var occ_from: Dictionary = _hangar_occupied if from_type == "hangar" else _field_occupied
 	var occ_to: Dictionary = _hangar_occupied if to_type == "hangar" else _field_occupied
@@ -1073,13 +1110,29 @@ func _on_move(payload: Dictionary) -> Dictionary:
 	if to_type == "hangar":
 		ship.field_side_team = to_team
 		side_team = to_team
+		ship.stamp_hangar_home()
 	else:
 		ship.field_side_team = side_team
+	if other and other != ship and other.slot_type == "hangar":
+		other.stamp_hangar_home()
 	ship.global_position = cell_to_world(to_type, side_team, to_x, to_z)
 	occ_to[to_key] = ship
 	try_upgrades_all()
 	refresh_cross_team_cell_offsets()
 	board_changed.emit()
+	if to_type == "field" and ship.team_id == ShipUnit.TEAM_PLAYER:
+		InMatchSlowLearn.note_revealed({
+			"kind": "place",
+			"ship_id": ship.ship_id,
+			"x": to_x,
+			"z": to_z,
+		})
+		var mask: PackedFloat32Array = PackedFloat32Array()
+		mask.resize(PolicyObs.MAX_CELLS)
+		mask[PolicyObs.flatten_cell(to_x, to_z)] = 1.0
+		var ctx: Dictionary = {"gold": 0, "level": 1, "field_count": count_field(ShipUnit.TEAM_PLAYER)}
+		var obs: PackedFloat32Array = PolicyObs.encode_place(ship.ship_id, ship.star, ctx, mask)
+		InMatchSlowLearn.note_place_sample(obs, PolicyObs.flatten_cell(to_x, to_z), true)
 	return {"accepted": true}
 
 
@@ -1102,9 +1155,15 @@ func _on_sell(payload: Dictionary) -> Dictionary:
 	var gold: int = ship.get_sell_price()
 	var sold_id: int = ship.ship_id
 	var sold_team: int = ship.team_id
+	## EQUIPMENT §2: strip function-fit before hull removal (same bag/auto-sell as star merge).
+	var returned_ids: Array = _drain_function_fit_ids(ship)
 	_remove_ship(ship)
+	if not returned_ids.is_empty():
+		var tree: SceneTree = get_tree()
+		if tree:
+			tree.call_group("match_root", "on_star_merge_stash_equipment", sold_team, returned_ids)
 	if sold_team == ShipUnit.TEAM_PLAYER:
-		SessionDiagnostics.log("shop.sell", "ok ship=%d gold=%d" % [sold_id, gold])
+		SessionDiagnostics.log("shop.sell", "ok ship=%d gold=%d equip=%d" % [sold_id, gold, returned_ids.size()])
 	return {"accepted": true, "gold": gold}
 
 func begin_drag(ship: ShipUnit) -> void:
@@ -1217,7 +1276,7 @@ func _cancel_drag() -> void:
 	_drag_ship = null
 
 func pick_ship_at(origin: Vector3, dir: Vector3, exclude: ShipUnit = null) -> ShipUnit:
-	## Model AABB raycast (BOARD_AND_INPUT §4). No soft sphere around logic centre.
+	## Model triangle raycast (BOARD_AND_INPUT §4). AABB is broadphase only.
 	## Any team (player + AI) for hover/info; drag still gated in PointerInput / begin_drag.
 	_purge_freed_ships()
 	var best: ShipUnit = null

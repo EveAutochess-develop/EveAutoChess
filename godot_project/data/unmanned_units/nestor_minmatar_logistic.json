@@ -1,81 +1,81 @@
 {
-  "id": 1424,
+  "_content_dph_mul": 3.0,
+  "agility": 1.0,
+  "attack_cycle_s": 1.4,
+  "capacitor_capacity": 50.0,
+  "capacitor_recharge_s": 20.0,
+  "cost": 0.0,
+  "drone_bandwidth": 0.0,
+  "echoes_item_id": 14000030004.0,
+  "fetter_ids": [],
+  "function_slots": {
+    "slots": []
+  },
+  "id": 1424.0,
+  "is_logistic": true,
+  "is_unmanned": true,
+  "mass": 2000.0,
+  "model_key": "wrj_m_mwushi",
+  "model_long_axis": 34.0,
   "name": "米玛塔尔后勤轻无人",
   "name_en": "Warrior",
-  "model_key": "wrj_m_mwushi",
-  "echoes_item_id": 14000030004,
-  "cost": 0,
+  "race": "minmatar",
+  "scan_resolution": 800.0,
+  "sensor_strength": 5.0,
   "ship_group": "drone_light",
   "ship_groups": [
     "drone_light"
   ],
-  "fetter_ids": [],
+  "signature_radius": 15.0,
+  "sof_hull": "mdl1_t1",
+  "speed": 650.0,
+  "stars": [
+    {
+      "armor_hp": 22.0,
+      "armor_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "attack_range": 3.0,
+      "damage": {
+        "emp": 0.0,
+        "explosive": 0.0,
+        "kinetic": 0.0,
+        "thermal": 0.0
+      },
+      "falloff": 1.0,
+      "is_logistic": true,
+      "optimal": 2.5,
+      "optimal_sig_radius": 25.0,
+      "repair": {
+        "armor": 125.4,
+        "shield": 0.0,
+        "structure": 0.0
+      },
+      "shield_hp": 22.0,
+      "shield_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "structure_hp": 22.0,
+      "structure_resist": {
+        "emp": 0.1,
+        "explosive": 0.1,
+        "kinetic": 0.1,
+        "thermal": 0.1
+      },
+      "tracking": 1.35
+    }
+  ],
   "tags": [
     "minmatar",
     "drone",
     "logistic"
   ],
-  "is_logistic": true,
-  "is_unmanned": true,
   "unmanned_kind": "logistic_drone",
-  "weapon_fx": "heal",
-  "race": "minmatar",
-  "signature_radius": 15.0,
-  "sensor_strength": 5.0,
-  "scan_resolution": 800.0,
-  "speed": 650.0,
-  "mass": 2000.0,
-  "agility": 1.0,
-  "capacitor_capacity": 50.0,
-  "capacitor_recharge_s": 20.0,
-  "attack_cycle_s": 1.4,
-  "drone_bandwidth": 0,
-  "function_slots": {
-    "slots": []
-  },
-  "stars": [
-    {
-      "attack_range": 3,
-      "damage": {
-        "emp": 0.0,
-        "thermal": 0.0,
-        "kinetic": 0.0,
-        "explosive": 0.0
-      },
-      "repair": {
-        "shield": 0,
-        "armor": 40.0,
-        "structure": 0
-      },
-      "tracking": 1.35,
-      "optimal": 2.5,
-      "falloff": 1.0,
-      "optimal_sig_radius": 25.0,
-      "shield_hp": 22,
-      "armor_hp": 22,
-      "structure_hp": 22,
-      "shield_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "armor_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "structure_resist": {
-        "emp": 0.1,
-        "thermal": 0.1,
-        "kinetic": 0.1,
-        "explosive": 0.1
-      },
-      "is_logistic": true
-    }
-  ],
-  "model_long_axis": 34.0,
-  "sof_hull": "mdl1_t1",
-  "_content_dph_mul": 3
+  "weapon_fx": "heal"
 }

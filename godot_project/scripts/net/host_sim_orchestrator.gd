@@ -20,16 +20,18 @@ func pending_count() -> int:
 	return _pending.size()
 
 
-func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int) -> int:
+func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int, a_owner_seat: int = -1, b_owner_seat: int = -1) -> int:
 	_serial += 1
 	var seeds: Dictionary = match_rng.begin_battle(_serial) if match_rng else {}
+	var oa: int = a_owner_seat if a_owner_seat >= 0 else seat_a
+	var ob: int = b_owner_seat if b_owner_seat >= 0 else seat_b
 	var deputy: int = pick_deputy_seat(
 		int(match_rng.match_seed) if match_rng else 0,
 		_serial,
 		seat_a,
 		seat_b,
-		false,
-		false
+		oa,
+		ob
 	)
 	_pending.append({
 		"serial": _serial,
@@ -38,30 +40,44 @@ func enqueue_pvp(seat_a: int, seat_b: int, home_seat: int) -> int:
 		"seat_b": seat_b,
 		"home_seat": home_seat,
 		"deputy_seat": deputy,
+		"a_owner_seat": oa,
+		"b_owner_seat": ob,
 		"seeds": seeds,
 	})
 	NetSessionDebug.log_event(
 		"net.deputy.pick",
-		"serial=%d a=%d b=%d deputy=%d" % [_serial, seat_a, seat_b, deputy]
+		"serial=%d a=%d b=%d deputy=%d oa=%d ob=%d" % [_serial, seat_a, seat_b, deputy, oa, ob]
 	)
 	return _serial
 
 
-## SEMI_ASYNC §3.2 — deterministic deputy from the two combatant seats.
+## SEMI_ASYNC §3.2 — deputy is owner_seat for proxy (onnx/llm/legacy) seats.
 static func pick_deputy_seat(
 	match_seed: int,
 	round_or_serial: int,
 	seat_a: int,
 	seat_b: int,
-	a_is_ai: bool = false,
-	b_is_ai: bool = false
+	a_owner_seat: int = -1,
+	b_owner_seat: int = -1
 ) -> int:
-	if a_is_ai and not b_is_ai:
-		return seat_b
-	if b_is_ai and not a_is_ai:
-		return seat_a
-	if a_is_ai and b_is_ai:
-		return -1 ## Room host must simulate.
+	var oa: int = a_owner_seat if a_owner_seat >= 0 else seat_a
+	var ob: int = b_owner_seat if b_owner_seat >= 0 else seat_b
+	var a_proxy: bool = oa != seat_a
+	var b_proxy: bool = ob != seat_b
+	if a_proxy and b_proxy:
+		if oa == ob:
+			return oa
+		var lo_o: int = mini(oa, ob)
+		var hi_o: int = maxi(oa, ob)
+		var key_o: String = "%d|deputy|%d|%d|%d" % [match_seed, round_or_serial, lo_o, hi_o]
+		var ho: int = hash(key_o)
+		if ho < 0:
+			ho = -ho
+		return lo_o if (ho % 2) == 0 else hi_o
+	if a_proxy:
+		return oa
+	if b_proxy:
+		return ob
 	var lo: int = mini(seat_a, seat_b)
 	var hi: int = maxi(seat_a, seat_b)
 	var key: String = "%d|deputy|%d|%d|%d" % [match_seed, round_or_serial, lo, hi]
@@ -84,46 +100,6 @@ func enqueue_pve(seat: int, task: String) -> int:
 	return _serial
 
 
-## MULTIPLAYER_MATCH_FLOW §5.0 — both seats ai_player: no CombatResolver, dual win + kill gold.
-func enqueue_ai_vs_ai_instant(seat_a: int, seat_b: int, ships_a: int, ships_b: int, kill_gold_per_ship: int) -> int:
-	_serial += 1
-	var kg: int = maxi(0, kill_gold_per_ship)
-	var sa: int = maxi(0, ships_a)
-	var sb: int = maxi(0, ships_b)
-	_pending.append({
-		"serial": _serial,
-		"kind": "pvp_ai_instant",
-		"seat_a": seat_a,
-		"seat_b": seat_b,
-		"home_seat": -1,
-		"deputy_seat": -1,
-		"ships_a": sa,
-		"ships_b": sb,
-		"kill_gold_per_ship": kg,
-		"gold_a": sb * kg,
-		"gold_b": sa * kg,
-		"seeds": {},
-	})
-	return _serial
-
-
-## MULTIPLAYER_MATCH_FLOW §5.0 — ai_player PVE: no creeps / CombatResolver; seat wins + kill gold.
-func enqueue_ai_pve_instant(seat: int, ships: int, kill_gold_per_ship: int) -> int:
-	_serial += 1
-	var kg: int = maxi(0, kill_gold_per_ship)
-	var sh: int = maxi(0, ships)
-	_pending.append({
-		"serial": _serial,
-		"kind": "pve_ai_instant",
-		"seat": seat,
-		"ships": sh,
-		"kill_gold_per_ship": kg,
-		"gold": sh * kg,
-		"seeds": {},
-	})
-	return _serial
-
-
 func tick_authority(_logic_dt: float) -> void:
 	## Resolve up to budget jobs per authority tick (deterministic report from MatchRng).
 	var n: int = 0
@@ -138,46 +114,6 @@ func tick_authority(_logic_dt: float) -> void:
 func _simulate_job(job: Dictionary) -> Dictionary:
 	var serial: int = TypedVariant.as_int(job.get("serial", 0), 0)
 	var kind: String = str(job.get("kind", ""))
-	if kind == "pvp_ai_instant":
-		var gold_a: int = TypedVariant.as_int(job.get("gold_a", 0), 0)
-		var gold_b: int = TypedVariant.as_int(job.get("gold_b", 0), 0)
-		return {
-			"serial": serial,
-			"kind": kind,
-			"result": "dual_win",
-			"seat_a": TypedVariant.as_int(job.get("seat_a", -1), -1),
-			"seat_b": TypedVariant.as_int(job.get("seat_b", -1), -1),
-			"ships_a": TypedVariant.as_int(job.get("ships_a", 0), 0),
-			"ships_b": TypedVariant.as_int(job.get("ships_b", 0), 0),
-			"gold_a": gold_a,
-			"gold_b": gold_b,
-			"job": job,
-			"deputy_seat": -1,
-			"skip_titan": true,
-			"state_hash": "%08x" % hash("pvp_ai_instant:dual_win:%d:%d:%d:%d" % [
-				TypedVariant.as_int(job.get("seat_a", -1), -1),
-				TypedVariant.as_int(job.get("seat_b", -1), -1),
-				gold_a,
-				gold_b,
-			]),
-			"spot_sample": [{"kind": kind, "result": "dual_win"}],
-		}
-	if kind == "pve_ai_instant":
-		var gold: int = TypedVariant.as_int(job.get("gold", 0), 0)
-		var seat: int = TypedVariant.as_int(job.get("seat", -1), -1)
-		return {
-			"serial": serial,
-			"kind": kind,
-			"result": "win",
-			"seat": seat,
-			"ships": TypedVariant.as_int(job.get("ships", 0), 0),
-			"gold": gold,
-			"job": job,
-			"deputy_seat": -1,
-			"skip_titan": true,
-			"state_hash": "%08x" % hash("pve_ai_instant:win:%d:%d" % [seat, gold]),
-			"spot_sample": [{"kind": kind, "result": "win"}],
-		}
 	## Lightweight authority outcome from battle seeds (full board sim shares CombatResolver on host client).
 	var roll_a: float = 0.5
 	var roll_b: float = 0.5

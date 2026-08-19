@@ -6,6 +6,8 @@
   "capacitor_recharge_s": 500.0,
   "cost": 7.0,
   "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
   "echoes_item_id": 10404000003.0,
   "fetter_ids": [
     "gallente",
@@ -15,7 +17,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 9,
+  "hi_slots": 9.0,
   "id": 54.0,
   "is_logistic": true,
   "is_unmanned": false,
@@ -24,6 +26,7 @@
   "med_slots": 4.0,
   "mid_battle_leave_allowed": false,
   "model_key": "glt_bulutikesi",
+  "model_size_compensate": 0.8,
   "name": "布鲁提克斯级后勤型",
   "name_en": "Brutix",
   "race": "gallente",
@@ -124,7 +127,5 @@
   "unmanned_kind": "",
   "visual": {},
   "weapon_fx": "heal",
-  "weapon_tier": "large",
-  "drone_bay_slots": 0.0,
-  "drone_count_cap": 0.0
+  "weapon_tier": "large"
 }

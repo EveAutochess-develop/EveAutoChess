@@ -62,6 +62,7 @@ func _ensure_global_helpers() -> void:
 	## class_name scripts used widely; isolated source_code compile can miss them if not touched yet.
 	var helpers: PackedStringArray = PackedStringArray([
 		"res://scripts/core/typed_variant.gd",
+		"res://scripts/ai/weight_driven_ai.gd",
 		"res://scripts/ship/ship_weapon_derive.gd",
 		"res://scripts/visual/ship_look.gd",
 		"res://scripts/combat/combat_formulas.gd",

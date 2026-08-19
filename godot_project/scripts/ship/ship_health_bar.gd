@@ -1229,7 +1229,7 @@ func _apply_visuals() -> void:
 	if fx:
 		var period: float = 12.0
 		if DataStore:
-			period = maxf(0.5, __as_float(DataStore.visual.get("camera_breathe_period_s", 12.0), 12.0))
+			period = maxf(0.5, __as_float(DataStore.visual.get("camera_breathe_period_s", 24.0), 24.0))
 		var th: float = Time.get_ticks_msec() * 0.001 * TAU / period
 		pulse = 1.0 + TRAIL_PULSE_AMP * sin(th)
 	if _style_bars:

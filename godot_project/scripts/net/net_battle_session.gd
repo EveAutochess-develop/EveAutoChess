@@ -49,8 +49,6 @@ var _pending_events: Array = []
 var owner_seat: int = 0
 ## SEMI_ASYNC §3.1a — guest only paints authority; skip gap bookkeeping.
 var watch_only_apply: bool = false
-## Optional: Callable(seat_id) -> int manned field count for AI seats without fleet cache.
-var manned_count_fn: Callable = Callable()
 var _applying_authority: bool = false
 
 ## §3.4 — light cadence runs on the wall clock, not on tick modulo.
@@ -200,7 +198,7 @@ func on_local_battle_begin() -> void:
 	if NullsecNetSession.is_lowsec(security_mode):
 		## Lowsec: single PVP job on host home between the two contenders.
 		if contenders.size() >= 2:
-			_enqueue_pvp_or_ai_instant(
+			_enqueue_pvp(
 				TypedVariant.as_int(contenders[0], 0),
 				TypedVariant.as_int(contenders[1], 0)
 			)
@@ -223,7 +221,7 @@ func on_local_battle_begin() -> void:
 					continue
 				used[a] = true
 				used[b] = true
-				_enqueue_pvp_or_ai_instant(a, b)
+				_enqueue_pvp(a, b)
 			var bye: int = TypedVariant.as_int(mu.get("bye_seat", -1), -1)
 			if bye >= 0:
 				_enqueue_ai_pve_or_human_pve(bye, round_r)
@@ -244,74 +242,69 @@ func on_local_battle_begin() -> void:
 				else:
 					used[a2] = true
 					used[b2] = true
-					_enqueue_pvp_or_ai_instant(a2, b2)
+					_enqueue_pvp(a2, b2)
 	else:
 		## Nullsec PVE: humans sim creeps on-device (SEMI_ASYNC §3.2).
-		## AI seats: instant win + kill gold (MATCH_FLOW §5.0) — no HostSim creep job.
+		## Proxy seats enqueue real PVE (owner simulates); no instant skip.
 		for seat_v: Variant in contenders:
 			var seat: int = TypedVariant.as_int(seat_v, -1)
 			if seat < 0:
 				continue
-			if not _pending_seat_is_ai(seat):
+			if not _pending_seat_is_proxy(seat):
 				continue
-			_enqueue_ai_pve_instant(seat)
+			_enqueue_pve_job(seat, round_r)
 		if host_sim.pending_count() == 0:
 			_awaiting_titan = false
 
 
 func _enqueue_ai_pve_or_human_pve(seat: int, round_r: int) -> void:
-	if _pending_seat_is_ai(seat):
-		_enqueue_ai_pve_instant(seat)
-		return
+	_enqueue_pve_job(seat, round_r)
+
+
+func _enqueue_pve_job(seat: int, round_r: int) -> void:
 	var task: String = NullsecPveDirector.roll_pve_task(match_rng, 0, round_r)
-	host_sim.enqueue_pve(seat, task)
+	_active_serial = host_sim.enqueue_pve(seat, task)
 
 
-func _enqueue_ai_pve_instant(seat: int) -> void:
-	var ships: int = _manned_field_count_for_seat(seat)
-	var kg: int = TypedVariant.as_int(DataStore.economy.get("kill_gold_per_ship", 1), 1)
-	_active_serial = host_sim.enqueue_ai_pve_instant(seat, ships, kg)
-	NetSessionDebug.log_event(
-		"net.ai_pve_instant",
-		"seat=%d ships=%d gold=%d" % [seat, ships, ships * kg]
+func _enqueue_pvp(seat_a: int, seat_b: int) -> void:
+	var home: int = seat_a if seat_a == host_seat or seat_b != host_seat else seat_b
+	_active_serial = host_sim.enqueue_pvp(
+		seat_a,
+		seat_b,
+		home,
+		_pending_seat_owner(seat_a),
+		_pending_seat_owner(seat_b)
 	)
 
 
-func _enqueue_pvp_or_ai_instant(seat_a: int, seat_b: int) -> void:
-	## Only ai_player ↔ ai_player skips combat (MATCH_FLOW §5.0). Human tables stay real.
-	if _pending_seat_is_ai(seat_a) and _pending_seat_is_ai(seat_b):
-		var ships_a: int = _manned_field_count_for_seat(seat_a)
-		var ships_b: int = _manned_field_count_for_seat(seat_b)
-		var kg: int = TypedVariant.as_int(DataStore.economy.get("kill_gold_per_ship", 1), 1)
-		_active_serial = host_sim.enqueue_ai_vs_ai_instant(seat_a, seat_b, ships_a, ships_b, kg)
-		NetSessionDebug.log_event(
-			"net.ai_instant",
-			"a=%d b=%d ships=%d/%d gold=%d/%d" % [
-				seat_a, seat_b, ships_a, ships_b, ships_b * kg, ships_a * kg
-			]
-		)
-		return
-	var home: int = seat_a if seat_a == host_seat or seat_b != host_seat else seat_b
-	_active_serial = host_sim.enqueue_pvp(seat_a, seat_b, home)
-
-
-func _pending_seat_is_ai(seat_id: int) -> bool:
+func _pending_seat_controller(seat_id: int) -> String:
 	for s_v: Variant in TypedVariant.as_array(GameSession.pending_nullsec.get("seats", [])):
 		var s: Dictionary = TypedVariant.as_dict(s_v)
-		if TypedVariant.as_int(s.get("seat_id", -1), -1) == seat_id:
-			return TypedVariant.as_bool(s.get("is_ai", false), false)
-	return false
+		if TypedVariant.as_int(s.get("seat_id", -1), -1) != seat_id:
+			continue
+		var c: String = str(s.get("controller", ""))
+		if c != "":
+			return c
+		if TypedVariant.as_bool(s.get("is_ai", false), false):
+			return "legacy_ai"
+		return "human"
+	return "human"
 
 
-func _manned_field_count_for_seat(seat_id: int) -> int:
-	## Prefer Prepare fleet cache (humans); AI seats fall back to estimate callback / 0.
-	if _net != null and _net.has_method("manned_field_count_cached"):
-		var cached_n: int = TypedVariant.as_int(_net.call("manned_field_count_cached", seat_id), 0)
-		if cached_n > 0:
-			return cached_n
-	if manned_count_fn.is_valid():
-		return maxi(0, TypedVariant.as_int(manned_count_fn.call(seat_id), 0))
-	return 0
+func _pending_seat_is_proxy(seat_id: int) -> bool:
+	return _pending_seat_controller(seat_id) != "human"
+
+
+func _pending_seat_owner(seat_id: int) -> int:
+	for s_v: Variant in TypedVariant.as_array(GameSession.pending_nullsec.get("seats", [])):
+		var s: Dictionary = TypedVariant.as_dict(s_v)
+		if TypedVariant.as_int(s.get("seat_id", -1), -1) != seat_id:
+			continue
+		var own: int = TypedVariant.as_int(s.get("owner_seat", -1), -1)
+		if own >= 0:
+			return own
+		return seat_id
+	return seat_id
 
 
 func _process(delta: float) -> void:

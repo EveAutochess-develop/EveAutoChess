@@ -1,6 +1,6 @@
 {
   "attack_cycle_s": 4.0,
-  "attack_weapon_slots": 7,
+  "attack_weapon_slots": 12.0,
   "capacitor_capacity": 50000.0,
   "capacitor_recharge_s": 3660.0,
   "capital_role": "dreadnought",
@@ -15,7 +15,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 7,
+  "hi_slots": 12.0,
   "hull_morph": "siege",
   "hull_morph_duration_s": 10.0,
   "id": 114.0,
@@ -25,6 +25,7 @@
   "med_slots": 4.0,
   "model_key": "mmte_najiafa",
   "model_long_axis": 548.5,
+  "model_size_compensate": 1.4,
   "name": "纳迦法级",
   "name_en": "Naglfar",
   "portrait": "res://assets/ui/ship_portraits_capital/naglfar.png",

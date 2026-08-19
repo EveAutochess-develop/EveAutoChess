@@ -76,24 +76,41 @@ static func as_array(v: Variant) -> Array:
 		return v as Array
 	## Packed*Array is not `Array`; WeaponSfxCatalog and similar bakers use PSA.
 	if v is PackedStringArray:
-		var psa: PackedStringArray = v
+		@warning_ignore("unsafe_cast")
+		var psa: PackedStringArray = v as PackedStringArray
 		var out_s: Array = []
 		out_s.resize(psa.size())
 		for i: int in range(psa.size()):
 			out_s[i] = psa[i]
 		return out_s
 	if v is PackedInt32Array:
-		var pia: PackedInt32Array = v
+		@warning_ignore("unsafe_cast")
+		var pia: PackedInt32Array = v as PackedInt32Array
 		var out_i: Array = []
 		out_i.resize(pia.size())
 		for i2: int in range(pia.size()):
 			out_i[i2] = pia[i2]
 		return out_i
 	if v is PackedFloat32Array:
-		var pfa: PackedFloat32Array = v
+		@warning_ignore("unsafe_cast")
+		var pfa: PackedFloat32Array = v as PackedFloat32Array
 		var out_f: Array = []
 		out_f.resize(pfa.size())
 		for i3: int in range(pfa.size()):
 			out_f[i3] = pfa[i3]
 		return out_f
 	return []
+
+
+static func as_packed_f32(v: Variant) -> PackedFloat32Array:
+	if v is PackedFloat32Array:
+		@warning_ignore("unsafe_cast")
+		return v as PackedFloat32Array
+	return PackedFloat32Array()
+
+
+static func as_packed_bytes(v: Variant) -> PackedByteArray:
+	if v is PackedByteArray:
+		@warning_ignore("unsafe_cast")
+		return v as PackedByteArray
+	return PackedByteArray()

@@ -1,13 +1,13 @@
 {
   "agility": 3.2,
   "attack_cycle_s": 4.0,
-  "attack_weapon_slots": 3.0,
+  "attack_weapon_slots": 9,
   "capacitor_capacity": 400.0,
   "capacitor_recharge_s": 195.0,
   "cost": 3.0,
-  "drone_bandwidth": 0,
-  "drone_bay_slots": 0,
-  "drone_count_cap": 0,
+  "drone_bandwidth": 0.0,
+  "drone_bay_slots": 0.0,
+  "drone_count_cap": 0.0,
   "echoes_item_id": 0.0,
   "faction_ship": true,
   "fetter_ids": [
@@ -18,7 +18,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 3.0,
+  "hi_slots": 9,
   "id": 816.0,
   "is_logistic": false,
   "low_slots": 3.0,
@@ -48,75 +48,75 @@
       "armor_hp": 590.0,
       "armor_resist": {
         "emp": 0.5,
-        "thermal": 0.45,
+        "explosive": 0.1,
         "kinetic": 0.25,
-        "explosive": 0.1
+        "thermal": 0.45
       },
       "attack_range": 999.0,
       "is_logistic": false,
       "shield_hp": 680.0,
       "shield_resist": {
         "emp": 0.0,
-        "thermal": 0.2,
+        "explosive": 0.5,
         "kinetic": 0.4,
-        "explosive": 0.5
+        "thermal": 0.2
       },
       "structure_hp": 560.0,
       "structure_resist": {
         "emp": 0.33,
-        "thermal": 0.33,
+        "explosive": 0.33,
         "kinetic": 0.33,
-        "explosive": 0.33
+        "thermal": 0.33
       }
     },
     {
       "armor_hp": 1180.0,
       "armor_resist": {
         "emp": 0.5,
-        "thermal": 0.45,
+        "explosive": 0.1,
         "kinetic": 0.25,
-        "explosive": 0.1
+        "thermal": 0.45
       },
       "attack_range": 999.0,
       "is_logistic": false,
       "shield_hp": 1360.0,
       "shield_resist": {
         "emp": 0.0,
-        "thermal": 0.2,
+        "explosive": 0.5,
         "kinetic": 0.4,
-        "explosive": 0.5
+        "thermal": 0.2
       },
       "structure_hp": 1120.0,
       "structure_resist": {
         "emp": 0.33,
-        "thermal": 0.33,
+        "explosive": 0.33,
         "kinetic": 0.33,
-        "explosive": 0.33
+        "thermal": 0.33
       }
     },
     {
       "armor_hp": 1770.0,
       "armor_resist": {
         "emp": 0.5,
-        "thermal": 0.45,
+        "explosive": 0.1,
         "kinetic": 0.25,
-        "explosive": 0.1
+        "thermal": 0.45
       },
       "attack_range": 999.0,
       "is_logistic": false,
       "shield_hp": 2040.0,
       "shield_resist": {
         "emp": 0.0,
-        "thermal": 0.2,
+        "explosive": 0.5,
         "kinetic": 0.4,
-        "explosive": 0.5
+        "thermal": 0.2
       },
       "structure_hp": 1680.0,
       "structure_resist": {
         "emp": 0.33,
-        "thermal": 0.33,
+        "explosive": 0.33,
         "kinetic": 0.33,
-        "explosive": 0.33
+        "thermal": 0.33
       }
     }
   ],

@@ -1,0 +1,15 @@
+{
+  "schema_ver": "1",
+  "content_rev": "ships:124",
+  "target": "cpu",
+  "security_mode": "both",
+  "model_bundle_hash": "6b123bb63293f89d2fe54eeba12e031e1a2103bca0a4a71ad8a24da041da9166",
+  "nets": [
+    "titan",
+    "match_global",
+    "ops",
+    "shop",
+    "fit",
+    "place"
+  ]
+}

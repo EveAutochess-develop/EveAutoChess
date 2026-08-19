@@ -247,7 +247,7 @@ func _find_own_secondary_chrome(host: Control) -> Node:
 		if nm.begins_with("Branch_"):
 			## Nested 单机/联机 rows — their plates are not this host's frame.
 			continue
-		var hit: Node = _find_chrome_excluding_names(ch, ["LoadTertiary", "HistoryTertiary"])
+		var hit: Node = _find_chrome_excluding_names(ch, ["LoadTertiary", "HistoryTertiary", "DrillTertiary"])
 		if hit != null:
 			return hit
 	return null
@@ -278,7 +278,7 @@ func _collect_secondary_buttons(host: Control) -> Array[Control]:
 func _collect_secondary_buttons_rec(n: Node, out: Array[Control]) -> void:
 	var nm: String = str(n.name)
 	if nm.begins_with("BranchReveal") or nm.begins_with("BranchMindmap") \
-			or nm == "LoadTertiary" or nm == "HistoryTertiary":
+			or nm == "LoadTertiary" or nm == "HistoryTertiary" or nm == "DrillTertiary":
 		return
 	if n is Control and not (n as Control).visible:
 		## Hidden mode columns under 开始游戏 must not steal 1→N targets.
@@ -392,7 +392,7 @@ func _collect_buttons_outside_chrome(host: Control) -> Array[Control]:
 func _collect_buttons_outside_chrome_rec(n: Node, out: Array[Control]) -> void:
 	var nm: String = str(n.name)
 	if nm.begins_with("BranchReveal") or nm.begins_with("BranchMindmap") \
-			or nm == "LoadTertiary" or nm == "HistoryTertiary":
+			or nm == "LoadTertiary" or nm == "HistoryTertiary" or nm == "DrillTertiary":
 		return
 	## Do not descend into the plate — only框外钮.
 	if nm == "SecondaryChrome" or nm == "RectBackdrop":

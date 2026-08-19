@@ -16,7 +16,7 @@
   "function_slots": {
     "slots": []
   },
-  "hi_slots": 4,
+  "hi_slots": 5,
   "id": 13.0,
   "is_logistic": false,
   "low_slots": 2.0,
@@ -36,7 +36,7 @@
   ],
   "signature_radius": 33.0,
   "sof_hull": "cf2_t1",
-  "source_module_type_id": 499,
+  "source_module_type_id": 499.0,
   "source_repair_module_type_id": 0.0,
   "speed": 400.0,
   "stars": [
