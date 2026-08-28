@@ -183,6 +183,8 @@ func _refresh_shop() -> void:
 		var eligible: Array = ShopController._eligible_ship_ids_for_level(ai_level, DataStore.ship_ids())
 		for sid_v: Variant in eligible:
 			var sid_m: int = TypedVariant.as_int(sid_v, 0)
+			if not ShopController.ship_participates_shop_pity(sid_m):
+				continue
 			if not TypedVariant.as_bool(_id_pity_seen_ships.get(sid_m, false), false):
 				force_ids.append(sid_m)
 		force_ids.shuffle()
@@ -206,6 +208,8 @@ func _refresh_shop() -> void:
 			force_i += 1
 			for cand: Variant in eligible2:
 				var cid: int = TypedVariant.as_int(cand, 0)
+				if not ShopController.ship_participates_shop_pity(cid):
+					continue
 				if TypedVariant.as_int(seen_counts.get(cid, 0), 0) >= max_same:
 					continue
 				if ShopController.ship_tonnage_key(cid) == want:
@@ -222,7 +226,10 @@ func _refresh_shop() -> void:
 		_pity_seen_tonnage.clear()
 	for slot: Variant in shop_slots:
 		var slot_dict: Dictionary = TypedVariant.as_dict(slot)
-		var key: String = ShopController.ship_tonnage_key(TypedVariant.as_int(slot_dict.get("ship_id", 0), 0))
+		var sid_rec: int = TypedVariant.as_int(slot_dict.get("ship_id", 0), 0)
+		if not ShopController.ship_participates_shop_pity(sid_rec):
+			continue
+		var key: String = ShopController.ship_tonnage_key(sid_rec)
 		if key != "":
 			_pity_seen_tonnage[key] = true
 	_pity_refresh_count += 1
@@ -232,7 +239,7 @@ func _refresh_shop() -> void:
 		var epool: Array = DataStore.function_module_shop_pool_ids_for_level(ai_level)
 		for id_v: Variant in epool:
 			var id_s: String = str(id_v)
-			if id_s != "" and not TypedVariant.as_bool(_id_pity_seen_equips.get(id_s, false), false):
+			if id_s != "" and ShopController.equip_participates_shop_pity(id_s) and not TypedVariant.as_bool(_id_pity_seen_equips.get(id_s, false), false):
 				force_equip_ids.append(id_s)
 		force_equip_ids.shuffle()
 	if _id_pity_refresh_count >= id_window:
@@ -242,7 +249,7 @@ func _refresh_shop() -> void:
 	for slot2: Variant in shop_slots:
 		var sd2: Dictionary = TypedVariant.as_dict(slot2)
 		var sid2: int = TypedVariant.as_int(sd2.get("ship_id", 0), 0)
-		if sid2 > 0:
+		if sid2 > 0 and ShopController.ship_participates_shop_pity(sid2):
 			_id_pity_seen_ships[sid2] = true
 	_id_pity_refresh_count += 1
 	_roll_equipment_shop(force_equip_ids)
@@ -263,7 +270,7 @@ func _ai_pick_ship_id_pity(pool: Array) -> int:
 		var weight: float = float(maxi(1, pr_window + 1 - recent))
 		if want_race != "" and ShopController._ship_race_key(sid_i) == want_race:
 			weight *= race_mul
-		if not TypedVariant.as_bool(_id_pity_seen_ships.get(sid_i, false), false):
+		if ShopController.ship_participates_shop_pity(sid_i) and not TypedVariant.as_bool(_id_pity_seen_ships.get(sid_i, false), false):
 			weight *= 1.0 + float(_id_pity_refresh_count)
 		var w_i: int = maxi(1, roundi(weight * 100.0))
 		weighted.append({"ship_id": sid_i, "weight": w_i})
@@ -309,8 +316,16 @@ func _roll_equipment_shop(force_ids: Array = []) -> void:
 	var remaining_refreshes: int = window - pos
 	var missing: Array = []
 	for cat: Variant in by_cat.keys():
-		if not TypedVariant.as_bool(_equip_pity_seen_cat.get(cat, false), false):
-			missing.append(cat)
+		var cat_s: String = str(cat)
+		var has_pity: bool = false
+		for id_v: Variant in TypedVariant.as_array(by_cat[cat_s]):
+			if ShopController.equip_participates_shop_pity(str(id_v)):
+				has_pity = true
+				break
+		if not has_pity:
+			continue
+		if not TypedVariant.as_bool(_equip_pity_seen_cat.get(cat_s, false), false):
+			missing.append(cat_s)
 	var force_cats: Array = []
 	if not missing.is_empty():
 		var later_capacity: int = maxi(0, remaining_refreshes - 1) * count
@@ -333,15 +348,20 @@ func _roll_equipment_shop(force_ids: Array = []) -> void:
 			var cat2: String = str(force_cats[force_i])
 			force_i += 1
 			var arr: Array = TypedVariant.as_array(by_cat.get(cat2, []))
-			if not arr.is_empty():
-				pick = str(arr[randi() % arr.size()])
+			var pity_arr: Array = []
+			for id_c: Variant in arr:
+				if ShopController.equip_participates_shop_pity(str(id_c)):
+					pity_arr.append(str(id_c))
+			var pick_arr: Array = pity_arr if not pity_arr.is_empty() else arr
+			if not pick_arr.is_empty():
+				pick = str(pick_arr[randi() % pick_arr.size()])
 		if pick == "" and not pool.is_empty():
 			var total: int = 0
 			var weighted: Array = []
 			for pid_v: Variant in pool:
 				var pid: String = str(pid_v)
 				var w: float = 1.0
-				if not TypedVariant.as_bool(_id_pity_seen_equips.get(pid, false), false):
+				if ShopController.equip_participates_shop_pity(pid) and not TypedVariant.as_bool(_id_pity_seen_equips.get(pid, false), false):
 					w *= 1.0 + float(maxi(0, _id_pity_refresh_count - 1))
 				var wi: int = maxi(1, roundi(w * 100.0))
 				weighted.append({"id": pid, "weight": wi})
@@ -357,7 +377,7 @@ func _roll_equipment_shop(force_ids: Array = []) -> void:
 			if pick == "":
 				pick = str(pool[randi() % pool.size()])
 		equipment_slots.append({"id": pick, "purchased": false})
-		if pick != "":
+		if pick != "" and ShopController.equip_participates_shop_pity(pick):
 			var seen_cat: String = DataStore.function_module_shop_category(pick)
 			if seen_cat != "" and by_cat.has(seen_cat):
 				_equip_pity_seen_cat[seen_cat] = true
@@ -486,14 +506,20 @@ func _roll_ship_id(seen_counts: Dictionary = {}) -> int:
 	var sid: int = ShopController.roll_ship_id_for_level(
 		ai_level, _match.battle_game_stage_count, seen_counts, _recent_shop_hits, _ai_titan_race()
 	)
-	## Soft reweight: if unseen, occasionally swap toward an unseen eligible (ramp already in force path).
-	if sid > 0 and not TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false):
+	## Soft reweight: if unseen pity hull, occasionally swap toward an unseen eligible.
+	## Mod hulls without shop_pity are never soft-forced (MODS §3.2).
+	if sid > 0 and (
+		not ShopController.ship_participates_shop_pity(sid)
+		or not TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false)
+	):
 		return sid
 	var eligible: Array = ShopController._eligible_ship_ids_for_level(ai_level, DataStore.ship_ids())
 	var unseen: Array = []
 	var max_same: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_max_same_ship_per_refresh", 2), 2))
 	for sid_v: Variant in eligible:
 		var s: int = TypedVariant.as_int(sid_v, 0)
+		if not ShopController.ship_participates_shop_pity(s):
+			continue
 		if TypedVariant.as_int(seen_counts.get(s, 0), 0) >= max_same:
 			continue
 		if not TypedVariant.as_bool(_id_pity_seen_ships.get(s, false), false):

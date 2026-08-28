@@ -7,9 +7,12 @@ var _board: BoardController
 var _active: bool = false
 ## SEMI_ASYNC §3.1a — guest watch-only: skip local drone/aux spawn; authority rebuilds them.
 var authority_only: bool = false
+## MATCH_FLOW §2.1 high-speed presentation LOD (set each frame from MatchController).
+var _high_speed_presentation: bool = false
 var _retarget_acc: float = 0.0
 var _combat_sim_time: float = 0.0
 var _fx: Object = null  # FiringFx
+var _interaction_fx: Object = null  # InteractionFxPlayer
 var _missile_queue: Array = []  # {pos, source_id, target_id, damage, speed_cells_per_s, source_ship_id?}
 var _float_text: FloatTextPool
 ## Capital attack probes (COMBAT §15.5): iid:reason -> last sim_s; iid -> stats logged.
@@ -71,9 +74,10 @@ const RACE_DRONE_HEAVY: Dictionary = {
 }
 const DRONE_COUNT_EXCEPTIONS: Dictionary = {42: 5, 44: 4, 55: 4, 56: 5}
 
-func bind(board: BoardController, fx: Object = null) -> void:
+func bind(board: BoardController, fx: Object = null, interaction_fx: Object = null) -> void:
 	_board = board
 	_fx = fx
+	_interaction_fx = interaction_fx
 	AdminBus.register_handler(&"combat.hit", _on_hit)
 	AdminBus.register_handler(&"combat.heal", _on_heal)
 	if _float_text == null:
@@ -1118,6 +1122,9 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 					)
 			else:
 				FunctionFit.on_attack_miss(s)
+				## COMBAT §6 / §11.1 — miss still floats "0" on target via damage channel.
+				if _float_text != null and tgt != null and is_instance_valid(tgt):
+					_float_text.add_damage(tgt.global_position, 0.0, tgt.get_instance_id())
 				if _is_atk_diag_subject(s):
 					SessionDiagnostics.log(
 						"atk.fire",
@@ -1125,10 +1132,42 @@ func _do_attack(s: ShipUnit, tgt: ShipUnit, dist_cells: float) -> void:
 							s.ship_id, tgt.ship_id, s.resolve_weapon_fx_kind(), raw_sum, dist_cells
 						]
 					)
-	if _fx != null and _fx.has_method("play"):
+	if _fx != null and _fx.has_method("play") and not _thin_weapon_fx():
 		_fx.call("play", s, tgt, s.resolve_weapon_fx_kind(), s.attack_duration, fx_travel_s, fx_speed_cells)
 	if s.has_method("advance_muzzle"):
 		s.advance_muzzle()
+
+
+func _battle_speed_mul() -> float:
+	var root: Node = get_tree().get_first_node_in_group("match_root") if get_tree() else null
+	if root == null:
+		return 1.0
+	var mc_v: Variant = root.get("match_ctrl")
+	if mc_v is Object:
+		@warning_ignore("unsafe_cast")
+		return maxf(0.05, TypedVariant.as_float((mc_v as Object).get("speed_multiplier"), 1.0))
+	return 1.0
+
+
+func _thin_weapon_fx() -> bool:
+	## MATCH_FLOW §2.1 — at ≥8× skip nonessential shot VFX so sim steps keep budget.
+	var from: float = TypedVariant.as_float(DataStore.match_flow.get("sim_high_speed_fx_from", 8.0), 8.0)
+	return _battle_speed_mul() + 0.001 >= from
+
+
+func set_high_speed_presentation(on: bool) -> void:
+	## Called from MatchController each Battle frame; turns trail/VFX LOD on/off.
+	if on == _high_speed_presentation:
+		return
+	_high_speed_presentation = on
+	EngineBoosterTrail.high_speed_skip = on
+	if on and _fx != null and _fx.has_method("clear_all"):
+		_fx.call("clear_all")
+	if on and _interaction_fx != null and _interaction_fx.has_method("clear_all"):
+		_interaction_fx.call("clear_all")
+	if on and _interaction_fx != null and _interaction_fx.has_method("clear_all"):
+		_interaction_fx.call("clear_all")
+
 
 func _tick_missiles(dt: float) -> void:
 	## Independent chase: constant cells/s toward live target (no stretch/shrink with relative motion).
@@ -1311,6 +1350,7 @@ func _on_hit(payload: Dictionary) -> Dictionary:
 			_fighter_hit_count += 1
 	if dealt > 0.0 and _float_text:
 		_float_text.add_damage(target.global_position, dealt, target.get_instance_id())
+	_play_interaction_burst("weapon_hit", src, target)
 	var destroyed: bool = TypedVariant.as_bool(res.get("destroyed", false), false)
 	## Combat kill only — mother-death orphan cull does not go through apply_hit.
 	if destroyed and target.is_unmanned and not authority_only:
@@ -2205,3 +2245,27 @@ func _tick_debris_contacts(delta: float) -> void:
 			if _float_text:
 				_float_text.add_damage(s.global_position, dealt, s.get_instance_id())
 		d_entry["hit_cd"] = cds
+
+
+func _play_interaction_burst(trigger: String, firer: ShipUnit, target: Node3D, fx_def: Dictionary = {}) -> void:
+	if _interaction_fx == null or not (_interaction_fx is Object):
+		return
+	if _thin_weapon_fx() and trigger == "weapon_hit":
+		return
+	if target == null or not is_instance_valid(target):
+		return
+	@warning_ignore("unsafe_cast")
+	var ixp: Object = _interaction_fx as Object
+	if not ixp.has_method("play_burst"):
+		return
+	var def: Dictionary = fx_def
+	if def.is_empty():
+		match trigger:
+			"weapon_hit":
+				if firer != null and target is ShipUnit:
+					def = InteractionFxResolve.resolve_for_weapon_hit(firer, target as ShipUnit)
+			_:
+				return
+	if def.is_empty():
+		return
+	ixp.call("play_burst", trigger, firer, target, def, -1.0)

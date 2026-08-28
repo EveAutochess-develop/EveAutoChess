@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cjt47pg7qti6s"]
+
+[ext_resource type="Script" path="res://scripts/dev/faction_batch_formation_preview.gd" id="1"]
+
+[node name="FactionBatchFormationPreview" type="Node3D" unique_id=1015719526]
+script = ExtResource("1")

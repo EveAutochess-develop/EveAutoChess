@@ -279,6 +279,8 @@ static func derive_attack(ship: Dictionary, _star: int = 1) -> Dictionary:
 static func merge_into_star(ship: Dictionary, star_row: Dictionary, star: int) -> Dictionary:
 	## Duplicate star row and overlay derived attack when equipment is resolvable.
 	var out: Dictionary = star_row.duplicate(true)
+	## Board engagement range: ship -1 inherits module; 0–999 overrides (COMBAT §3.1).
+	out["attack_range"] = resolve_attack_range(ship, star_row)
 	if star_row.is_empty() or not should_derive(ship):
 		return out
 	var derived: Dictionary = derive_attack(ship, star)
@@ -296,3 +298,67 @@ static func merge_into_star(ship: Dictionary, star_row: Dictionary, star: int) -
 		out["drf"] = derived["drf"]
 	out["_attack_cycle_s"] = derived["attack_cycle_s"]
 	return out
+
+
+## Board cells. Ship star `attack_range`: -1 → module; 0–999 → override; else clamp.
+static func resolve_attack_range(ship: Dictionary, star_row: Dictionary) -> float:
+	var has_field: bool = star_row.has("attack_range")
+	var raw: float = TypedVariant.as_float(star_row.get("attack_range", -1.0), -1.0)
+	## Missing or exact -1 → inherit equipment (COMBAT §3.1).
+	var inherit: bool = (not has_field) or is_equal_approx(raw, -1.0)
+	if not inherit:
+		return clampf(raw, 0.0, 999.0)
+	if uses_baked_star_attack(ship):
+		## Unmanned with inherit sentinel and no kit → safe 1 cell.
+		return 1.0
+	var fx: String = str(ship.get("weapon_fx", ""))
+	var logistic: bool = TypedVariant.as_bool(ship.get("is_logistic", false)) or fx == "heal"
+	var mid: int = resolve_repair_module_id(ship) if logistic else resolve_module_id(ship)
+	if mid > 0 and DataStore != null:
+		var mod: Dictionary = DataStore.get_module(mid)
+		if not mod.is_empty() and mod.has("attack_range"):
+			return clampf(TypedVariant.as_float(mod.get("attack_range", 1.0)), 0.0, 999.0)
+	return clampf(default_attack_range_cells(ship), 0.0, 999.0)
+
+
+## Fallback when module lacks `attack_range` (COMBAT §3.1 table).
+static func default_attack_range_cells(ship: Dictionary) -> float:
+	var fx: String = str(ship.get("weapon_fx", "")).to_lower()
+	if TypedVariant.as_bool(ship.get("is_logistic", false)) or fx == "heal":
+		match size_key(ship):
+			"large", "capital":
+				return 12.0
+			"cruiser":
+				return 8.0
+			_:
+				return 4.0
+	if fx == "missile" or size_key(ship) == "capital":
+		return 999.0
+	var sk: String = size_key(ship)
+	match fx:
+		"rail":
+			match sk:
+				"large":
+					return 10.0
+				"cruiser":
+					return 4.0
+				_:
+					return 2.0
+		"laser":
+			match sk:
+				"large":
+					return 13.0
+				"cruiser":
+					return 6.0
+				_:
+					return 3.0
+		"cannon":
+			match sk:
+				"large":
+					return 16.0
+				"cruiser":
+					return 8.0
+				_:
+					return 4.0
+		_:
+			return 1.0

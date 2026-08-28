@@ -31,18 +31,24 @@ signal scout_intel_received(target_seat: int, target_nick: String, summary: Dict
 ## Prepare live fleet sync + first-spend clock (SEMI_ASYNC §3.0 / §3.0d).
 signal prepare_fleet_snapshot_received(seat: int, ships: Array)
 signal prepare_clock_armed_changed(armed: bool)
+## MATCH_FLOW §2.1 — peer spent set changed; refresh spend-gate HUD naming.
+signal prepare_spend_mark_changed()
 ## SEMI_ASYNC §3.0a — all contestants finished Prepare timer; enter Battle together.
 signal enter_battle_released()
 signal urge_prepare_received()
 ## MULTIPLAYER_MATCH_FLOW §5.2 — host matchups + last_rival memory for this round.
 signal round_matchups_received(matchups: Dictionary, last_rival_by_seat: Dictionary, round_r: int)
 signal lobby_notice(message: String)
+## MODS.md — peer requests we install their enabled mods (approve UI).
+signal mod_install_request(from_peer: int, from_nick: String, ordered: Array, total_bytes: int, order_only: bool)
 ## Lobby / transfer — is_host flipped (UI: 功能 / 加人机 / 安等).
 signal host_role_changed(is_host_now: bool)
 ## SEMI_ASYNC §4.5 — any seat finished this round → remaining battles 4× + wall-clock draw.
 signal seat_battle_finished(seat: int) ## Manned only — arms §4.5; AI barrier marks stay silent.
 ## All barrier humans reported battle_done — clear conditional wall draw (§4.5).
 signal battle_done_all_ready()
+## SEMI_ASYNC §3.0a — host nudge: finish battle / report battle_done (anti-freeze).
+signal nudge_battle_done_received()
 ## MULTIPLAYER_PVP §7 — combined end-of-match report (settlement rows + §7.1 titles).
 signal match_report_received(report: Dictionary)
 ## MULTIPLAYER_PVP §7.0 — per-round standings (result / titles / WLD) for every contestant seat.
@@ -57,16 +63,12 @@ const BASE_PORT: int = 24567
 const DEFAULT_PORT: int = BASE_PORT ## Alias: beacon port; do not create_server here.
 const MAX_CLIENTS: int = 19
 const SEAT_TOTAL: int = 20
-## SEMI_ASYNC §5.3a — ENet idle disconnect floor ≥10s (LAN default min was 5s).
+## SEMI_ASYNC §5.3a — ENet idle disconnect: short enough for force-kill reclaim (was 10–45s).
 const ENET_TIMEOUT_LIMIT: int = 32
-const ENET_TIMEOUT_MIN_MS: int = 10000
-const ENET_TIMEOUT_MAX_MS: int = 45000
+const ENET_TIMEOUT_MIN_MS: int = 4000
+const ENET_TIMEOUT_MAX_MS: int = 12000
 const TITAN_RACE_SPECTATE: String = "spectate"
-const TITAN_RACES: Array = [
-	"caldari", "gallente", "minmatar", "amarr",
-	## 势力泰坦仅天使征服者（MULTIPLAYER_PVP §2）；非七族各一项。
-	"angel",
-]
+const TITAN_RACES: Array = [] ## Deprecated — use ModManager.titan_race_keys().
 const SECURITY_NULLSEC: String = "nullsec"
 const SECURITY_LOWSEC: String = "lowsec"
 
@@ -108,6 +110,10 @@ var last_known_reflexive_port: int = 0
 var last_known_reflexive_via: String = ""
 var pending_rejoin_seat: int = -1
 var pending_rejoin_secret: String = ""
+## MODS.md — peer_id -> digest fingerprint string
+var peer_mods_digest: Dictionary = {}
+## Inflight mod zip receive: transfer_id -> {package_name, chunks, count, zip_sha}
+var _mod_xfer_recv: Dictionary = {}
 ## Lobby seat0 handoff (SEMI_ASYNC §5.3a) — promote in flight on designate.
 var _transfer_take_seat0_inflight: bool = false
 var _migrating: bool = false
@@ -155,6 +161,8 @@ var _sync_cohort: PackedInt32Array = PackedInt32Array()
 var _barrier_diag_acc: float = 0.0
 ## Wall clock while battle_done / prep_done gate open (SEMI_ASYNC §3.0a pulse escape).
 var _barrier_open_wall_ms: int = 0
+## 0=idle · 1=nudged peers · 2=soft-marked (anti-freeze after desync).
+var _battle_done_escape_phase: int = 0
 const BARRIER_FORCE_ESCAPE_MS: int = 20000
 ## §7 end-of-match report collection (host authority; solo/no-peer emits immediately).
 var _match_report_gate_open: bool = false
@@ -253,7 +261,7 @@ static func random_room_password(length: int = 6) -> String:
 
 
 static func is_player_race(race: String) -> bool:
-	return race in TITAN_RACES
+	return ModManager.is_titan_player_race(race)
 
 
 static func is_spectate_race(race: String) -> bool:
@@ -432,10 +440,11 @@ func listen_port() -> int:
 
 
 ## LAN beacon announce join IP (SEMI_ASYNC §7.5).
-## Always re-score (ZeroTier may appear after host create; never stick on Wi‑Fi IP).
+## Host only: refresh last_known_host_ip. Guests must keep the real host endpoint
+## (join()/migrate RPCs) — advertise_lan_ip used to overwrite with self and poison rejoin tickets.
 func advertise_lan_ip() -> String:
 	var hip: String = _best_local_ip()
-	if hip != "" and hip != "127.0.0.1" and hip != "0.0.0.0":
+	if is_host and hip != "" and hip != "127.0.0.1" and hip != "0.0.0.0":
 		last_known_host_ip = hip
 	return "" if hip == "127.0.0.1" or hip == "0.0.0.0" else hip
 
@@ -597,6 +606,8 @@ func join(address: String, port: int, nick: String, expect_hash: String = "", pa
 		multiplayer.connected_to_server.connect(_on_connected_to_server)
 	if not multiplayer.server_disconnected.is_connected(_on_server_disconnected):
 		multiplayer.server_disconnected.connect(_on_server_disconnected)
+	if multiplayer.has_signal("connection_failed") and not multiplayer.connection_failed.is_connected(_on_connection_failed):
+		multiplayer.connection_failed.connect(_on_connection_failed)
 	return OK
 
 
@@ -623,6 +634,8 @@ func _start_host() -> Error:
 	last_known_host_ipv6 = _best_global_ipv6()
 	_listen_port = port_for_code(room_code)
 	_peer = ENetMultiplayerPeer.new()
+	## Android often binds [::] only; force IPv4 wildcard so 10.0.2.x ENet rejoin works.
+	_peer.set_bind_ip("0.0.0.0")
 	var err: Error = _peer.create_server(_listen_port, MAX_CLIENTS)
 	if err != OK:
 		_peer = null
@@ -635,6 +648,7 @@ func _start_host() -> Error:
 		multiplayer.peer_connected.connect(_on_peer_connected)
 	if not multiplayer.peer_disconnected.is_connected(_on_peer_disconnected):
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	SessionDiagnostics.log("net.host.listen", "port=%d bind=0.0.0.0" % _listen_port)
 	_occupy_seat(0, local_nick, multiplayer.get_unique_id(), false)
 	var host_row: Dictionary = _seat_row(0)
 	host_row["platform"] = opening_host_platform
@@ -702,6 +716,10 @@ func persist_across_scenes() -> void:
 
 func _on_peer_connected(id: int) -> void:
 	_apply_enet_timeout_to_peer(id)
+	SessionDiagnostics.log("net.peer_connected", "id=%d host=%s" % [id, is_host])
+	# #region agent log
+	_dbg_rejoin_agent("R7", "nullsec_net_session.gd:peer", "peer_connected", {"id": id, "host": is_host})
+	# #endregion
 	peer_joined.emit(id)
 	rpc_id(
 		id,
@@ -722,6 +740,14 @@ func _on_peer_connected(id: int) -> void:
 
 
 func _on_peer_disconnected(id: int) -> void:
+	SessionDiagnostics.log("net.peer_disconnected", "id=%d host=%s match=%s" % [
+		id, is_host, "1" if match_started else "0"
+	])
+	# #region agent log
+	_dbg_rejoin_agent("R7", "nullsec_net_session.gd:peer", "peer_disconnected", {
+		"id": id, "host": is_host, "match": match_started,
+	})
+	# #endregion
 	peer_left.emit(id)
 	for i: int in range(seats.size()):
 		if TypedVariant.as_int(_seat_row(i).get("peer_id", 0), 0) != id:
@@ -745,6 +771,31 @@ func _on_peer_disconnected(id: int) -> void:
 
 func _on_connected_to_server() -> void:
 	_apply_enet_timeout_to_peer(1)
+	SessionDiagnostics.log(
+		"net.connected_to_server",
+		"reclaim=%d path=%s" % [pending_rejoin_seat, str(get_path())]
+	)
+	# #region agent log
+	_dbg_rejoin_agent("R7", "nullsec_net_session.gd:peer", "connected_to_server", {
+		"reclaim": pending_rejoin_seat,
+		"path": str(get_path()),
+	})
+	# #endregion
+	## Defer one frame so SceneMultiplayer finishes peer setup before first reliable RPC.
+	call_deferred("_send_request_join_to_host")
+
+
+func _send_request_join_to_host() -> void:
+	if not multiplayer.has_multiplayer_peer():
+		return
+	SessionDiagnostics.log(
+		"net.request_join_tx",
+		"reclaim=%d secret=%s path=%s" % [
+			pending_rejoin_seat,
+			"yes" if pending_rejoin_secret != "" else "no",
+			str(get_path()),
+		]
+	)
 	rpc_id(
 		1,
 		"rpc_request_join",
@@ -755,6 +806,20 @@ func _on_connected_to_server() -> void:
 		pending_rejoin_secret,
 		pending_join_password
 	)
+
+
+func _on_connection_failed() -> void:
+	SessionDiagnostics.log(
+		"net.connection_failed",
+		"reclaim=%d ep=%s:%d" % [pending_rejoin_seat, last_known_host_ip, _listen_port]
+	)
+	# #region agent log
+	_dbg_rejoin_agent("R7", "nullsec_net_session.gd:peer", "connection_failed", {
+		"reclaim": pending_rejoin_seat,
+		"ep": "%s:%d" % [last_known_host_ip, _listen_port],
+	})
+	# #endregion
+	rejected.emit("connection_failed")
 
 
 func _on_server_disconnected() -> void:
@@ -875,11 +940,27 @@ func rpc_request_join(
 	secret: String = "",
 	password: String = ""
 ) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	SessionDiagnostics.log(
+		"net.request_join_rx",
+		"from=%d seat=%d secret=%s host=%s path=%s" % [
+			sender, rejoin_seat, "yes" if secret != "" else "no", is_host, str(get_path()),
+		]
+	)
+	# #region agent log
+	_dbg_rejoin_agent("R8", "nullsec_net_session.gd:join", "request_join_rx", {
+		"from": sender,
+		"rejoin_seat": rejoin_seat,
+		"has_secret": secret != "",
+		"host": is_host,
+		"path": str(get_path()),
+	})
+	# #endregion
 	if not is_host:
 		_heal_host_role_from_peer()
 		if not is_room_host():
+			SessionDiagnostics.log("net.request_join_rx", "drop not_room_host from=%d" % sender)
 			return
-	var sender: int = multiplayer.get_remote_sender_id()
 	## 现读，与开房时一致：只比内容版号字符串。
 	rules_hash = MatchRng.compute_rules_hash()
 	if client_hash != rules_hash:
@@ -893,6 +974,8 @@ func rpc_request_join(
 				"net.reject",
 				"reclaim_secret_mismatch seat=%d from=%d" % [rejoin_seat, sender]
 			)
+			rpc_id(sender, "rpc_join_rejected", "reclaim_secret_mismatch")
+			return
 		elif _try_reclaim_held_seat(rejoin_seat, nick, sender, platform):
 			if match_started:
 				rpc_id(sender, "rpc_rejoin_ok", rejoin_seat)
@@ -902,6 +985,21 @@ func rpc_request_join(
 				reclaim_payload["rejoin"] = true
 				if not reclaim_payload.is_empty():
 					rpc_id(sender, "rpc_match_start", reclaim_payload)
+				## SEMI_ASYNC §5.3a — push cached own + rival fleets so rejoiner is not empty-board.
+				_push_cached_fleet_to_peer(sender, rejoin_seat)
+				var rival_seat: int = contestant_rival_seat(rejoin_seat)
+				if rival_seat >= 0:
+					_push_cached_fleet_to_peer(sender, rival_seat)
+				# #region agent log
+				_dbg_rejoin_agent("R0", "nullsec_net_session.gd:reclaim", "host_reclaim_push", {
+					"seat": rejoin_seat,
+					"rival": rival_seat,
+					"own_n": TypedVariant.as_array(_prepare_fleet_cache.get(rejoin_seat, [])).size(),
+					"rival_n": TypedVariant.as_array(_prepare_fleet_cache.get(rival_seat, [])).size() if rival_seat >= 0 else -1,
+					"seats_n": seats.size(),
+					"payload_seats": TypedVariant.as_array(reclaim_payload.get("seats", [])).size(),
+				})
+				# #endregion
 			else:
 				rpc_id(sender, "rpc_join_accepted", rejoin_seat, false)
 			_broadcast_seats()
@@ -922,6 +1020,8 @@ func rpc_request_join(
 					str(TypedVariant.as_bool(_seat_row(rejoin_seat).get("ghost", false), false)),
 				]
 			)
+			rpc_id(sender, "rpc_join_rejected", "reclaim_held_fail")
+			return
 	if not room_password.is_empty() and str(password) != room_password:
 		rpc_id(sender, "rpc_join_rejected", "need_password")
 		return
@@ -1013,8 +1113,233 @@ func rpc_seats(payload: Array) -> void:
 func _broadcast_seats() -> void:
 	_heal_host_role_from_peer()
 	seat_sync.emit(seats)
+	_announce_local_mods_digest()
 	if is_room_host() and multiplayer != null and multiplayer.has_multiplayer_peer():
 		rpc("rpc_seats", seats.duplicate(true))
+
+
+func local_mods_fingerprint() -> String:
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		return ""
+	return mm.digest_fingerprint()
+
+
+## ENet connected → multiplayer unique id; offline drill / pre-peer → local seat peer_id.
+func _local_lobby_peer_id() -> int:
+	if multiplayer != null and multiplayer.has_multiplayer_peer():
+		return multiplayer.get_unique_id()
+	if local_seat >= 0 and local_seat < seats.size():
+		var pid: int = TypedVariant.as_int(_seat_row(local_seat).get("peer_id", 0), 0)
+		if pid > 0:
+			return pid
+	return 1
+
+
+func _announce_local_mods_digest() -> void:
+	var fp: String = local_mods_fingerprint()
+	var ordered: Array = []
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null:
+		ordered = mm.enabled_mods_ordered()
+	var local_pid: int = _local_lobby_peer_id()
+	peer_mods_digest[local_pid] = {
+		"fingerprint": fp,
+		"ordered": ordered,
+	}
+	if multiplayer != null and multiplayer.has_multiplayer_peer():
+		rpc("rpc_mods_digest", fp, ordered)
+
+
+@rpc("any_peer", "reliable")
+func rpc_mods_digest(fingerprint: String, ordered: Array) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	peer_mods_digest[sender] = {"fingerprint": fingerprint, "ordered": ordered}
+
+
+func _mods_digest_aligned() -> bool:
+	## Solo drill: no remote human peer — host DataStore already has local mods (MODS §5).
+	if offline_drill:
+		return true
+	_announce_local_mods_digest()
+	var local_fp: String = local_mods_fingerprint()
+	var local_pid: int = _local_lobby_peer_id()
+	## Collect human peer digests from seats
+	var fps: Dictionary = {}
+	fps[local_pid] = local_fp
+	for s_v: Variant in seats:
+		if not (s_v is Dictionary):
+			continue
+		var s: Dictionary = s_v
+		if not TypedVariant.as_bool(s.get("occupied", false), false):
+			continue
+		if seat_is_proxy(s):
+			continue
+		var peer_id: int = TypedVariant.as_int(s.get("peer_id", 0), 0)
+		if peer_id <= 0:
+			continue
+		if peer_id == local_pid:
+			fps[peer_id] = local_fp
+			continue
+		var info: Dictionary = TypedVariant.as_dict(peer_mods_digest.get(peer_id, {}))
+		fps[peer_id] = str(info.get("fingerprint", ""))
+	var first: String = ""
+	for pid_any: Variant in fps.keys():
+		var f: String = str(fps[pid_any])
+		if first == "":
+			first = f
+		elif f != first:
+			return false
+	return true
+
+
+func request_peer_install_mods(target_seat: int) -> void:
+	if match_started:
+		return
+	if target_seat < 0 or target_seat >= seats.size():
+		return
+	var row: Dictionary = _seat_row(target_seat)
+	if seat_is_proxy(row):
+		lobby_notice.emit("不能向人机请求安装 mod")
+		return
+	var peer_id: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+	if peer_id <= 0:
+		lobby_notice.emit("目标不在线")
+		return
+	var mm: ModManager = ModManager.get_or_null()
+	var ordered: Array = mm.enabled_mods_ordered() if mm != null else []
+	var total: int = 0
+	for e_any: Variant in ordered:
+		total += TypedVariant.as_int(TypedVariant.as_dict(e_any).get("byte_size", 0))
+	if mm != null and not mm.sync_total_bytes_ok(ordered):
+		lobby_notice.emit("已启用 mod 合计超过 10 GiB，无法联机同步")
+		return
+	var remote: Dictionary = TypedVariant.as_dict(peer_mods_digest.get(peer_id, {}))
+	var remote_fp: String = str(remote.get("fingerprint", ""))
+	var local_fp: String = local_mods_fingerprint()
+	## Same packages+hash, different order → order-only sync
+	var order_only: bool = false
+	if remote_fp != "" and local_fp != "":
+		var remote_ordered: Array = TypedVariant.as_array(remote.get("ordered", []))
+		if _mods_same_packages_hash(ordered, remote_ordered) and remote_fp != local_fp:
+			order_only = true
+	rpc_id(peer_id, "rpc_mods_install_request", local_nick, ordered, total, order_only)
+
+
+func _mods_same_packages_hash(a: Array, b: Array) -> bool:
+	if a.size() != b.size():
+		return false
+	var map_a: Dictionary = {}
+	for e_any: Variant in a:
+		var e: Dictionary = TypedVariant.as_dict(e_any)
+		map_a[str(e.get("package_name", ""))] = str(e.get("content_hash", ""))
+	for e2_any: Variant in b:
+		var e2: Dictionary = TypedVariant.as_dict(e2_any)
+		var pn: String = str(e2.get("package_name", ""))
+		if not map_a.has(pn) or str(map_a[pn]) != str(e2.get("content_hash", "")):
+			return false
+	return true
+
+
+@rpc("any_peer", "reliable")
+func rpc_mods_install_request(from_nick: String, ordered: Array, total_bytes: int, order_only: bool) -> void:
+	var sender: int = multiplayer.get_remote_sender_id()
+	## UI: show approve dialog via lobby_notice + deferred Accept on room — use signal with payload
+	mod_install_request.emit(sender, from_nick, ordered, total_bytes, order_only)
+
+
+func approve_mod_install(from_peer: int, ordered: Array, order_only: bool) -> void:
+	if order_only:
+		var mm: ModManager = ModManager.get_or_null()
+		if mm != null:
+			mm.apply_install_order_from_digest(ordered)
+			DataStore.reload_all()
+		_announce_local_mods_digest()
+		lobby_notice.emit("已对齐 mod 安装顺序")
+		return
+	rpc_id(from_peer, "rpc_mods_install_approved", multiplayer.get_unique_id())
+
+
+func reject_mod_install(from_peer: int) -> void:
+	rpc_id(from_peer, "rpc_mods_install_rejected")
+
+
+@rpc("any_peer", "reliable")
+func rpc_mods_install_rejected() -> void:
+	lobby_notice.emit("对方拒绝了 mod 安装请求")
+
+
+@rpc("any_peer", "reliable")
+func rpc_mods_install_approved(target_peer: int) -> void:
+	## We are the requester — push all enabled zips to target_peer
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		return
+	var ordered: Array = mm.enabled_mods_ordered()
+	for e_any: Variant in ordered:
+		var e: Dictionary = TypedVariant.as_dict(e_any)
+		var pn: String = str(e.get("package_name", ""))
+		var zp: String = mm.package_zip_path(pn)
+		if not FileAccess.file_exists(zp):
+			mm._repack_zip(pn)
+		if not FileAccess.file_exists(zp):
+			continue
+		var bytes: PackedByteArray = FileAccess.get_file_as_bytes(zp)
+		if bytes.size() > ModManager.SYNC_MAX_BYTES:
+			lobby_notice.emit("包过大无法同步：%s" % pn)
+			continue
+		var xfer_id: String = "%s-%d" % [pn, Time.get_ticks_msec()]
+		var chunk: int = 1024 * 1024
+		var count: int = int(ceili(float(bytes.size()) / float(chunk))) if bytes.size() > 0 else 1
+		var zip_sha: String = mm._sha256_hex(bytes)
+		for i: int in range(count):
+			var from_i: int = i * chunk
+			var to_i: int = mini(bytes.size(), from_i + chunk)
+			var part: PackedByteArray = bytes.slice(from_i, to_i)
+			rpc_id(target_peer, "rpc_mods_chunk", xfer_id, pn, i, count, zip_sha, part)
+	lobby_notice.emit("已发送 mod 包")
+
+
+@rpc("any_peer", "reliable")
+func rpc_mods_chunk(xfer_id: String, package_name: String, index: int, count: int, zip_sha: String, part: PackedByteArray) -> void:
+	if not _mod_xfer_recv.has(xfer_id):
+		_mod_xfer_recv[xfer_id] = {
+			"package_name": package_name,
+			"count": count,
+			"zip_sha": zip_sha,
+			"parts": {},
+		}
+	var st: Dictionary = TypedVariant.as_dict(_mod_xfer_recv[xfer_id])
+	var parts: Dictionary = TypedVariant.as_dict(st.get("parts", {}))
+	parts[index] = part
+	st["parts"] = parts
+	_mod_xfer_recv[xfer_id] = st
+	if parts.size() < count:
+		return
+	var assembled: PackedByteArray = PackedByteArray()
+	for i: int in range(count):
+		var chunk_v: Variant = parts.get(i, PackedByteArray())
+		var chunk_bytes: PackedByteArray = PackedByteArray()
+		if typeof(chunk_v) == TYPE_PACKED_BYTE_ARRAY:
+			chunk_bytes = chunk_v
+		assembled.append_array(chunk_bytes)
+	_mod_xfer_recv.erase(xfer_id)
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		return
+	var got_sha: String = mm._sha256_hex(assembled)
+	if got_sha != zip_sha:
+		lobby_notice.emit("mod 校验失败：%s" % package_name)
+		return
+	var res: Dictionary = mm.install_received_zip(assembled, package_name, true)
+	if not TypedVariant.as_bool(res.get("ok", false), false):
+		lobby_notice.emit("mod 安装失败：%s" % res.get("error", ""))
+		return
+	## Enable received package
+	mm.set_enabled(str(res.get("package_name", package_name)), true)
+	DataStore.reload_all()
+	_announce_local_mods_digest()
+	lobby_notice.emit("已安装对方 mod：%s" % package_name)
 
 
 func _first_free_seat() -> int:
@@ -1153,7 +1478,10 @@ func _proxy_auto_titan_race(pol: OnnxCpuPolicy, census: Dictionary = {}) -> Stri
 			return raced
 	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 	rng.randomize()
-	var pick_v: Variant = TITAN_RACES[rng.randi_range(0, TITAN_RACES.size() - 1)]
+	var races: Array = ModManager.titan_race_keys()
+	if races.is_empty():
+		return ""
+	var pick_v: Variant = races[rng.randi_range(0, races.size() - 1)]
 	return str(pick_v)
 
 
@@ -1545,6 +1873,10 @@ func rpc_set_ready(seat: int, is_ready: bool) -> void:
 func _try_start() -> void:
 	if match_started or _opening_hs_active:
 		return
+	## MODS.md §5 — all human seats must share ordered mod digest before opening.
+	if not _mods_digest_aligned():
+		lobby_notice.emit("Mod 不一致：请用席「功能」→请求对方安装我的mod（或同步安装顺序）后再开战")
+		return
 	var players: Array = []
 	for s_v: Variant in seats:
 		if not (s_v is Dictionary):
@@ -1888,7 +2220,96 @@ func _payload_for_spectate_join() -> Dictionary:
 			all_occupied.append(s)
 	p["seats"] = all_occupied
 	p["mid_join_spectate"] = true
+	## SEMI_ASYNC §5.3a — stamp live stage/round so rejoin does not boot at count=0.
+	## Prefer battle_stage_count (MatchController count). round_r may be 1-based display from matchups.
+	var sr: int = TypedVariant.as_int(GameSession.pending_nullsec.get("battle_stage_count", -1), -1)
+	var ss: String = str(GameSession.pending_nullsec.get("diag_stage", ""))
+	if sr < 0:
+		sr = TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", 0), 0)
+	if ss == "":
+		ss = "prepare"
+	p["sync_round"] = sr
+	p["sync_stage"] = ss
+	p["sync_armed"] = TypedVariant.as_bool(GameSession.pending_nullsec.get("diag_armed", false), false) or prepare_clock_armed
+	p["sync_task"] = str(GameSession.pending_nullsec.get("diag_task", ""))
+	## Carry pairing so rejoiner rival seat matches host.
+	var mu: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {}))
+	if not mu.is_empty():
+		p["round_matchups"] = mu
+	var last_riv: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("last_rival_by_seat", {}))
+	if not last_riv.is_empty():
+		p["last_rival_by_seat"] = last_riv
+	## R1 spend-gate snapshot so rejoiner + peers share wait HUD.
+	var spend_pending: bool = _prepare_spend_gate_open and not prepare_clock_armed
+	p["sync_spend_gate"] = spend_pending and sr == 0
+	var spent_list: Array = []
+	for k: Variant in _prepare_spent_seats.keys():
+		spent_list.append(TypedVariant.as_int(k, -1))
+	p["sync_spent_seats"] = spent_list
+	# #region agent log
+	_dbg_rejoin_agent("R12", "nullsec_net_session.gd:payload", "spectate_payload_sync", {
+		"sync_round": sr,
+		"sync_stage": ss,
+		"sync_armed": p["sync_armed"],
+		"sync_spend_gate": p["sync_spend_gate"],
+		"seats_n": all_occupied.size(),
+		"has_matchups": not mu.is_empty(),
+		"battle_stage_count": TypedVariant.as_int(GameSession.pending_nullsec.get("battle_stage_count", -1), -1),
+		"round_r": TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", -1), -1),
+	})
+	# #endregion
 	return p
+
+
+## MULTIPLAYER_PVP §7.0c — any seat: host broadcasts concede so peers settle the same round.
+func request_concede_round() -> void:
+	var seat: int = local_seat
+	if seat < 0:
+		seat = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	SessionDiagnostics.log("mp.concede_req", "seat=%d host=%s" % [seat, str(is_host)])
+	# #region agent log
+	_dbg_rejoin_agent("C1", "nullsec_net_session.gd:concede", "concede_req", {
+		"seat": seat,
+		"host": is_host,
+		"stage": str(GameSession.pending_nullsec.get("diag_stage", "")),
+		"round": TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", -1), -1),
+	})
+	# #endregion
+	if is_host:
+		_host_apply_concede(seat)
+		return
+	if multiplayer == null or not multiplayer.has_multiplayer_peer():
+		return
+	rpc_id(1, "rpc_request_concede", seat)
+
+
+@rpc("any_peer", "reliable")
+func rpc_request_concede(seat: int) -> void:
+	if not is_host:
+		return
+	var sender: int = multiplayer.get_remote_sender_id()
+	var row: Dictionary = _seat_row(seat)
+	if row.is_empty():
+		return
+	if TypedVariant.as_int(row.get("peer_id", 0), 0) != sender:
+		SessionDiagnostics.log("mp.concede_reject", "seat=%d sender=%d" % [seat, sender])
+		return
+	_host_apply_concede(seat)
+
+
+func _host_apply_concede(seat: int) -> void:
+	SessionDiagnostics.log("mp.concede_host", "seat=%d" % seat)
+	# #region agent log
+	_dbg_rejoin_agent("C2", "nullsec_net_session.gd:concede", "concede_host_broadcast", {
+		"seat": seat,
+		"round": TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", -1), -1),
+		"stage": str(GameSession.pending_nullsec.get("diag_stage", "")),
+	})
+	# #endregion
+	if multiplayer != null and multiplayer.has_multiplayer_peer():
+		rpc("rpc_battle_ended", "lose", seat, "concede")
+	## Host skips rpc_battle_ended body — emit locally so host settles too.
+	battle_ended_received.emit("lose", seat, "concede")
 
 
 @rpc("authority", "reliable")
@@ -1998,20 +2419,25 @@ func rpc_anticheat_notice(message: String) -> void:
 
 func make_invite_blob() -> String:
 	## Prefer real LAN IPv4; never encode 127.* (guests treat it as dead + "跨网" UX).
-	var ip: String = advertise_lan_ip()
-	if ip == "" or ip == "0.0.0.0" or ip.begins_with("127."):
-		ip = _best_local_ip()
+	## Guests encode the remembered host endpoint — never local IP (rejoin ticket poison).
+	var ip: String = ""
+	if is_host:
+		ip = advertise_lan_ip()
+		if ip == "" or ip == "0.0.0.0" or ip.begins_with("127."):
+			ip = _best_local_ip()
+	else:
+		ip = last_known_host_ip.strip_edges()
 	if ip.begins_with("127.") or ip == "0.0.0.0":
 		ip = ""
 	var ipv6: String = last_known_host_ipv6 if last_known_host_ipv6 != "" else _best_global_ipv6()
 	var extra: Dictionary = {
 		"password": room_password,
-		"ipv6": ipv6,
+		"ipv6": ipv6 if is_host else "",
 		"security_mode": security_mode,
 	}
 	## SEMI_ASYNC §7.2 — reflexive = STUN/UPnP mapped host address only.
 	## turn_urls stay join-order step ⑤; never stuff relay endpoints into reflexive.
-	if last_known_reflexive_ip != "" and last_known_reflexive_port > 0:
+	if is_host and last_known_reflexive_ip != "" and last_known_reflexive_port > 0:
 		extra["reflexive_ip"] = last_known_reflexive_ip
 		extra["reflexive_port"] = last_known_reflexive_port
 	LanJoinDebug.log_locals("invite_blob")
@@ -2024,8 +2450,9 @@ func make_invite_blob() -> String:
 				break
 	NetSessionDebug.log_event(
 		"net.lan.invite",
-		"code=%04d ip=%s zerotier=%s v6=%s ref=%s:%d" % [
-			room_code, ip, str(zt_hit), ipv6, last_known_reflexive_ip, last_known_reflexive_port
+		"code=%04d ip=%s zerotier=%s v6=%s ref=%s:%d host=%s" % [
+			room_code, ip, str(zt_hit), ipv6 if is_host else "-", last_known_reflexive_ip, last_known_reflexive_port,
+			"1" if is_host else "0",
 		]
 	)
 	return InviteBlobHelper.encode(ip, listen_port(), "%04d" % room_code, rules_hash, extra)
@@ -2122,8 +2549,30 @@ func _try_reclaim_held_seat(seat: int, nick: String, peer_id: int, platform: Str
 	var held_peer: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
 	var is_ghost: bool = TypedVariant.as_bool(row.get("ghost", false), false)
 	## Seat must be vacated on the wire (peer gone) or marked ghost.
+	## Force-kill leaves peer_id set until ENet timeout — drop stale wire peer for reclaim.
 	if held_peer != 0 and not is_ghost:
-		return false
+		var still_live: bool = _enet_peer_still_live(held_peer)
+		if still_live and held_peer != peer_id:
+			SessionDiagnostics.log(
+				"net.reclaim",
+				"force_drop_stale seat=%d old_peer=%d new=%d" % [seat, held_peer, peer_id]
+			)
+			# #region agent log
+			_dbg_rejoin_agent("R7", "nullsec_net_session.gd:reclaim", "force_drop_stale", {
+				"seat": seat, "old_peer": held_peer, "new_peer": peer_id,
+			})
+			# #endregion
+			if _peer != null:
+				_peer.disconnect_peer(held_peer)
+			row["peer_id"] = 0
+			row["ghost"] = true
+			is_ghost = true
+		elif not still_live:
+			row["peer_id"] = 0
+			row["ghost"] = true
+			is_ghost = true
+		else:
+			return false
 	row["ghost"] = false
 	row["peer_id"] = peer_id
 	row["nick"] = nick
@@ -2131,6 +2580,20 @@ func _try_reclaim_held_seat(seat: int, nick: String, peer_id: int, platform: Str
 	row["ready"] = is_player_race(str(row.get("titan_race", "")))
 	_capture_peer_endpoint(seat, peer_id)
 	return true
+
+
+func _enet_peer_still_live(peer_id: int) -> bool:
+	if peer_id <= 1 or not multiplayer.has_multiplayer_peer():
+		return false
+	var peers: PackedInt32Array = multiplayer.get_peers()
+	if not (peer_id in peers):
+		return false
+	if _peer == null:
+		return true
+	var ep: ENetPacketPeer = _peer.get_peer(peer_id) as ENetPacketPeer
+	if ep == null:
+		return false
+	return ep.get_state() == ENetPacketPeer.STATE_CONNECTED
 
 
 func _try_reclaim_ghost(seat: int, nick: String, peer_id: int, platform: String) -> bool:
@@ -2267,6 +2730,7 @@ func _promote_self_to_host(new_host_seat: int) -> void:
 	var err: Error = FAILED
 	for _attempt: int in range(24):
 		_peer = ENetMultiplayerPeer.new()
+		_peer.set_bind_ip("0.0.0.0")
 		err = _peer.create_server(_listen_port, MAX_CLIENTS)
 		if err == OK:
 			break
@@ -2361,6 +2825,8 @@ func _teardown_peer_only() -> void:
 			multiplayer.connected_to_server.disconnect(_on_connected_to_server)
 		if multiplayer.server_disconnected.is_connected(_on_server_disconnected):
 			multiplayer.server_disconnected.disconnect(_on_server_disconnected)
+		if multiplayer.has_signal("connection_failed") and multiplayer.connection_failed.is_connected(_on_connection_failed):
+			multiplayer.connection_failed.disconnect(_on_connection_failed)
 		if multiplayer.peer_connected.is_connected(_on_peer_connected):
 			multiplayer.peer_connected.disconnect(_on_peer_connected)
 		if multiplayer.peer_disconnected.is_connected(_on_peer_disconnected):
@@ -2376,6 +2842,7 @@ func close() -> void:
 	_teardown_peer_only()
 	is_host = false
 	offline_drill = false
+	peer_mods_digest.clear()
 	local_seat = -1
 	match_started = false
 	last_match_payload = {}
@@ -2449,6 +2916,13 @@ func manned_field_count_cached(seat: int) -> int:
 	return n
 
 
+func cached_fleet_ship_count(seat: int) -> int:
+	if seat < 0:
+		return 0
+	@warning_ignore("unsafe_cast")
+	return (_prepare_fleet_cache.get(seat, []) as Array).size()
+
+
 func push_prepare_fleet_snapshot(ships: Array) -> void:
 	push_prepare_fleet_snapshot_for_seat(local_seat, ships)
 
@@ -2517,13 +2991,34 @@ func request_prepare_fleet_snapshot(seat: int) -> void:
 		return
 	print("[mp.diag] fleet_request seat=%d host=%s" % [seat, is_host])
 	SessionDiagnostics.log("mp.fleet_request", "seat=%d" % seat)
+	@warning_ignore("unsafe_cast")
+	var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
+	## Prefer local cache (e.g. host pushed on reclaim before MatchRoot wired).
+	if not cached.is_empty():
+		print("[mp.diag] fleet_request_cached seat=%d n=%d" % [seat, cached.size()])
+		prepare_fleet_snapshot_received.emit(seat, cached)
+		return
 	if is_host or not multiplayer.has_multiplayer_peer():
-		@warning_ignore("unsafe_cast")
-		var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
 		print("[mp.diag] fleet_request_local seat=%d n=%d" % [seat, cached.size()])
 		prepare_fleet_snapshot_received.emit(seat, cached)
 		return
 	rpc_id(1, "rpc_request_prepare_fleet", seat)
+
+
+func _push_cached_fleet_to_peer(peer_id: int, seat: int) -> void:
+	## SEMI_ASYNC §5.3a — host → rejoiner: dump prepare cache without rival filter.
+	if not is_host or peer_id <= 0 or seat < 0:
+		return
+	if not multiplayer.has_multiplayer_peer():
+		return
+	@warning_ignore("unsafe_cast")
+	var cached: Array = _prepare_fleet_cache.get(seat, []) as Array
+	var data: PackedByteArray = NetWireCodec.encode_fleet(
+		seat, cached, NetConnectivity.wire_compress_min_bytes()
+	)
+	rpc_id(peer_id, "rpc_prepare_fleet_snapshot_bin", seat, data)
+	print("[mp.diag] fleet_push_to_peer peer=%d seat=%d n=%d" % [peer_id, seat, cached.size()])
+	SessionDiagnostics.log("mp.fleet_push_peer", "peer=%d seat=%d n=%d" % [peer_id, seat, cached.size()])
 
 
 @rpc("any_peer", "reliable")
@@ -2637,11 +3132,11 @@ func begin_prepare_spend_gate() -> void:
 	## Always clear local arm first — only host rpc_prepare_clock_armed may re-arm peers.
 	prepare_clock_armed = false
 	_prepare_spend_gate_open = true
+	_prepare_spent_seats.clear()
 	prepare_clock_armed_changed.emit(false)
 	if not is_host and has_peer:
 		print("[mp.diag] spend_gate_begin client freeze (await host arm)")
 		return
-	_prepare_spent_seats.clear()
 	var contestants: PackedStringArray = PackedStringArray()
 	var skipped: PackedStringArray = PackedStringArray()
 	for i: int in range(seats.size()):
@@ -2695,7 +3190,62 @@ func _mark_prepare_spend(seat: int) -> void:
 	_prepare_spent_seats[seat] = true
 	print("[mp.diag] spend_marked seat=%d spent=%s" % [seat, str(_prepare_spent_seats.keys())])
 	SessionDiagnostics.log("mp.spend_marked", "seat=%d" % seat)
+	## Peers need spent marks for HUD naming (MATCH_FLOW §2.1).
+	if is_host and multiplayer != null and multiplayer.has_multiplayer_peer():
+		rpc("rpc_sync_prepare_spend_mark", seat)
+	prepare_spend_mark_changed.emit()
 	_check_prepare_clock_ready()
+
+
+@rpc("authority", "reliable")
+func rpc_sync_prepare_spend_mark(seat: int) -> void:
+	if is_host:
+		return
+	_prepare_spent_seats[seat] = true
+	_prepare_spend_gate_open = true
+	prepare_spend_mark_changed.emit()
+
+
+## Restore spend-gate after rejoin (SEMI_ASYNC §5.3a + MATCH_FLOW §2.1).
+func restore_prepare_spend_gate(spent_seats: Array) -> void:
+	prepare_clock_armed = false
+	_prepare_spend_gate_open = true
+	_prepare_spent_seats.clear()
+	for s_v: Variant in spent_seats:
+		var sid: int = TypedVariant.as_int(s_v, -1)
+		if sid >= 0:
+			_prepare_spent_seats[sid] = true
+	prepare_clock_armed_changed.emit(false)
+	prepare_spend_mark_changed.emit()
+	SessionDiagnostics.log(
+		"mp.spend_gate_restore",
+		"spent=%s" % str(_prepare_spent_seats.keys())
+	)
+	if is_host:
+		_check_prepare_clock_ready()
+
+
+func _spend_gate_missing_nicks() -> PackedStringArray:
+	var nicks: PackedStringArray = PackedStringArray()
+	for i: int in range(seats.size()):
+		var row: Dictionary = _seat_row(i)
+		if not _seat_counts_for_spend_gate(row):
+			continue
+		if TypedVariant.as_bool(_prepare_spent_seats.get(i, false), false):
+			continue
+		var nick: String = NickCodec.display_short(str(row.get("nick", "")))
+		if nick == "" or nick == "?":
+			nick = "席%d" % i
+		nicks.append(nick)
+	return nicks
+
+
+## MATCH_FLOW §2.1 — name only when exactly one human still owes first spend.
+func spend_gate_wait_hud_text() -> String:
+	var nicks: PackedStringArray = _spend_gate_missing_nicks()
+	if nicks.size() == 1:
+		return "等待 %s 完成首次花费" % nicks[0]
+	return "等待首次花费"
 
 
 func _check_prepare_clock_ready() -> void:
@@ -2767,6 +3317,15 @@ func is_prepare_spend_gate_pending() -> bool:
 	return _prepare_spend_gate_open and not prepare_clock_armed
 
 
+## Rejoin / heal: drop stale R1 spend gate opened before sync_round applied.
+func clear_prepare_spend_gate() -> void:
+	if not _prepare_spend_gate_open:
+		return
+	_prepare_spend_gate_open = false
+	_prepare_spent_seats.clear()
+	SessionDiagnostics.log("mp.spend_gate_clear", "seat=%d armed=%s" % [local_seat, prepare_clock_armed])
+
+
 ## SEMI_ASYNC §3.0a — wall-clock heal / force for prepare freeze & barrier deadlock.
 ## Returns comma-joined action tags (empty if idle).
 ## Never force-arms while R1 spend gate is still waiting for every human contestant.
@@ -2814,19 +3373,70 @@ func force_barrier_escape() -> void:
 func _force_barrier_escape() -> void:
 	if not is_host:
 		return
-	print("[mp.diag] prep_pulse_escape FORCE barrier open_bd=%s open_pd=%s" % [
-		_battle_done_gate_open, _prepare_done_gate_open
+	print("[mp.diag] prep_pulse_escape FORCE barrier open_bd=%s open_pd=%s phase=%d" % [
+		_battle_done_gate_open, _prepare_done_gate_open, _battle_done_escape_phase
 	])
-	SessionDiagnostics.log("mp.prep_pulse_escape", "force_barrier")
+	SessionDiagnostics.log(
+		"mp.prep_pulse_escape",
+		"force_barrier phase=%d" % _battle_done_escape_phase
+	)
 	if _battle_done_gate_open:
+		## Phase0: mark AI/ghost only + nudge online missing.
+		## Phase1+: soft-mark online missing (anti-freeze; prefer progress over permanent hang).
+		var fake_n: int = 0
+		var skip_n: int = 0
+		var nudged: PackedStringArray = PackedStringArray()
 		for i: int in _iter_barrier_seats():
-			if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
+			var row: Dictionary = _seat_row(i)
+			if TypedVariant.as_bool(row.get("is_ai", false), false):
+				_battle_done_seats[i] = true
+				fake_n += 1
 				continue
-			_battle_done_seats[i] = true
+			var peer: int = TypedVariant.as_int(row.get("peer_id", 0), 0)
+			var ghost: bool = TypedVariant.as_bool(row.get("ghost", false), false)
+			if peer == 0 or ghost:
+				_battle_done_seats[i] = true
+				fake_n += 1
+				continue
+			if TypedVariant.as_bool(_battle_done_seats.get(i, false), false):
+				continue
+			skip_n += 1
+			if _battle_done_escape_phase <= 0:
+				if multiplayer.has_multiplayer_peer() and peer > 0:
+					rpc_id(peer, "rpc_nudge_battle_done")
+					nudged.append("%d:%d" % [i, peer])
+				SessionDiagnostics.log(
+					"mp.prep_pulse_escape",
+					"nudge_battle_done seat=%d peer=%d" % [i, peer]
+				)
+			else:
+				_battle_done_seats[i] = true
+				fake_n += 1
+				SessionDiagnostics.log(
+					"mp.prep_pulse_escape",
+					"soft_mark_battle_done seat=%d peer=%d" % [i, peer]
+				)
+		# #region agent log
+		_dbg_rejoin_agent("D1", "nullsec_net_session.gd:force_barrier", "battle_done_force", {
+			"phase": _battle_done_escape_phase,
+			"fake_n": fake_n,
+			"skip_online": skip_n,
+			"nudged": nudged,
+			"missing": _barrier_missing_now("battle_done"),
+		})
+		# #endregion
+		if skip_n > 0 and _battle_done_escape_phase <= 0:
+			_battle_done_escape_phase = 1
+		elif skip_n > 0:
+			_battle_done_escape_phase = 2
 		_check_battle_done_ready()
 		if _battle_done_gate_open:
-			_battle_done_gate_open = false
-			_arm_prepare_clock()
+			SessionDiagnostics.log(
+				"mp.prep_pulse_escape",
+				"battle_done_still_open phase=%d missing=[%s]" % [
+					_battle_done_escape_phase, ",".join(_barrier_missing_now("battle_done"))
+				]
+			)
 	if _prepare_done_gate_open:
 		for i: int in _iter_prepare_cohort():
 			if TypedVariant.as_bool(_seat_row(i).get("is_ai", false), false):
@@ -2840,6 +3450,13 @@ func _force_barrier_escape() -> void:
 			enter_battle_released.emit()
 
 
+@rpc("authority", "reliable")
+func rpc_nudge_battle_done() -> void:
+	## Host asks this peer to finish Battle or report battle_done (anti-freeze).
+	SessionDiagnostics.log("mp.nudge_battle_done", "rx seat=%d" % local_seat)
+	nudge_battle_done_received.emit()
+
+
 ## Host last-resort: force arm even if local net flag already true (re-emit to peers).
 ## Forbidden while R1 spend gate still waits for first spends (MATCH_FLOW §2.1).
 func force_arm_prepare_clock_escape() -> void:
@@ -2848,6 +3465,11 @@ func force_arm_prepare_clock_escape() -> void:
 	if is_prepare_spend_gate_pending():
 		print("[mp.diag] prep_pulse_escape force_arm BLOCKED spend_gate")
 		SessionDiagnostics.log("mp.prep_pulse_escape", "force_arm_blocked_spend_gate")
+		return
+	## Do not close battle_done while online humans still missing (progress desync).
+	if _battle_done_gate_open and has_battle_done_missing_humans():
+		print("[mp.diag] prep_pulse_escape force_arm BLOCKED battle_done_missing")
+		SessionDiagnostics.log("mp.prep_pulse_escape", "force_arm_blocked_battle_done")
 		return
 	print("[mp.diag] prep_pulse_escape force_arm was_armed=%s" % prepare_clock_armed)
 	SessionDiagnostics.log("mp.prep_pulse_escape", "force_arm")
@@ -3036,18 +3658,37 @@ func _log_barrier_state(phase: String, missing: PackedStringArray) -> void:
 		])
 		if TypedVariant.as_bool(marks.get(i, false), false):
 			marked.append(str(i))
-	var detail: String = "phase=%s host=%s armed=%s cohort=[%s] marked=[%s] missing=[%s] missing_nicks=[%s] seats=[%s]" % [
-		phase,
-		is_host,
-		prepare_clock_armed,
-		_cohort_csv(),
-		",".join(marked),
-		",".join(missing),
-		",".join(_barrier_missing_nicks(phase)),
-		";".join(peers_info),
-	]
+	var round_r: int = TypedVariant.as_int(GameSession.pending_nullsec.get("round_r", 0), 0)
+	var stage_s: String = str(GameSession.pending_nullsec.get("diag_stage", "?"))
+	var task_s: String = str(GameSession.pending_nullsec.get("diag_task", "?"))
+	var detail: String = (
+		"phase=%s host=%s armed=%s cohort=[%s] marked=[%s] missing=[%s] missing_nicks=[%s] seats=[%s] round=%d stage=%s task=%s" % [
+			phase,
+			is_host,
+			prepare_clock_armed,
+			_cohort_csv(),
+			",".join(marked),
+			",".join(missing),
+			",".join(_barrier_missing_nicks(phase)),
+			";".join(peers_info),
+			round_r,
+			stage_s,
+			task_s,
+		]
+	)
 	print("[mp.barrier] %s" % detail)
 	SessionDiagnostics.log("mp.barrier", detail)
+	# #region agent log
+	_dbg_rejoin_agent("D2", "nullsec_net_session.gd:barrier", "barrier_state", {
+		"phase": phase,
+		"host": is_host,
+		"round": round_r,
+		"stage": stage_s,
+		"task": task_s,
+		"missing": missing,
+		"armed": prepare_clock_armed,
+	})
+	# #endregion
 
 
 func begin_battle_done_clock_gate() -> void:
@@ -3069,6 +3710,7 @@ func begin_battle_done_clock_gate() -> void:
 		_check_battle_done_ready()
 		return
 	_battle_done_gate_open = true
+	_battle_done_escape_phase = 0
 	_battle_done_seats.clear()
 	_sync_cohort = PackedInt32Array()
 	_auto_mark_inactive_barrier_seats(_battle_done_seats)
@@ -4231,3 +4873,32 @@ func rpc_probe_pong(sent_msec: int) -> void:
 	if is_host and _rtt_ui_acc >= 2.0:
 		_rtt_ui_acc = 0.0
 		_broadcast_seats()
+
+
+# #region agent log
+func _dbg_rejoin_agent(hypothesis_id: String, location: String, message: String, data: Dictionary = {}) -> void:
+	SessionDiagnostics.log(
+		"dbg.%s" % hypothesis_id,
+		"%s %s %s" % [location, message, JSON.stringify(data)]
+	)
+	## Android: avoid sync FileAccess on hot barrier path (ANR / emu freeze risk).
+	if OS.has_feature("mobile") or OS.get_name() == "Android":
+		return
+	var path: String = "user://debug/agent_509535.log"
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.seek_end()
+	var payload: Dictionary = {
+		"sessionId": "509535",
+		"hypothesisId": hypothesis_id,
+		"location": location,
+		"message": message,
+		"data": data,
+		"timestamp": int(Time.get_unix_time_from_system() * 1000.0),
+	}
+	f.store_line(JSON.stringify(payload))
+	f.close()
+# #endregion

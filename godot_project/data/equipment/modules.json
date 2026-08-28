@@ -9,6 +9,7 @@
     "trackingSpeed": 738.75,
     "maxRange": 5250.0,
     "falloff": 2500.0,
+    "attack_range": 3.0,
     "rateOfFire": 3500.0,
     "capacitorNeed": 4.44,
     "power": 10.0,
@@ -35,6 +36,7 @@
     "trackingSpeed": 28.8,
     "maxRange": 9450.0,
     "falloff": 4000.0,
+    "attack_range": 6.0,
     "rateOfFire": 4050.0,
     "capacitorNeed": 8.0,
     "power": 114.0,
@@ -61,6 +63,7 @@
     "trackingSpeed": 3.375,
     "maxRange": 21000.0,
     "falloff": 10000.0,
+    "attack_range": 13.0,
     "rateOfFire": 7875.0,
     "capacitorNeed": 36.0,
     "power": 2500.0,
@@ -87,6 +90,7 @@
     "trackingSpeed": 1086.0,
     "maxRange": 900.0,
     "falloff": 4730.0,
+    "attack_range": 4.0,
     "rateOfFire": 3375.0,
     "capacitorNeed": 0.0,
     "power": 2.0,
@@ -113,6 +117,7 @@
     "trackingSpeed": 33.792,
     "maxRange": 2000.0,
     "falloff": 10836.0,
+    "attack_range": 8.0,
     "rateOfFire": 5456.0,
     "capacitorNeed": 0.0,
     "power": 140.0,
@@ -139,6 +144,7 @@
     "trackingSpeed": 0.9,
     "maxRange": 40000.0,
     "falloff": 35000.0,
+    "attack_range": 16.0,
     "rateOfFire": 40163.0,
     "capacitorNeed": 0.0,
     "power": 3250.0,
@@ -177,7 +183,8 @@
     "explosiveDamage": 62.25,
     "kind": "weapon",
     "baked_charge_type_id": 210,
-    "_content_dph_mul": 3
+    "_content_dph_mul": 3,
+    "attack_range": 999.0
   },
   "501": {
     "typeID": 501,
@@ -201,7 +208,8 @@
     "explosiveDamage": 111.75,
     "kind": "weapon",
     "baked_charge_type_id": 209,
-    "_content_dph_mul": 3
+    "_content_dph_mul": 3,
+    "attack_range": 999.0
   },
   "561": {
     "typeID": 561,
@@ -213,6 +221,7 @@
     "trackingSpeed": 409.5,
     "maxRange": 6000.0,
     "falloff": 3000.0,
+    "attack_range": 2.0,
     "rateOfFire": 2600.0,
     "capacitorNeed": 1.169,
     "power": 2.0,
@@ -239,6 +248,7 @@
     "trackingSpeed": 5.904,
     "maxRange": 21600.0,
     "falloff": 10800.0,
+    "attack_range": 4.0,
     "rateOfFire": 5825.0,
     "capacitorNeed": 7.0,
     "power": 198.0,
@@ -265,6 +275,7 @@
     "trackingSpeed": 1.04598,
     "maxRange": 43200.0,
     "falloff": 21600.0,
+    "attack_range": 10.0,
     "rateOfFire": 8129.0,
     "capacitorNeed": 21.0,
     "power": 2200.0,
@@ -297,7 +308,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 4.0
   },
   "3596": {
     "typeID": 3596,
@@ -315,7 +327,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 8.0
   },
   "3606": {
     "typeID": 3606,
@@ -333,7 +346,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 12.0
   },
   "11355": {
     "typeID": 11355,
@@ -351,7 +365,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 4.0
   },
   "11357": {
     "typeID": 11357,
@@ -369,7 +384,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 8.0
   },
   "11359": {
     "typeID": 11359,
@@ -387,7 +403,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 12.0
   },
   "27932": {
     "typeID": 27932,
@@ -405,7 +422,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 4.0
   },
   "27930": {
     "typeID": 27930,
@@ -423,7 +441,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 8.0
   },
   "27904": {
     "typeID": 27904,
@@ -441,7 +460,8 @@
     "techLevel": 1.0,
     "metaLevel": 0.0,
     "metaGroupID": 1,
-    "kind": "repair"
+    "kind": "repair",
+    "attack_range": 12.0
   },
   "11002810000": {
     "typeID": 11002810000,
@@ -459,6 +479,7 @@
     "trackingSpeed": 0.04,
     "maxRange": 500000000000.0,
     "falloff": 500000000000.0,
+    "attack_range": 999.0,
     "signatureResolution": 2000.0,
     "rateOfFire": 12000.0,
     "techLevel": 1.0,
@@ -483,6 +504,7 @@
     "trackingSpeed": 0.04,
     "maxRange": 500000000000.0,
     "falloff": 500000000000.0,
+    "attack_range": 999.0,
     "signatureResolution": 2000.0,
     "rateOfFire": 10000.0,
     "techLevel": 1.0,
@@ -507,6 +529,7 @@
     "trackingSpeed": 0.0,
     "maxRange": 500000000000.0,
     "falloff": 500000000000.0,
+    "attack_range": 999.0,
     "signatureResolution": 2000.0,
     "rateOfFire": 25650.0,
     "techLevel": 1.0,
@@ -534,6 +557,7 @@
     "trackingSpeed": 0.04,
     "maxRange": 500000000000.0,
     "falloff": 500000000000.0,
+    "attack_range": 999.0,
     "signatureResolution": 2000.0,
     "rateOfFire": 4000.0,
     "techLevel": 1.0,
@@ -566,6 +590,7 @@
     "explosionVelocity": 63.75,
     "aoeDamageReductionFactor": 0.682,
     "_reverse_note": "cloned from 501 to split large vs medium missile kits; BS cycle 15s",
-    "_content_dph_mul": 3
+    "_content_dph_mul": 3,
+    "attack_range": 999.0
   }
 }

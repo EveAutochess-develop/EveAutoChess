@@ -68,6 +68,11 @@ func _ensure_global_helpers() -> void:
 		"res://scripts/combat/combat_formulas.gd",
 		"res://scripts/combat/float_text_pool.gd",
 		"res://scripts/debug/session_diagnostics.gd",
+		"res://scripts/mod/mod_fx_resolve.gd",
+		"res://scripts/mod/mod_interaction_fx_resolve.gd",
+		"res://scripts/mod/mod_trail_resolve.gd",
+		"res://scripts/mod/mod_titan_resolve.gd",
+		"res://scripts/combat/interaction_fx_resolve.gd",
 	])
 	for hp: String in helpers:
 		if FileAccess.file_exists(hp):

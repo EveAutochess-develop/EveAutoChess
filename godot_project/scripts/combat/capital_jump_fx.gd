@@ -12,6 +12,7 @@ var _elapsed: float = 0.0
 var _duration: float = 0.85
 var _portal: MeshInstance3D = null
 var _light: OmniLight3D = null
+var _haze: HeatHazeFx = null
 var _start_y: float = 0.0
 var _done: bool = false
 var _on_done: Callable = Callable()
@@ -59,6 +60,14 @@ func _process(delta: float) -> void:
 		_portal.scale = Vector3(s, s, s)
 	if _light:
 		_light.light_energy = lerpf(6.0, 1.2, ease_t)
+	if _haze != null and is_instance_valid(_haze):
+		## Ramp in with descent, hold mid, ease out late — still ends with this FX.
+		var haze_i: float = 1.0
+		if t < 0.25:
+			haze_i = t / 0.25
+		elif t > 0.75:
+			haze_i = 1.0 - (t - 0.75) / 0.25
+		_haze.set_intensity(haze_i)
 	if t >= 1.0:
 		_finish()
 
@@ -129,6 +138,12 @@ func _build() -> void:
 	sparks.scale_amount_max = 0.7
 	sparks.material_override = _mat(Color(1.0, 0.4, 0.2, 0.95), glow, 2.5, true)
 	add_child(sparks)
+
+	if HeatHazeFx.fx_allowed():
+		_haze = HeatHazeFx.new()
+		_haze.name = "JumpHeatHaze"
+		add_child(_haze)
+		_haze.configure_point(2.0, 0.008, 0.0, 0.08)
 
 
 func _mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = false) -> StandardMaterial3D:

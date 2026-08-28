@@ -44,6 +44,9 @@ var _engine_trail: EngineBoosterTrail = null
 
 
 static func ship_id_for(p_race: String) -> int:
+	var sid: int = ModManager.titan_ship_id_for(p_race)
+	if sid > 0:
+		return sid
 	return TypedVariant.as_int(RACE_SHIP_ID.get(p_race.to_lower(), 0), 0)
 
 

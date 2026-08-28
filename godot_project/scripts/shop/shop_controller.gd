@@ -187,12 +187,16 @@ func _id_pity_window() -> int:
 	return maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_id_pity_window", 30), 30))
 
 func _id_pity_ship_weight_mul(sid: int) -> float:
+	if not ship_participates_shop_pity(sid):
+		return 1.0
 	if TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false):
 		return 1.0
 	## Ramp weight for each refresh the id stays missing in this window.
 	return 1.0 + float(_id_pity_refresh_count)
 
 func _id_pity_equip_weight_mul(eid: String) -> float:
+	if not equip_participates_shop_pity(eid):
+		return 1.0
 	if TypedVariant.as_bool(_id_pity_seen_equips.get(eid, false), false):
 		return 1.0
 	return 1.0 + float(_id_pity_refresh_count)
@@ -205,6 +209,8 @@ func _id_pity_force_ship_ids(slot_count: int) -> Array:
 	var missing: Array = []
 	for sid_v: Variant in eligible:
 		var sid: int = TypedVariant.as_int(sid_v, 0)
+		if not ship_participates_shop_pity(sid):
+			continue
 		if not TypedVariant.as_bool(_id_pity_seen_ships.get(sid, false), false):
 			missing.append(sid)
 	if missing.is_empty():
@@ -224,7 +230,7 @@ func _id_pity_record_ship_refresh(shop_slots: Array) -> void:
 		@warning_ignore("unsafe_cast")
 		var slot: Dictionary = slot_v as Dictionary
 		var sid: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
-		if sid > 0:
+		if sid > 0 and ship_participates_shop_pity(sid):
 			_id_pity_seen_ships[sid] = true
 	_id_pity_refresh_count += 1
 
@@ -265,6 +271,8 @@ func _roll_ship_id_for_tonnage(tonnage_key: String, seen_counts: Dictionary) -> 
 	var pool: Array = []
 	for sid_v: Variant in eligible:
 		var sid_i: int = TypedVariant.as_int(sid_v, 0)
+		if not ship_participates_shop_pity(sid_i):
+			continue
 		if TypedVariant.as_int(seen_counts.get(sid_i, 0), 0) >= max_same:
 			continue
 		if ship_tonnage_key(sid_i) == tonnage_key:
@@ -280,6 +288,8 @@ func _shop_titan_race() -> String:
 	return _board.titan_fetter_race(ShipUnit.TEAM_PLAYER)
 
 func _pity_force_tonnages_for_this_refresh() -> Array:
+	if not ModManager.tonnage_pity_enabled():
+		return []
 	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_tonnage_pity_window", 5), 5))
 	if _pity_refresh_count < window:
 		return []
@@ -290,6 +300,8 @@ func _pity_force_tonnages_for_this_refresh() -> Array:
 	return missing
 
 func _pity_record_refresh(shop_slots: Array) -> void:
+	if not ModManager.tonnage_pity_enabled():
+		return
 	var window: int = maxi(1, TypedVariant.as_int(DataStore.economy.get("shop_tonnage_pity_window", 5), 5))
 	## After a pity refresh (count already >= window), reset window.
 	if _pity_refresh_count >= window:
@@ -300,7 +312,10 @@ func _pity_record_refresh(shop_slots: Array) -> void:
 			continue
 		@warning_ignore("unsafe_cast")
 		var slot: Dictionary = slot_v as Dictionary
-		var key: String = ship_tonnage_key(TypedVariant.as_int(slot.get("ship_id", 0), 0))
+		var sid: int = TypedVariant.as_int(slot.get("ship_id", 0), 0)
+		if not ship_participates_shop_pity(sid):
+			continue
+		var key: String = ship_tonnage_key(sid)
 		if key != "":
 			_pity_seen_tonnage[key] = true
 	_pity_refresh_count += 1
@@ -309,6 +324,32 @@ static func ship_tonnage_key(ship_id: int) -> String:
 	## Pity buckets = tonnage-icon categories (`UiAssets.TONNAGE_ICON_MAP` keys).
 	## One icon file → one pity key (carrier ≠ force_auxiliary; mining_barge shares industrial icon).
 	return str(DataStore.get_ship(ship_id).get("ship_group", ""))
+
+
+## Official hulls always participate. Mod hulls need unit.json `shop_pity: true` (MODS §3.2).
+static func ship_participates_shop_pity(ship_id: int) -> bool:
+	if ship_id <= 0 or DataStore == null:
+		return false
+	var ship: Dictionary = DataStore.get_ship(ship_id)
+	if ship.is_empty():
+		return false
+	if str(ship.get("_mod_package", "")).strip_edges() == "":
+		return true
+	return TypedVariant.as_bool(ship.get("shop_pity", false), false)
+
+
+## Official function modules always participate. Mod equip needs `shop_pity: true`.
+static func equip_participates_shop_pity(equip_id: String) -> bool:
+	var eid: String = equip_id.strip_edges()
+	if eid == "" or DataStore == null:
+		return false
+	var mod: Dictionary = DataStore.get_function_module(eid)
+	if mod.is_empty():
+		return false
+	if str(mod.get("_mod_package", "")).strip_edges() == "":
+		return true
+	return TypedVariant.as_bool(mod.get("shop_pity", false), false)
+
 
 static func _unlocked_tonnage_keys(level: int) -> Array:
 	var unlocks: Dictionary = TypedVariant.as_dict(DataStore.economy.get("shop_unlock_level_by_group", {}))
@@ -330,6 +371,20 @@ static func _unlocked_tonnage_keys(level: int) -> Array:
 				pass
 		if level >= need:
 			keys.append(key_s)
+	## Mod tonnage: only if tonnage_groups.pity_bucket == true (default false).
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null:
+		var rt: Dictionary = TypedVariant.as_dict(mm.runtime_tonnage)
+		for tg: Variant in rt.keys():
+			var tid: String = str(tg)
+			if tid == "" or keys.has(tid):
+				continue
+			var tdef: Dictionary = TypedVariant.as_dict(rt.get(tg))
+			if not TypedVariant.as_bool(tdef.get("pity_bucket", false), false):
+				continue
+			var need_m: int = TypedVariant.as_int(tdef.get("shop_unlock_level", unlocks.get(tid, 6)), 6)
+			if level >= need_m:
+				keys.append(tid)
 	return keys
 
 static func roll_ship_id_for_level(
@@ -442,6 +497,12 @@ static func _eligible_ship_ids_for_level(level: int, ids: Array) -> Array:
 static func _shop_eligible(ship: Dictionary) -> bool:
 	## Hard-exclude sleeper / freighter / titan (and any shop_eligible:false).
 	if ship.has("shop_eligible") and not TypedVariant.as_bool(ship.get("shop_eligible", true), true):
+		return false
+	var sid: int = TypedVariant.as_int(ship.get("id", 0), 0)
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null and mm.is_ship_disabled(sid):
+		return false
+	if TypedVariant.as_bool(ship.get("is_unmanned", false), false):
 		return false
 	var tags: Array = TypedVariant.as_array(ship.get("tags", []))
 	for t: Variant in tags:
@@ -798,6 +859,8 @@ func _id_pity_force_equip_ids(pool: Array, slot_count: int) -> Array:
 		var id_s: String = str(id_v)
 		if id_s == "":
 			continue
+		if not equip_participates_shop_pity(id_s):
+			continue
 		if not TypedVariant.as_bool(_id_pity_seen_equips.get(id_s, false), false):
 			missing.append(id_s)
 	if missing.is_empty():
@@ -813,7 +876,7 @@ func _id_pity_record_equip_refresh(slots_arr: Array) -> void:
 		@warning_ignore("unsafe_cast")
 		var slot: Dictionary = slot_v as Dictionary
 		var eid: String = str(slot.get("id", "")).strip_edges()
-		if eid != "":
+		if eid != "" and equip_participates_shop_pity(eid):
 			_id_pity_seen_equips[eid] = true
 
 
@@ -862,15 +925,21 @@ func _equipment_pool_by_category(pool: Array) -> Dictionary:
 
 
 func _equip_pity_force_categories(by_cat: Dictionary, slot_count: int) -> Array:
+	if not ModManager.equipment_category_pity_enabled():
+		return []
 	## Progressive guarantee: within a window of N refreshes, every eligible category
 	## must appear ≥1. Force enough missing cats so remaining refreshes can cover the rest.
+	## Mod equip without shop_pity does not create/force category pity (MODS §3.2).
 	var window: int = _equipment_pity_window()
 	var pos: int = _equip_pity_refresh_count % window  # 0 .. window-1
 	var remaining_refreshes: int = window - pos
 	var missing: Array = []
 	for cat: Variant in by_cat.keys():
-		if not TypedVariant.as_bool(_equip_pity_seen_cat.get(cat, false), false):
-			missing.append(cat)
+		var cat_s: String = str(cat)
+		if not _category_has_pity_equip(by_cat, cat_s):
+			continue
+		if not TypedVariant.as_bool(_equip_pity_seen_cat.get(cat_s, false), false):
+			missing.append(cat_s)
 	if missing.is_empty():
 		return []
 	var later_capacity: int = maxi(0, remaining_refreshes - 1) * slot_count
@@ -882,14 +951,28 @@ func _equip_pity_force_categories(by_cat: Dictionary, slot_count: int) -> Array:
 	return missing.slice(0, force_n)
 
 
+func _category_has_pity_equip(by_cat: Dictionary, cat: String) -> bool:
+	if not by_cat.has(cat):
+		return false
+	for id_v: Variant in TypedVariant.as_array(by_cat[cat]):
+		if equip_participates_shop_pity(str(id_v)):
+			return true
+	return false
+
+
 func _equip_pity_record_refresh(slots_arr: Array, by_cat: Dictionary) -> void:
+	if not ModManager.equipment_category_pity_enabled():
+		return
 	var window: int = _equipment_pity_window()
 	for slot_v: Variant in slots_arr:
 		if typeof(slot_v) != TYPE_DICTIONARY:
 			continue
 		@warning_ignore("unsafe_cast")
 		var slot: Dictionary = slot_v as Dictionary
-		var cat: String = DataStore.function_module_shop_category(str(slot.get("id", "")))
+		var eid: String = str(slot.get("id", "")).strip_edges()
+		if not equip_participates_shop_pity(eid):
+			continue
+		var cat: String = DataStore.function_module_shop_category(eid)
 		if cat != "" and by_cat.has(cat):
 			_equip_pity_seen_cat[cat] = true
 	_equip_pity_refresh_count += 1
@@ -903,7 +986,14 @@ func _pick_equipment_from_category(cat: String, by_cat: Dictionary) -> String:
 	var arr: Array = TypedVariant.as_array(by_cat[cat])
 	if arr.is_empty():
 		return ""
-	return str(arr[_randi_range(0, arr.size() - 1)])
+	## Prefer pity-eligible when filling a forced category slot.
+	var pity_only: Array = []
+	for id_v: Variant in arr:
+		var id_s: String = str(id_v)
+		if equip_participates_shop_pity(id_s):
+			pity_only.append(id_s)
+	var pick_from: Array = pity_only if not pity_only.is_empty() else arr
+	return str(pick_from[_randi_range(0, pick_from.size() - 1)])
 
 
 func _pick_equipment_from_pool(pool: Array) -> String:

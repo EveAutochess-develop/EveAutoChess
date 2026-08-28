@@ -112,6 +112,82 @@ var _sfx_spark: AudioStreamPlayer
 var _phase: String = ""
 var _spark_cd: float = 0.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+## #region agent log — kill hitch H1: sync ResourceLoader on each death
+static var _res_tex: Dictionary = {} ## path -> Texture2D
+static var _res_packed: Dictionary = {} ## path -> PackedScene
+static var _res_audio: Dictionary = {} ## path -> AudioStream
+## #endregion
+
+
+static func _cached_tex(path: String) -> Texture2D:
+	if _res_tex.has(path):
+		var hit: Variant = _res_tex[path]
+		if hit is Texture2D:
+			return hit
+		return null
+	if not ResourceLoader.exists(path):
+		return null
+	var tex_v: Variant = load(path)
+	if tex_v is Texture2D:
+		_res_tex[path] = tex_v
+		return tex_v
+	return null
+
+
+static func _cached_packed(path: String) -> PackedScene:
+	if _res_packed.has(path):
+		var hit: Variant = _res_packed[path]
+		if hit is PackedScene:
+			return hit
+		return null
+	if not ResourceLoader.exists(path):
+		return null
+	var packed_v: Variant = load(path)
+	if packed_v is PackedScene:
+		_res_packed[path] = packed_v
+		return packed_v
+	return null
+
+
+static func _cached_audio(path: String) -> AudioStream:
+	if _res_audio.has(path):
+		var hit: Variant = _res_audio[path]
+		if hit is AudioStream:
+			return hit
+		return null
+	if not ResourceLoader.exists(path):
+		return null
+	var res: Variant = load(path)
+	if res is AudioStream:
+		_res_audio[path] = res
+		return res
+	return null
+
+
+## Call once at match boot so first kill does not stall the main thread.
+static func warm_resource_cache() -> void:
+	var t0: int = Time.get_ticks_usec()
+	for spec: Dictionary in SHEETS:
+		var stem: String = str(spec.get("stem", ""))
+		_cached_tex(TEX_DIR + stem + ".png")
+	for spec2: Dictionary in VOLUMES:
+		_cached_packed(MESH_DIR + str(spec2.get("glb", "")))
+		_cached_tex(TEX_DIR + str(spec2.get("tex", "")))
+	_cached_packed(MESH_DIR + str(WRECK_EMBER.get("glb", "")))
+	_cached_tex(TEX_DIR + str(WRECK_EMBER.get("tex", "")))
+	_cached_audio(AUDIO_DIR + AUDIO_BOOM)
+	_cached_audio(AUDIO_DIR + AUDIO_WRECK)
+	for spark: String in AUDIO_SPARK:
+		_cached_audio(AUDIO_DIR + spark)
+	SessionDiagnostics.log(
+		"fx.death_warm",
+		"dt_ms=%.1f tex=%d mesh=%d aud=%d" % [
+			float(Time.get_ticks_usec() - t0) * 0.001,
+			_res_tex.size(),
+			_res_packed.size(),
+			_res_audio.size(),
+		]
+	)
 
 
 func _ready() -> void:
@@ -264,11 +340,10 @@ func _make_cutout_sheet(spec: Dictionary) -> Dictionary:
 	if not ResourceLoader.exists(png_path) or not FileAccess.file_exists(json_path):
 		push_warning("EchoesShipDeathFx: missing atlas %s" % stem)
 		return {}
-	var tex_v: Variant = load(png_path)
-	if not (tex_v is Texture2D):
+	var tex: Texture2D = _cached_tex(png_path)
+	if tex == null:
 		push_warning("EchoesShipDeathFx: bad atlas data %s" % stem)
 		return {}
-	var tex: Texture2D = tex_v
 	var raw_v: Variant = JSON.parse_string(FileAccess.get_file_as_string(json_path))
 	if not (raw_v is Dictionary):
 		push_warning("EchoesShipDeathFx: bad atlas data %s" % stem)
@@ -369,13 +444,10 @@ func _set_sheet_alpha(layer: Dictionary, a: float) -> void:
 
 func _make_volume(spec: Dictionary) -> Dictionary:
 	var path: String = MESH_DIR + str(spec.get("glb", ""))
-	if not ResourceLoader.exists(path):
+	var packed: PackedScene = _cached_packed(path)
+	if packed == null:
 		push_warning("EchoesShipDeathFx: missing mesh %s" % spec.get("glb", ""))
 		return {}
-	var packed_v: Variant = load(path)
-	if not (packed_v is PackedScene):
-		return {}
-	var packed: PackedScene = packed_v
 	var inst: Node = packed.instantiate()
 	if not (inst is Node3D):
 		return {}
@@ -397,10 +469,9 @@ func _make_volume(spec: Dictionary) -> Dictionary:
 	mat.emission_enabled = true
 	mat.emission = color
 	var tex_path: String = TEX_DIR + str(spec.get("tex", ""))
-	if ResourceLoader.exists(tex_path):
-		var tex_v: Variant = load(tex_path)
-		if tex_v is Texture2D:
-			mat.albedo_texture = tex_v
+	var tex: Texture2D = _cached_tex(tex_path)
+	if tex != null:
+		mat.albedo_texture = tex
 	_override_materials(node, mat)
 	add_child(node)
 	var vol: Dictionary = {"node": node, "mat": mat}
@@ -475,12 +546,17 @@ func _play_once(player: AudioStreamPlayer, file: String) -> void:
 
 
 func _load_audio(path: String) -> AudioStream:
-	if ResourceLoader.exists(path):
-		var res: Variant = load(path)
-		if res is AudioStream:
-			var audio: AudioStream = res
-			return audio
-	return _load_pcm16_wav(path)
+	if _res_audio.has(path):
+		var hit: Variant = _res_audio[path]
+		if hit is AudioStream:
+			return hit
+	var cached: AudioStream = _cached_audio(path)
+	if cached != null:
+		return cached
+	var pcm: AudioStreamWAV = _load_pcm16_wav(path)
+	if pcm != null:
+		_res_audio[path] = pcm
+	return pcm
 
 
 func _load_pcm16_wav(path: String) -> AudioStreamWAV:

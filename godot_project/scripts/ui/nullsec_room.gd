@@ -5,14 +5,10 @@ class_name NullsecRoomUI
 signal leave_room
 signal start_match(assignments: Dictionary)
 
-const TITAN_CGMA: Array = [
-	{"race": "caldari", "label": "勒维亚坦 · 加达里", "icon": "caldari"},
-	{"race": "gallente", "label": "俄洛巴斯 · 盖伦特", "icon": "gallente"},
-	{"race": "minmatar", "label": "拉格纳洛克 · 米玛塔尔", "icon": "minmatar"},
-	{"race": "amarr", "label": "神使 · 艾玛", "icon": "amarr"},
-	## 唯一势力泰坦：天使征服者级（TQ 仅 Vanquisher；禁止七族各塞一项）。
-	{"race": "angel", "label": "征服者 · 天使", "icon": "angel"},
-]
+const TITAN_CGMA: Array = [] ## Deprecated — use ModManager.titan_pick_list().
+
+func _titan_pick_rows() -> Array:
+	return ModManager.titan_pick_list()
 const KICK_COL_W: float = 56.0
 
 var session: NullsecNetSession
@@ -46,6 +42,8 @@ func setup(net: NullsecNetSession) -> void:
 		session.security_mode_changed.connect(_on_security_mode)
 	if not session.lobby_notice.is_connected(_on_lobby_notice):
 		session.lobby_notice.connect(_on_lobby_notice)
+	if not session.mod_install_request.is_connected(_on_mod_install_request):
+		session.mod_install_request.connect(_on_mod_install_request)
 	if not session.urge_prepare_received.is_connected(_on_urge_prepare):
 		session.urge_prepare_received.connect(_on_urge_prepare)
 	## After host transfer — restore local_seat / host UI (功能·加人机·安等).
@@ -319,6 +317,7 @@ func _make_kick_slot(seat_idx: int) -> Control:
 	menu.add_item("转移房主", 0)
 	menu.add_item("踢出", 1)
 	menu.add_item("催促准备", 2)
+	menu.add_item("请求对方安装我的mod", 3)
 	kick_wrap.add_child(menu)
 	kick.pressed.connect(func() -> void:
 		_popup_func_menu(seat_idx, kick, menu)
@@ -339,10 +338,11 @@ func _popup_func_menu(seat_idx: int, btn: Button, menu: PopupMenu) -> void:
 	var is_ai: bool = NullsecNetSession.seat_is_proxy(row)
 	var is_ready: bool = TypedVariant.as_bool(row.get("ready", false), false)
 	var spectate: bool = NullsecNetSession.is_spectate_race(str(row.get("titan_race", "")))
-	## 0 转移房主 — humans only; 1 踢出 — always; 2 催促 — unready contestants.
+	## 0 转移房主 — humans only; 1 踢出 — always; 2 催促 — unready contestants; 3 mod sync — humans, lobby only.
 	menu.set_item_disabled(0, is_ai or session.match_started)
 	menu.set_item_disabled(1, false)
 	menu.set_item_disabled(2, is_ready or spectate or session.match_started)
+	menu.set_item_disabled(3, is_ai or session.match_started)
 	var gp: Vector2 = btn.get_global_rect().position + Vector2(0, btn.size.y)
 	menu.position = Vector2i(int(gp.x), int(gp.y))
 	menu.popup()
@@ -358,11 +358,59 @@ func _on_func_menu_id(seat_idx: int, id: int) -> void:
 			session.kick_seat(seat_idx)
 		2:
 			session.urge_prepare(seat_idx)
+		3:
+			session.request_peer_install_mods(seat_idx)
 
 
 func _on_lobby_notice(message: String) -> void:
 	if _wait_lbl and str(message) != "":
 		_wait_lbl.text = str(message)
+
+
+func _on_mod_install_request(from_peer: int, from_nick: String, ordered: Array, total_bytes: int, order_only: bool) -> void:
+	var n: int = ordered.size()
+	var size_txt: String = "%.1f MiB" % (float(total_bytes) / (1024.0 * 1024.0))
+	if total_bytes >= 1024 * 1024 * 1024:
+		size_txt = "%.2f GiB" % (float(total_bytes) / (1024.0 * 1024.0 * 1024.0))
+	var body: String = "%s 请求向你安装 %d 个 mod（约 %s）。" % [from_nick, n, size_txt]
+	if order_only:
+		body = "%s 请求同步 mod 安装顺序（包内容已一致，无需重传）。" % from_nick
+	body += "\n\n请确保该玩家可信任，因为可能会通过 mod 向你的电脑发起恶意攻击。\n\n"
+	body += "第三方 mod 由创作者自行分发。mod 创作者以及具体 mod 内容中的侵权或其它恶意行为，与《星视寰宇EVE自走棋》开发组无关。开发组不审核、不担保任何第三方 mod。"
+	var dlg: ConfirmationDialog = ConfirmationDialog.new()
+	dlg.title = "安装对方的 mod？" if not order_only else "同步 mod 安装顺序？"
+	dlg.dialog_text = body
+	dlg.ok_button_text = "批准并接收" if not order_only else "批准并对齐顺序"
+	dlg.cancel_button_text = "拒绝"
+	## Require checkbox: use dialog with extra control
+	var chk: CheckBox = CheckBox.new()
+	chk.text = "我已阅读风险提示"
+	dlg.get_ok_button().disabled = true
+	chk.toggled.connect(func(on: bool) -> void: dlg.get_ok_button().disabled = not on)
+	add_child(dlg)
+	## Insert checkbox above buttons if possible
+	var root_c: Node = dlg.get_child(0) if dlg.get_child_count() > 0 else null
+	if root_c is VBoxContainer:
+		(root_c as VBoxContainer).add_child(chk)
+		(root_c as VBoxContainer).move_child(chk, maxi(0, (root_c as VBoxContainer).get_child_count() - 2))
+	else:
+		dlg.add_child(chk)
+	var approved: bool = false
+	var done: bool = false
+	dlg.confirmed.connect(func() -> void:
+		approved = true
+		done = true
+	)
+	dlg.canceled.connect(func() -> void: done = true)
+	dlg.close_requested.connect(func() -> void: done = true)
+	dlg.popup_centered_ratio(0.55)
+	while not done:
+		await get_tree().process_frame
+	dlg.queue_free()
+	if approved and session != null:
+		session.approve_mod_install(from_peer, ordered, order_only)
+	elif session != null:
+		session.reject_mod_install(from_peer)
 
 
 func _on_urge_prepare() -> void:
@@ -422,7 +470,7 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 	## PopupMenu has its own theme context; cap its otherwise full-size option icons.
 	opt.get_popup().add_theme_constant_override("icon_max_width", 20)
 	opt.add_item("选择泰坦或观战") ## index 0 = unset
-	for t_v: Variant in TITAN_CGMA:
+	for t_v: Variant in _titan_pick_rows():
 		if not (t_v is Dictionary):
 			continue
 		var t: Dictionary = t_v
@@ -470,8 +518,9 @@ func _make_seat_cell(idx: int) -> PanelContainer:
 func _race_from_opt_index(i: int) -> String:
 	if i <= 0:
 		return ""
-	if i >= 1 and i <= TITAN_CGMA.size():
-		var entry_v: Variant = TITAN_CGMA[i - 1]
+	var picks: Array = _titan_pick_rows()
+	if i >= 1 and i <= picks.size():
+		var entry_v: Variant = picks[i - 1]
 		if entry_v is Dictionary:
 			var entry: Dictionary = entry_v
 			return str(entry.get("race", ""))
@@ -479,10 +528,11 @@ func _race_from_opt_index(i: int) -> String:
 	return NullsecNetSession.TITAN_RACE_SPECTATE
 
 func _opt_index_from_race(race: String) -> int:
+	var picks: Array = _titan_pick_rows()
 	if NullsecNetSession.is_spectate_race(race):
-		return TITAN_CGMA.size() + 1
-	for ti: int in range(TITAN_CGMA.size()):
-		var entry_v: Variant = TITAN_CGMA[ti]
+		return picks.size() + 1
+	for ti: int in range(picks.size()):
+		var entry_v: Variant = picks[ti]
 		if entry_v is Dictionary:
 			var entry: Dictionary = entry_v
 			if str(entry.get("race", "")) == race:

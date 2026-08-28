@@ -551,6 +551,8 @@ static func _enter_fire(ship: ShipUnit, fid: String, rt: Dictionary) -> void:
 	rt["lance_phase"] = PHASE_FIRE
 	rt["lance_phase_t"] = 0.0
 	rt["lance_tick_acc"] = 0.0
+	rt["lance_logged_self_skip"] = false
+	rt["lance_logged_friendly"] = {}
 	_ensure_fx(ship, rt, false)
 	_stop_sfx(rt, "prep")
 	_start_sfx(ship, rt, "fire")
@@ -596,6 +598,28 @@ static func _enter_end(ship: ShipUnit, fid: String, rt: Dictionary) -> void:
 
 
 static func _consume(ship: ShipUnit, fid: String, rt: Dictionary) -> void:
+	# #region agent log
+	var f: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+	if f != null:
+		f.seek_end()
+		f.store_line(JSON.stringify({
+			"sessionId": "509535",
+			"runId": "post-fix",
+			"hypothesisId": "E",
+			"location": "mixed_lance.gd:_consume",
+			"message": "lance_consume",
+			"data": {
+				"ship_id": ship.ship_id if ship != null else -1,
+				"visible": ship.visible if ship != null and is_instance_valid(ship) else false,
+				"is_destroyed": ship.is_destroyed if ship != null and is_instance_valid(ship) else true,
+				"fid": fid,
+			},
+			"timestamp": Time.get_ticks_msec(),
+		}))
+		f.close()
+	# #endregion
 	_cleanup_fx(rt)
 	_stop_all_sfx(rt)
 	ship.set("lance_suppress_weapons", false)
@@ -608,6 +632,27 @@ static func _consume(ship: ShipUnit, fid: String, rt: Dictionary) -> void:
 			ship.unequip_function_at(i)
 			SessionDiagnostics.log("lance.consumed", "ship=%d slot=%d" % [ship.ship_id, i])
 			break
+	# #region agent log
+	var f3: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+	if f3 == null:
+		f3 = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+	if f3 != null and ship != null and is_instance_valid(ship):
+		f3.seek_end()
+		f3.store_line(JSON.stringify({
+			"sessionId": "509535",
+			"runId": "post-fix",
+			"hypothesisId": "E",
+			"location": "mixed_lance.gd:_consume_after",
+			"message": "lance_consume_after",
+			"data": {
+				"ship_id": ship.ship_id,
+				"visible": ship.visible,
+				"is_destroyed": ship.is_destroyed,
+			},
+			"timestamp": Time.get_ticks_msec(),
+		}))
+		f3.close()
+	# #endregion
 
 
 static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
@@ -615,12 +660,14 @@ static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
 	var best_dread_d: float = INF
 	var best_any: ShipUnit = null
 	var best_any_d: float = INF
+	var skipped_friendly: int = 0
 	for o: ShipUnit in board.all_ships():
 		if o == null or not is_instance_valid(o):
 			continue
 		if o.get_instance_id() == ship.get_instance_id():
 			continue
 		if o.team_id == ship.team_id:
+			skipped_friendly += 1
 			continue
 		if not _target_lockable(o):
 			continue
@@ -637,6 +684,38 @@ static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
 			best_any = o
 	var picked: ShipUnit = best_dread if best_dread != null else best_any
 	if picked != null:
+		## Anomaly: lock must never be same team / self (CAPITAL §4.1).
+		if picked.team_id == ship.team_id or picked.get_instance_id() == ship.get_instance_id():
+			SessionDiagnostics.log(
+				"lance.lock_friendly",
+				"ship=%d ship_team=%d tgt=%d tgt_team=%d iid=%d" % [
+					ship.ship_id, ship.team_id, picked.ship_id, picked.team_id, picked.get_instance_id(),
+				]
+			)
+			# #region agent log
+			var fl: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+			if fl == null:
+				fl = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+			if fl != null:
+				fl.seek_end()
+				fl.store_line(JSON.stringify({
+					"sessionId": "509535",
+					"runId": "post-fix",
+					"hypothesisId": "F",
+					"location": "mixed_lance.gd:_pick_target",
+					"message": "lance_lock_friendly",
+					"data": {
+						"ship_id": ship.ship_id,
+						"ship_team": ship.team_id,
+						"tgt_id": picked.ship_id,
+						"tgt_team": picked.team_id,
+						"skipped_friendly": skipped_friendly,
+					},
+					"timestamp": Time.get_ticks_msec(),
+				}))
+				fl.close()
+			# #endregion
+			return null
 		SessionDiagnostics.log(
 			"lance.prep",
 			"ship=%d ship_team=%d ship_iid=%d tgt=%d tgt_team=%d tgt_iid=%d" % [
@@ -644,6 +723,29 @@ static func _pick_target(ship: ShipUnit, board: BoardController) -> ShipUnit:
 				picked.ship_id, picked.team_id, picked.get_instance_id(),
 			]
 		)
+		# #region agent log
+		var fp: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+		if fp == null:
+			fp = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+		if fp != null:
+			fp.seek_end()
+			fp.store_line(JSON.stringify({
+				"sessionId": "509535",
+				"runId": "post-fix",
+				"hypothesisId": "F",
+				"location": "mixed_lance.gd:_pick_target",
+				"message": "lance_lock_ok",
+				"data": {
+					"ship_id": ship.ship_id,
+					"ship_team": ship.team_id,
+					"tgt_id": picked.ship_id,
+					"tgt_team": picked.team_id,
+					"skipped_friendly": skipped_friendly,
+				},
+				"timestamp": Time.get_ticks_msec(),
+			}))
+			fp.close()
+		# #endregion
 	return picked
 
 
@@ -688,6 +790,13 @@ static func _apply_column_hit(
 	var hit_n: int = 0
 	var raw_sample: float = 0.0
 	var dealt_sum: float = 0.0
+	var friend_n: int = 0
+	# #region agent log
+	var _self_hit: bool = false
+	var _self_dealt: float = 0.0
+	var _self_skipped: int = 0
+	# #endregion
+	var firer_iid: int = ship.get_instance_id()
 	for o: ShipUnit in board.all_ships():
 		if o == null or not is_instance_valid(o) or o.is_destroyed or o.slot_type != "field":
 			continue
@@ -700,6 +809,41 @@ static func _apply_column_hit(
 			sphere_r = TypedVariant.as_float(o.call("collision_radius_wu"), 0.0)
 		if not _sphere_hits_cylinder(center, sphere_r, origin, dir, beam_h, radius):
 			continue
+		## Never damage firer (same instance); column still hits other friendlies.
+		if o.get_instance_id() == firer_iid:
+			# #region agent log
+			_self_skipped += 1
+			_self_hit = true
+			var fskip: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+			if fskip == null:
+				fskip = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+			if fskip != null:
+				fskip.seek_end()
+				fskip.store_line(JSON.stringify({
+					"sessionId": "509535",
+					"runId": "post-fix",
+					"hypothesisId": "D",
+					"location": "mixed_lance.gd:_apply_column_hit",
+					"message": "lance_self_skipped",
+					"data": {
+						"ship_id": ship.ship_id,
+						"sphere_r": sphere_r,
+						"cyl_r": radius,
+						"along": (center - origin).dot(dir),
+					},
+					"timestamp": Time.get_ticks_msec(),
+				}))
+				fskip.close()
+			# #endregion
+			if not TypedVariant.as_bool(rt.get("lance_logged_self_skip", false), false):
+				rt["lance_logged_self_skip"] = true
+				SessionDiagnostics.log(
+					"lance.hit_self",
+					"src=%d skipped=1 along=%.2f r=%.2f" % [
+						ship.ship_id, (center - origin).dot(dir), radius,
+					]
+				)
+			continue
 		var max_hp: float = o.max_shield + o.max_armor + o.max_structure
 		var raw: float = maxf(floor_v, max_hp * pct)
 		var quarter: float = raw * 0.25
@@ -711,7 +855,7 @@ static func _apply_column_hit(
 		}
 		## Via combat.hit → resists in apply_hit_dict + float text / eval / net.
 		var res: Dictionary = AdminBus.request(&"combat.hit", {
-			"source_id": ship.get_instance_id(),
+			"source_id": firer_iid,
 			"target_id": o.get_instance_id(),
 			"damage": dmg,
 			"via": "mixed_lance",
@@ -724,6 +868,41 @@ static func _apply_column_hit(
 		hit_n += 1
 		raw_sample = raw
 		dealt_sum += dealt
+		if o.team_id == ship.team_id:
+			friend_n += 1
+			var logged_f: Dictionary = TypedVariant.as_dict(rt.get("lance_logged_friendly", {}))
+			var fk: String = str(o.get_instance_id())
+			if not TypedVariant.as_bool(logged_f.get(fk, false), false):
+				logged_f[fk] = true
+				rt["lance_logged_friendly"] = logged_f
+				SessionDiagnostics.log(
+					"lance.hit_friendly",
+					"src=%d tgt=%d team=%d dealt=%.0f" % [
+						ship.ship_id, o.ship_id, o.team_id, dealt,
+					]
+				)
+			# #region agent log
+			var ff: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+			if ff == null:
+				ff = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+			if ff != null:
+				ff.seek_end()
+				ff.store_line(JSON.stringify({
+					"sessionId": "509535",
+					"runId": "post-fix",
+					"hypothesisId": "F",
+					"location": "mixed_lance.gd:_apply_column_hit",
+					"message": "lance_hit_friendly",
+					"data": {
+						"src": ship.ship_id,
+						"tgt": o.ship_id,
+						"team": o.team_id,
+						"dealt": dealt,
+					},
+					"timestamp": Time.get_ticks_msec(),
+				}))
+				ff.close()
+			# #endregion
 		_notify_match_lance_hit(ship, o, dealt, TypedVariant.as_bool(res.get("destroyed", false), false))
 		if o.has_method("apply_heal_received_mul"):
 			o.call("apply_heal_received_mul", heal_mul, heal_dur)
@@ -731,11 +910,38 @@ static func _apply_column_hit(
 			o.add_stat_modifier(
 				"mixed_lance", "speed", "mul", speed_mul, speed_dur, "mixed_lance_speed"
 			)
+	# #region agent log
+	if hit_n > 0 or _self_skipped > 0:
+		var f2: FileAccess = FileAccess.open("H:/debug-509535.log", FileAccess.READ_WRITE)
+		if f2 == null:
+			f2 = FileAccess.open("H:/debug-509535.log", FileAccess.WRITE)
+		if f2 != null:
+			f2.seek_end()
+			f2.store_line(JSON.stringify({
+				"sessionId": "509535",
+				"runId": "post-fix",
+				"hypothesisId": "D",
+				"location": "mixed_lance.gd:_apply_column_hit",
+				"message": "lance_hit_tick",
+				"data": {
+					"src": ship.ship_id,
+					"hit_n": hit_n,
+					"friend_n": friend_n,
+					"self_hit": _self_hit,
+					"self_dealt": _self_dealt,
+					"self_skipped": _self_skipped,
+					"src_vis": ship.visible,
+					"src_dead": ship.is_destroyed,
+				},
+				"timestamp": Time.get_ticks_msec(),
+			}))
+			f2.close()
+	# #endregion
 	if hit_n > 0:
 		SessionDiagnostics.log(
 			"lance.hit",
-			"src=%d n=%d raw=%.0f dealt_sum=%.0f r=%.2f h=%.1f" % [
-				ship.ship_id, hit_n, raw_sample, dealt_sum, radius, beam_h,
+			"src=%d n=%d friend=%d raw=%.0f dealt_sum=%.0f r=%.2f h=%.1f" % [
+				ship.ship_id, hit_n, friend_n, raw_sample, dealt_sum, radius, beam_h,
 			]
 		)
 

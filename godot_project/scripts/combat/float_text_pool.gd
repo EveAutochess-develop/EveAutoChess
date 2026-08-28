@@ -43,7 +43,11 @@ func add_cap(world_pos: Vector3, signed_delta: float, track_id: int) -> void:
 func _add_tracked(world_pos: Vector3, amount: float, track_id: int, channel: String) -> void:
 	if track_id == 0:
 		return
-	if channel == CHANNEL_CAP:
+	## Damage allows exact 0 (turret miss → float "0"). Heal/cap still ignore near-zero.
+	if channel == CHANNEL_DAMAGE:
+		if amount < 0.0:
+			return
+	elif channel == CHANNEL_CAP:
 		if absf(amount) < 0.5:
 			return
 	elif amount < 0.5:
@@ -61,12 +65,13 @@ func _add_tracked(world_pos: Vector3, amount: float, track_id: int, channel: Str
 	track["sum"] = sum
 	track["last_s"] = now
 	var shown: int = roundi(absf(sum))
-	if shown < 1:
+	## Miss-only or sub-1 heal/cap noise: damage may show literal 0.
+	if channel != CHANNEL_DAMAGE and shown < 1:
 		_tracks[key] = track
 		return
 	var text: String = _format_text(channel, sum)
 	var color: Color = _channel_color(channel)
-	var scale_mul: float = _digit_scale(shown)
+	var scale_mul: float = _digit_scale(maxi(1, shown))
 	var y_off: float = _channel_y(channel)
 	var lab_v: Variant = track.get("label", null)
 	if lab_v is Label3D and is_instance_valid(lab_v):
@@ -92,6 +97,9 @@ func _format_text(channel: String, sum: float) -> String:
 		CHANNEL_HEAL:
 			return "+%d" % n
 		CHANNEL_DAMAGE:
+			## Turret miss: show "0" not "-0".
+			if n <= 0:
+				return "0"
 			return "-%d" % n
 		CHANNEL_CAP:
 			return ("+%d" if sum >= 0.0 else "-%d") % n

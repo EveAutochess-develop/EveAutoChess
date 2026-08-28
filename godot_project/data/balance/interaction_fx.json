@@ -1,0 +1,62 @@
+{
+  "_comment": "Interaction / burst FX kinds for on-hit, module activate, superweapon. Mods clone via interaction_fx_override.base. COMBAT §8.4.",
+  "schema_ver": 1,
+  "fx_protocol": 2,
+  "default_kind": "burst_sprite",
+  "kinds": {
+    "burst_sprite": {
+      "style": "particle_billboard",
+      "look": "sprite_burst",
+      "max_layers": 4,
+      "max_particles_per_layer": 128,
+      "blend_mode": "additive",
+      "space": "world",
+      "anchor": "target_center",
+      "scale": 1.0,
+      "duration_scale": 1.0,
+      "emit_boost": 1.0,
+      "color": [1.0, 1.0, 1.0, 1.0]
+    },
+    "burst_ring": {
+      "style": "ring_billboard",
+      "look": "ring_burst",
+      "max_layers": 2,
+      "max_particles_per_layer": 32,
+      "blend_mode": "additive",
+      "space": "world",
+      "anchor": "target_center",
+      "scale": 1.0,
+      "duration_scale": 1.0,
+      "emit_boost": 1.0,
+      "color": [0.6, 0.85, 1.0, 0.85],
+      "tex_ring": ""
+    },
+    "attach_loop": {
+      "style": "particle_billboard",
+      "look": "aura_loop",
+      "max_layers": 2,
+      "max_particles_per_layer": 64,
+      "blend_mode": "additive",
+      "space": "target_local",
+      "anchor": "target_center",
+      "scale": 1.0,
+      "duration_scale": 1.0,
+      "emit_boost": 1.0,
+      "color": [0.5, 0.9, 1.0, 0.7]
+    },
+    "channel_beam": {
+      "style": "weapon_fx_delegate",
+      "look": "channel",
+      "weapon_fx_kind": "laser",
+      "max_layers": 0,
+      "max_particles_per_layer": 0,
+      "blend_mode": "additive",
+      "space": "world",
+      "anchor": "firer_muzzle",
+      "scale": 1.0,
+      "duration_scale": 1.0,
+      "emit_boost": 1.0,
+      "color": [1.0, 0.75, 0.35, 0.95]
+    }
+  }
+}

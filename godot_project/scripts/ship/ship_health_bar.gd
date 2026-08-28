@@ -677,9 +677,24 @@ func _overlay_set_key() -> String:
 	var su: ShipUnit = _ship as ShipUnit
 	if su == null or su.is_unmanned:
 		return ""
+	var profile: String = _tonnage_overlay_profile()
+	if profile == "relation":
+		if su.is_protect_target or _ship_group_from_data() == "freighter":
+			return "relation_friendly"
+		return "relation_fleet" if __as_int(su.team_id) == ShipUnit.TEAM_PLAYER else "relation_enemy"
 	if su.is_protect_target or _ship_group_from_data() == "freighter":
 		return "friendly"
 	return "fleet" if __as_int(su.team_id) == ShipUnit.TEAM_PLAYER else "enemy"
+
+
+func _tonnage_overlay_profile() -> String:
+	if _ship == null:
+		return ""
+	var sd: Dictionary = DataStore.get_ship(__as_int(_ship.get("ship_id")))
+	if sd.is_empty():
+		return ""
+	var vis: Dictionary = TypedVariant.as_dict(sd.get("_visual", {}))
+	return str(vis.get("tonnage_overlay_profile", "")).strip_edges()
 
 
 func _build_overlays() -> void:

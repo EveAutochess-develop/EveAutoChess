@@ -11,6 +11,7 @@ var board: BoardController
 var shop: ShopController
 var combat: CombatResolver
 var firing_fx: Node = null
+var interaction_fx: Node = null
 var ai: AiController
 var pointer: PointerInput
 var _nullsec_speed: RoundSpeedController
@@ -23,6 +24,13 @@ var _doomsday_resolver: TitanDoomsdayResolver
 var _settlement_panel: NullsecSettlementPanel
 ## Prepare fleet net sync: suppress board_changed echo + debounce identical snapshots.
 var _applying_rival_fleet: bool = false
+## SEMI_ASYNC §5.3a — rejoin: block empty local push until own+rival fleets restored.
+var _rejoin_fleet_restore_pending: bool = false
+var _rejoin_own_fleet_done: bool = false
+## SEMI_ASYNC §5.3a — rejoin while host still in Battle; wait for battle_ended before settling.
+var _rejoin_wait_battle_end: bool = false
+var _applying_local_fleet: bool = false
+var _local_fleet_queue: Array = []
 var _rival_fleet_queue: Array = []
 var _rival_fleet_spawned: int = 0
 var _rival_fleet_before: int = 0
@@ -141,9 +149,11 @@ var _hud_refresh_pending: int = 0
 ## Last time the player touched shop/side-panel chrome — auto collapse/expand
 ## backs off for a short grace window so it doesn't yank a panel out from under a tap.
 var _hud_interact_ms: int = 0
-## Whole-match HUD auto fold: collapse once on first Battle; expand once on GAME_END.
-var _hud_auto_collapsed_once: bool = false
-var _hud_auto_expanded_once: bool = false
+## Per-panel last interact (UI_AND_SHELL §2.5): 2s grace skips auto-collapse for that panel only.
+var _hud_interact_ms_left: int = 0
+var _hud_interact_ms_right: int = 0
+var _hud_interact_ms_bottom: int = 0
+## HUD auto fold: each Battle collapse / Battle→Prepare expand (per-panel 2s grace).
 ## In-match Esc/菜单 overlay (versus + endless).
 var _game_menu: Control
 var _game_menu_settings: Control
@@ -262,6 +272,7 @@ var _nullsec_watch_seat: int = -1
 ## SEMI_ASYNC §3.0a — prepare freeze / barrier desync pulse escape.
 var _prep_pulse_acc_s: float = 0.0
 var _prep_freeze_wall_ms: int = 0
+var _battle_barrier_pulse_acc_s: float = 0.0
 const PREP_PULSE_S: float = 3.0
 const PREP_FORCE_ARM_MS: int = 20000
 var _spectate_leave_btn: Button = null
@@ -275,6 +286,7 @@ var _exp_hold_active: bool = false
 var _exp_hold_t: float = 0.0
 var _exp_hold_repeat_t: float = 0.0
 var _exp_hold_repeating: bool = false
+var _exp_bought_this_press: bool = false
 ## ECONOMY_AND_SHOP §3 / UI_AND_SHELL §2.5 — hold delay then interval buys.
 const _EXP_HOLD_DELAY_S: float = 0.5
 const _EXP_HOLD_INTERVAL_S: float = 0.05
@@ -346,6 +358,7 @@ func _ready() -> void:
 	shop = ShopController.new()
 	combat = CombatResolver.new()
 	firing_fx = preload("res://scripts/combat/firing_fx.gd").new()
+	interaction_fx = preload("res://scripts/combat/interaction_fx_player.gd").new()
 	ai = AiController.new()
 	pointer = PointerInput.new()
 	add_child(match_ctrl)
@@ -353,6 +366,7 @@ func _ready() -> void:
 	add_child(shop)
 	add_child(combat)
 	add_child(firing_fx)
+	add_child(interaction_fx)
 	add_child(ai)
 	add_child(pointer)
 	match_ctrl.process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -361,8 +375,11 @@ func _ready() -> void:
 	combat.process_mode = Node.PROCESS_MODE_PAUSABLE
 	@warning_ignore("unsafe_method_access")
 	firing_fx.process_mode = Node.PROCESS_MODE_PAUSABLE
+	interaction_fx.process_mode = Node.PROCESS_MODE_PAUSABLE
 	ai.process_mode = Node.PROCESS_MODE_PAUSABLE
 	pointer.process_mode = Node.PROCESS_MODE_ALWAYS
+	## Warm ship-death FX atlases off the critical first-kill path (COMBAT hitch).
+	call_deferred("_warm_ship_death_fx_cache")
 	## Esc / 菜单 while tree paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	board.setup(world)
@@ -377,7 +394,9 @@ func _ready() -> void:
 	ShopController.bind_match_rng(solo_rng, "shop")
 	@warning_ignore("unsafe_method_access")
 	firing_fx.setup(world)
-	combat.bind(board, firing_fx)
+	if interaction_fx != null and interaction_fx.has_method("setup"):
+		interaction_fx.call("setup", world)
+	combat.bind(board, firing_fx, interaction_fx)
 	ai.bind(match_ctrl, board)
 	match_ctrl.bind(board, shop, combat, ai)
 	_setup_camera()
@@ -604,6 +623,9 @@ func _tick_nullsec_runtime_setup() -> bool:
 				"match.boot_phase",
 				"phase=4_ns_rt3_prep %s" % SessionDiagnostics.mem_detail()
 			)
+			## Apply rejoin round/spend BEFORE wire gates — else R1 spend_gate sticks at count>0.
+			if TypedVariant.as_bool(payload.get("rejoin", false), false):
+				_apply_rejoin_stage_sync(payload)
 			_wire_nullsec_prepare_sync()
 			SessionDiagnostics.log_critical(
 				"match.boot_phase",
@@ -629,10 +651,27 @@ func _tick_nullsec_runtime_setup() -> bool:
 				"phase=4_ns_rt4_enter %s" % SessionDiagnostics.mem_detail()
 			)
 			## 王者归来：本 match 以重连票入局则标记本席已重连。
-			if TypedVariant.as_bool(payload.get("rejoin", false), false):
+			var is_rejoin: bool = TypedVariant.as_bool(payload.get("rejoin", false), false)
+			if is_rejoin:
 				var rs: int = TypedVariant.as_int(payload.get("local_seat", 0), 0)
 				_eval_rejoined[rs] = true
 				_eval_wins_since_rejoin[rs] = 0
+				_rejoin_fleet_restore_pending = true
+				_rejoin_own_fleet_done = false
+				_apply_rejoin_stage_sync(payload)
+				## Apply fleets from session cache ASAP (host often pushed before MatchRoot wired).
+				call_deferred("_rejoin_restore_fleets_now")
+				# #region agent log
+				_dbg_agent("R1", "match_root.gd:boot_rejoin", "rejoin_boot_mark", {
+					"local_seat": rs,
+					"seats_n": TypedVariant.as_array(payload.get("seats", [])).size(),
+					"local_race": _local_titan_race_for_ui(),
+					"seed": TypedVariant.as_int(payload.get("match_seed", 0), 0),
+					"sync_round": TypedVariant.as_int(payload.get("sync_round", -1), -1),
+					"sync_stage": str(payload.get("sync_stage", "")),
+					"applied_round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, -1) if match_ctrl else -1,
+				})
+				# #endregion
 			var want_spec: bool = TypedVariant.as_bool(payload.get("spectator", false), false)
 			if want_spec:
 				enter_nullsec_spectate(str(payload.get("spectate_reason", "seat_spectate")))
@@ -640,8 +679,16 @@ func _tick_nullsec_runtime_setup() -> bool:
 				var mode_lbl: String = "低安局" if _nullsec_pve.always_pvp else "负安局"
 				show_notice("%s · %s · 主场已分配" % [mode_lbl, _nullsec_pve.current_task])
 				_nullsec_rebuild_matchups()
-				## Lowsec R1: PVP prepare (rival army), never creep slide-in.
-				if _nullsec_pve.always_pvp or not _nullsec_local_is_pve():
+				## Mid-battle rejoin: stay prepare-frozen + report done; wait for host round end.
+				var sync_stage: String = str(payload.get("sync_stage", "prepare")) if is_rejoin else "prepare"
+				if is_rejoin and sync_stage == "battle":
+					show_notice("重连 · 本回合战斗进行中，已对齐回合并等待齐步")
+					call_deferred("_rejoin_mid_battle_align")
+				elif is_rejoin:
+					## Reclaim always restores via PVP board path (avoid PVE creep empty board).
+					call_deferred("_nullsec_prepare_pvp_round")
+				elif _nullsec_pve.always_pvp or not _nullsec_local_is_pve():
+					## Lowsec R1: PVP prepare (rival army), never creep slide-in.
 					call_deferred("_nullsec_prepare_pvp_round")
 				else:
 					call_deferred("_nullsec_on_prepare_begin")
@@ -955,6 +1002,8 @@ func _wire_nullsec_prepare_sync() -> void:
 		return
 	if not net.prepare_clock_armed_changed.is_connected(_on_prepare_clock_armed_changed):
 		net.prepare_clock_armed_changed.connect(_on_prepare_clock_armed_changed)
+	if not net.prepare_spend_mark_changed.is_connected(_on_prepare_spend_mark_changed):
+		net.prepare_spend_mark_changed.connect(_on_prepare_spend_mark_changed)
 	if not net.urge_prepare_received.is_connected(_on_urge_prepare_received):
 		net.urge_prepare_received.connect(_on_urge_prepare_received)
 	if not net.enter_battle_released.is_connected(_on_enter_battle_released):
@@ -963,6 +1012,8 @@ func _wire_nullsec_prepare_sync() -> void:
 		net.seat_battle_finished.connect(_on_seat_battle_finished_speed)
 	if not net.battle_done_all_ready.is_connected(_on_battle_done_all_ready_clear_speed):
 		net.battle_done_all_ready.connect(_on_battle_done_all_ready_clear_speed)
+	if not net.nudge_battle_done_received.is_connected(_on_nudge_battle_done_received):
+		net.nudge_battle_done_received.connect(_on_nudge_battle_done_received)
 	if not net.round_matchups_received.is_connected(_on_net_round_matchups):
 		net.round_matchups_received.connect(_on_net_round_matchups)
 	if not net.round_standings_received.is_connected(_on_net_round_standings):
@@ -993,14 +1044,149 @@ func _apply_nullsec_prepare_stage_gates() -> void:
 	## Legitimate empty boards (synced empty or local undeployed) still report battle_done.
 	## Only HOLD enter_battle until rival fleet RPC arrives — do not skip the barrier.
 	if match_ctrl.battle_game_stage_count == 0:
-		net.begin_prepare_spend_gate()
+		## Rejoin may have restore_prepare_spend_gate already — do not wipe spent marks.
+		if net.is_prepare_spend_gate_pending():
+			match_ctrl.disarm_prepare_clock()
+		else:
+			net.begin_prepare_spend_gate()
 		## Only arm if host already satisfied the gate (e.g. AI-only contestants).
 		## Guests must wait for rpc_prepare_clock_armed — never arm from stale net=true.
 		if net.is_host and net.prepare_clock_armed:
 			match_ctrl.arm_prepare_clock()
 	else:
+		## Mid-prepare reclaim: do not open battle_done (that waits for a fight we already left).
+		if TypedVariant.as_bool(GameSession.pending_nullsec.get("rejoin", false), false):
+			var rejoin_stage: String = str(GameSession.pending_nullsec.get("diag_stage", "prepare"))
+			if rejoin_stage != "battle":
+				if TypedVariant.as_bool(GameSession.pending_nullsec.get("diag_armed", false), false):
+					net.prepare_clock_armed = true
+					match_ctrl.arm_prepare_clock()
+					match_ctrl.hold_prepare_to_battle = false
+				SessionDiagnostics.log(
+					"mp.rejoin_gates",
+					"skip_battle_done count=%d armed=%s" % [
+						match_ctrl.battle_game_stage_count,
+						str(match_ctrl.prepare_clock_armed),
+					]
+				)
+				return
 		net.begin_battle_done_clock_gate()
 		net.report_local_battle_done()
+
+
+## SEMI_ASYNC §5.3a — apply host sync_round/stage from reclaim payload (avoid boot count=0).
+func _apply_rejoin_stage_sync(payload: Dictionary) -> void:
+	if match_ctrl == null or payload.is_empty():
+		return
+	var sr: int = TypedVariant.as_int(payload.get("sync_round", -1), -1)
+	var ss: String = str(payload.get("sync_stage", ""))
+	if sr < 0:
+		SessionDiagnostics.log("mp.rejoin_sync", "missing_sync_round stage=%s" % ss)
+		return
+	match_ctrl.battle_game_stage_count = sr
+	GameSession.pending_nullsec["round_r"] = sr
+	GameSession.pending_nullsec["battle_stage_count"] = sr
+	GameSession.pending_nullsec["diag_stage"] = ss if ss != "" else "prepare"
+	var sync_armed: bool = TypedVariant.as_bool(payload.get("sync_armed", false), false)
+	GameSession.pending_nullsec["diag_armed"] = sync_armed
+	## Restore pairing so rival seat / PVP prepare match host.
+	var mu: Dictionary = TypedVariant.as_dict(payload.get("round_matchups", {}))
+	if not mu.is_empty():
+		GameSession.pending_nullsec["round_matchups"] = mu
+	var last_riv: Dictionary = TypedVariant.as_dict(payload.get("last_rival_by_seat", {}))
+	if not last_riv.is_empty():
+		GameSession.pending_nullsec["last_rival_by_seat"] = last_riv
+	SessionDiagnostics.log("mp.rejoin_sync", "round=%d stage=%s armed=%s" % [
+		sr, ss, str(sync_armed)
+	])
+	var net_s: NullsecNetSession = _nullsec_net_session()
+	var spend_gate: bool = TypedVariant.as_bool(payload.get("sync_spend_gate", false), false)
+	## Clear stale R1 spend gate from boot-at-count-0; only restore when truly still on R1 spend.
+	if net_s != null:
+		if sr > 0 or not spend_gate:
+			net_s.clear_prepare_spend_gate()
+		elif sr == 0 and ss != "battle":
+			var spent: Array = TypedVariant.as_array(payload.get("sync_spent_seats", []))
+			net_s.restore_prepare_spend_gate(spent)
+			match_ctrl.disarm_prepare_clock()
+			match_ctrl.hold_prepare_to_battle = true
+		if sync_armed and sr > 0:
+			## Host already armed — align local MatchController (heal desync).
+			net_s.prepare_clock_armed = true
+			match_ctrl.arm_prepare_clock()
+			match_ctrl.hold_prepare_to_battle = false
+	# #region agent log
+	_dbg_agent("R9", "match_root.gd:rejoin_sync", "rejoin_stage_applied", {
+		"sync_round": sr,
+		"sync_stage": ss,
+		"sync_armed": sync_armed,
+		"sync_spend_gate": spend_gate,
+		"spent_n": TypedVariant.as_array(payload.get("sync_spent_seats", [])).size(),
+		"matchups": TypedVariant.as_dict(GameSession.pending_nullsec.get("round_matchups", {})).size(),
+		"spend_cleared": sr > 0 or not spend_gate,
+		"local_armed": match_ctrl.prepare_clock_armed,
+	})
+	# #endregion
+
+
+## Apply cached own+rival fleets immediately after reclaim boot (before/alongside prepare).
+func _rejoin_restore_fleets_now() -> void:
+	if not _rejoin_fleet_restore_pending:
+		return
+	_wire_prepare_fleet_sync()
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null:
+		SessionDiagnostics.log("mp.rejoin_fleet", "no_net")
+		return
+	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
+	var rival: int = _nullsec_rival_seat(local_seat)
+	var own_n: int = net.cached_fleet_ship_count(local_seat)
+	var rival_n: int = net.cached_fleet_ship_count(rival) if rival >= 0 else -1
+	# #region agent log
+	_dbg_agent("R13", "match_root.gd:rejoin_fleet", "rejoin_restore_now", {
+		"local": local_seat,
+		"rival": rival,
+		"stage": match_ctrl.stage if match_ctrl else -1,
+		"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, -1) if match_ctrl else -1,
+		"cache_own": own_n,
+		"cache_rival": rival_n,
+	})
+	# #endregion
+	SessionDiagnostics.log(
+		"mp.rejoin_fleet",
+		"restore_now local=%d rival=%d own_n=%d rival_n=%d stage=%s" % [
+			local_seat, rival, own_n, rival_n, str(match_ctrl.stage) if match_ctrl else "?"
+		]
+	)
+	net.request_prepare_fleet_snapshot(local_seat)
+	if rival >= 0:
+		net.request_prepare_fleet_snapshot(rival)
+
+
+## Mid-battle rejoin: freeze prepare and wait for host battle_ended (do not early battle_done).
+func _rejoin_mid_battle_align() -> void:
+	if match_ctrl == null:
+		return
+	_rejoin_wait_battle_end = true
+	if _nullsec_pve != null and (_nullsec_pve.always_pvp or not _nullsec_local_is_pve()):
+		_nullsec_prepare_pvp_round()
+	else:
+		_nullsec_on_prepare_begin()
+	## Hold clock without reporting battle_done for a fight we did not play.
+	match_ctrl.hold_prepare_to_battle = true
+	match_ctrl.disarm_prepare_clock()
+	SessionDiagnostics.log(
+		"mp.rejoin_mid_battle",
+		"wait_end round=%d" % TypedVariant.as_int(match_ctrl.battle_game_stage_count, -1)
+	)
+	# #region agent log
+	_dbg_agent("R10", "match_root.gd:rejoin_sync", "rejoin_mid_battle_align", {
+		"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, -1),
+		"stage": match_ctrl.stage,
+		"hold": match_ctrl.hold_prepare_to_battle,
+		"wait": true,
+	})
+	# #endregion
 
 
 func _on_prepare_awaiting_peers() -> void:
@@ -1111,6 +1297,10 @@ func _on_prepare_clock_armed_changed(armed: bool) -> void:
 		return
 	_defer_prepare_clock_arm = false
 	match_ctrl.arm_prepare_clock()
+	_refresh_hud()
+
+
+func _on_prepare_spend_mark_changed() -> void:
 	_refresh_hud()
 
 
@@ -1685,8 +1875,19 @@ func _on_net_battle_report(report: Dictionary) -> void:
 
 
 ## SEMI_ASYNC §3.1a — PVP watch peers only. PVE is per-seat local (§3.2): ignore.
+## §7.0c concede: also settles Prepare so both seats leave the same round together.
+## §5.3a mid-battle rejoin: Prepare + wait flag also applies host result.
 func _on_net_battle_ended(host_result: String, host_seat: int, reason: String) -> void:
-	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+	if match_ctrl == null:
+		return
+	var in_battle: bool = match_ctrl.stage == MatchController.Stage.BATTLE
+	var concede_prep: bool = (
+		str(reason) == "concede" and match_ctrl.stage == MatchController.Stage.PREPARE
+	)
+	var rejoin_wait: bool = (
+		_rejoin_wait_battle_end and match_ctrl.stage == MatchController.Stage.PREPARE
+	)
+	if not in_battle and not concede_prep and not rejoin_wait:
 		return
 	## One seat finishing creeps must not force-end another seat's local PVE.
 	if _nullsec_local_is_pve():
@@ -1698,8 +1899,21 @@ func _on_net_battle_ended(host_result: String, host_seat: int, reason: String) -
 	print("[mp.diag] battle_ended_rpc host=%s seat=%d -> local=%s reason=%s" % [
 		host_result, host_seat, mapped, reason
 	])
-	SessionDiagnostics.log("mp.battle_ended_rpc", "host=%s→%s" % [host_result, mapped])
-	match_ctrl.force_authority_combat_complete(mapped, str(reason))
+	SessionDiagnostics.log("mp.battle_ended_rpc", "host=%s→%s reason=%s" % [host_result, mapped, reason])
+	# #region agent log
+	_dbg_agent("C3", "match_root.gd:battle_ended", "battle_ended_apply", {
+		"host_result": host_result,
+		"host_seat": host_seat,
+		"mapped": mapped,
+		"reason": reason,
+		"local_stage": match_ctrl.stage,
+		"local_round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, -1),
+		"rejoin_wait": _rejoin_wait_battle_end,
+	})
+	# #endregion
+	if rejoin_wait:
+		_rejoin_wait_battle_end = false
+	match_ctrl.apply_authority_round_settle(mapped, str(reason))
 
 
 func _map_host_result_to_local(host_result: String, host_seat: int, local_seat: int) -> String:
@@ -2170,6 +2384,9 @@ func _nullsec_rival_seat(local_seat: int) -> int:
 func _nullsec_local_is_pve() -> bool:
 	if _nullsec_pve == null:
 		return false
+	## Lowsec always_pvp — never treat as local PVE (SEMI_ASYNC progress sync).
+	if _nullsec_pve.always_pvp:
+		return false
 	if _nullsec_pve.is_pve_task():
 		return true
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
@@ -2214,6 +2431,9 @@ func _nullsec_rebuild_matchups() -> void:
 	if _nullsec_pve == null:
 		return
 	var round_r: int = maxi(1, match_ctrl.battle_game_stage_count + 1) if match_ctrl else 1
+	## Keep battle_stage_count as MatchController count for reclaim sync (not 1-based display).
+	if match_ctrl:
+		GameSession.pending_nullsec["battle_stage_count"] = match_ctrl.battle_game_stage_count
 	GameSession.pending_nullsec["round_r"] = round_r
 	var last_map: Dictionary = TypedVariant.as_dict(GameSession.pending_nullsec.get("last_rival_by_seat", {}))
 	## Global sleeper round: no PVP pairs; clear matchups.
@@ -2518,6 +2738,17 @@ func _apply_resolved_speed() -> void:
 	## speed_changed → this function → infinite recursion (mobile host ANR after 4_ns_rt2b_signals_ok).
 	var spd: float = _nullsec_speed.current_speed()
 	var persist: bool = _nullsec_speed.should_persist_preferred()
+	# #region agent log
+	_dbg_agent("C", "match_root.gd:_apply_resolved_speed", "resolve", {
+		"spd": spd,
+		"persist": persist,
+		"stage": match_ctrl.stage if match_ctrl else -1,
+		"cur": TypedVariant.as_float(match_ctrl.speed_multiplier, 1.0) if match_ctrl else -1.0,
+		"votes": _nullsec_speed.human_votes.size(),
+		"any_finished": _nullsec_speed.any_finished,
+		"finish_floor": _nullsec_speed._finish_floor,
+	})
+	# #endregion
 	if match_ctrl.has_method("set_battle_speed"):
 		match_ctrl.set_battle_speed(spd, persist)
 	SessionDiagnostics.log(
@@ -2562,6 +2793,31 @@ func _on_seat_battle_finished_speed(seat: int) -> void:
 	SessionDiagnostics.log("mp.wall_draw", "arm=%s seat=%d" % [arm_wall, seat])
 
 
+func _on_nudge_battle_done_received() -> void:
+	## SEMI_ASYNC §3.0a anti-freeze: host nudged this peer to finish / report battle_done.
+	var net: NullsecNetSession = _nullsec_net_session()
+	# #region agent log
+	_dbg_agent("F1", "match_root.gd:nudge", "nudge_rx", {
+		"stage": int(match_ctrl.stage) if match_ctrl else -1,
+		"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else -1,
+		"seat": net.local_seat if net else -1,
+	})
+	# #endregion
+	SessionDiagnostics.log("mp.nudge_battle_done", "apply stage=%s" % (
+		str(match_ctrl.stage) if match_ctrl else "?"
+	))
+	if match_ctrl == null:
+		return
+	if match_ctrl.stage == MatchController.Stage.BATTLE:
+		if match_ctrl.has_method("force_draw_battle"):
+			match_ctrl.force_draw_battle()
+			show_notice("联机催促 · 强制结束战斗")
+		return
+	if match_ctrl.stage == MatchController.Stage.PREPARE and net != null:
+		net.report_local_battle_done()
+		show_notice("联机催促 · 已补报战斗完成")
+
+
 func _on_battle_done_all_ready_clear_speed() -> void:
 	## All tables finished this round — drop conditional wall draw + auto 4× before next Battle.
 	if _nullsec_speed == null:
@@ -2569,6 +2825,10 @@ func _on_battle_done_all_ready_clear_speed() -> void:
 	_nullsec_speed.clear_finish_state()
 	_apply_resolved_speed()
 	SessionDiagnostics.log("mp.wall_draw", "cleared_all_ready")
+
+func _warm_ship_death_fx_cache() -> void:
+	ShipDeathFx.warm_cache()
+
 
 func _ensure_ground() -> void:
 	var g: MeshInstance3D = get_node_or_null("Ground") as MeshInstance3D
@@ -3006,6 +3266,8 @@ func _process(delta: float) -> void:
 	_tick_collapse_arrow_frame_pulse()
 	if _applying_rival_fleet and not _rival_fleet_queue.is_empty():
 		_process_rival_fleet_queue()
+	if _applying_local_fleet and not _local_fleet_queue.is_empty():
+		_process_local_fleet_queue()
 	_tick_titan_intro(delta)
 	_tick_info_hold()
 	_tick_equipment_detail_hover()
@@ -3035,6 +3297,37 @@ func _process(delta: float) -> void:
 				match_ctrl.speed_multiplier if match_ctrl else 1.0
 			)
 	_tick_prepare_stuck_pulse(delta)
+	_tick_battle_barrier_escape_pulse(delta)
+
+
+## Host still in Battle while battle_done gate already open (guest finished first) —
+## prepare pulse never runs; must still nudge / soft-mark or guest freezes forever.
+func _tick_battle_barrier_escape_pulse(delta: float) -> void:
+	if match_ctrl == null or match_ctrl.stage != MatchController.Stage.BATTLE:
+		return
+	if GameSession.pending_mode != "nullsec":
+		return
+	var net: NullsecNetSession = _nullsec_net_session()
+	if net == null or not net.needs_stage_barrier():
+		return
+	if not net.is_battle_done_gate_open():
+		_battle_barrier_pulse_acc_s = 0.0
+		return
+	_battle_barrier_pulse_acc_s += delta
+	if _battle_barrier_pulse_acc_s < PREP_PULSE_S:
+		return
+	_battle_barrier_pulse_acc_s = 0.0
+	var acts: String = net.pulse_prepare_escape()
+	if acts != "":
+		print("[mp.diag] prep_pulse_escape battle_stage net=%s" % acts)
+		SessionDiagnostics.log("mp.prep_pulse_escape", "battle_stage net=%s" % acts)
+		# #region agent log
+		_dbg_agent("F2", "match_root.gd:battle_pulse", "battle_barrier_pulse", {
+			"acts": acts,
+			"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0),
+			"host": net.is_host,
+		})
+		# #endregion
 
 
 ## SEMI_ASYNC §3.0a — escape prepare freeze when net/local arm desync or barrier hangs.
@@ -3087,11 +3380,42 @@ func _tick_prepare_stuck_pulse(delta: float) -> void:
 		print("[mp.diag] prep_pulse_escape net=%s" % acts)
 		SessionDiagnostics.log("mp.prep_pulse_escape", "net=%s" % acts)
 	var elapsed: int = now - _prep_freeze_wall_ms
+	## Heal: R1 spend gate left open after rejoin synced to count>0 — pulse was no-op forever.
+	if (
+		elapsed >= PREP_FORCE_ARM_MS
+		and net.is_prepare_spend_gate_pending()
+		and match_ctrl.battle_game_stage_count > 0
+	):
+		print("[mp.diag] prep_pulse_escape heal_stale_spend_gate count=%d" % match_ctrl.battle_game_stage_count)
+		SessionDiagnostics.log(
+			"mp.prep_pulse_escape",
+			"heal_stale_spend_gate count=%d" % match_ctrl.battle_game_stage_count
+		)
+		# #region agent log
+		_dbg_agent("P1", "match_root.gd:pulse", "heal_stale_spend_gate", {
+			"count": match_ctrl.battle_game_stage_count,
+			"elapsed": elapsed,
+			"host": net.is_host,
+		})
+		# #endregion
+		net.clear_prepare_spend_gate()
 	if elapsed >= PREP_FORCE_ARM_MS and not match_ctrl.prepare_clock_armed:
 		## Spend gate still pending → never force (belt-and-suspenders).
 		if net.is_prepare_spend_gate_pending():
 			print("[mp.diag] prep_pulse_escape force_local_arm SKIP spend_gate")
 			SessionDiagnostics.log("mp.prep_pulse_escape", "force_local_arm_skip_spend")
+			_prep_freeze_wall_ms = now
+			return
+		## battle_done still waiting on online humans → never force-arm (desync).
+		if net.is_battle_done_gate_open() and net.has_battle_done_missing_humans():
+			print("[mp.diag] prep_pulse_escape force_local_arm SKIP battle_done_missing")
+			SessionDiagnostics.log("mp.prep_pulse_escape", "force_local_arm_skip_battle_done")
+			# #region agent log
+			_dbg_agent("D3", "match_root.gd:pulse", "skip_force_arm_battle_done", {
+				"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else -1,
+				"elapsed": elapsed,
+			})
+			# #endregion
 			_prep_freeze_wall_ms = now
 			return
 		print("[mp.diag] prep_pulse_escape force_local_arm elapsed=%d" % elapsed)
@@ -3106,7 +3430,23 @@ func _tick_prepare_stuck_pulse(delta: float) -> void:
 	elif elapsed >= PREP_FORCE_ARM_MS and peer_hold and net.is_host:
 		print("[mp.diag] prep_pulse_escape force_peer_hold elapsed=%d" % elapsed)
 		SessionDiagnostics.log("mp.prep_pulse_escape", "force_peer_hold ms=%d" % elapsed)
-		net.force_barrier_escape()
+		## #region agent log
+		_dbg_agent("P2", "match_root.gd:pulse", "force_peer_hold", {
+			"bd": net.is_battle_done_gate_open(),
+			"pd": net.is_prepare_done_gate_open(),
+			"elapsed": elapsed,
+			"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0),
+		})
+		## #endregion
+		if net.is_battle_done_gate_open() or net.is_prepare_done_gate_open():
+			net.force_barrier_escape()
+		else:
+			## Peer hold with no open gate — force-arm so prepare can advance.
+			net.force_arm_prepare_clock_escape()
+			if net.prepare_clock_armed:
+				match_ctrl.arm_prepare_clock()
+				show_notice("联机同步超时 · 已强制开钟")
+				_refresh_hud()
 		_prep_freeze_wall_ms = now
 
 
@@ -4051,6 +4391,17 @@ func _on_concede_round_pressed() -> void:
 		return
 	if _nullsec_spectating:
 		show_notice("观战中无法认负")
+		return
+	## Nullsec barrier: host broadcasts result so peer ends the same round (not local-only).
+	var net_c: NullsecNetSession = _nullsec_net_session()
+	if (
+		GameSession.pending_mode == "nullsec"
+		and net_c != null
+		and net_c.needs_stage_barrier()
+		and not _nullsec_local_is_pve()
+	):
+		net_c.request_concede_round()
+		show_notice("本回合认负")
 		return
 	match_ctrl.concede_current_round()
 	show_notice("本回合认负")
@@ -6247,7 +6598,7 @@ func _wire_shop_chrome() -> void:
 	if lock:
 		lock.visible = false
 		lock.disabled = true
-	_ensure_meta_icon(root.get_node_or_null("%s/GoldBox" % _BOTTOM_GOLD_POP) as HBoxContainer, "Gold", UiAssets.ICON_MONEY, mini(28, meta_h))
+	_ensure_meta_icon(root.get_node_or_null("%s/GoldBox" % _BOTTOM_GOLD_POP) as HBoxContainer, "Gold", UiAssets.coin_icon_path(), mini(28, meta_h))
 	_ensure_meta_icon(root.get_node_or_null("%s/PopBox" % _BOTTOM_GOLD_POP) as HBoxContainer, "Pop", UiAssets.ICON_POP, mini(28, meta_h))
 	@warning_ignore("unsafe_cast")
 	var le: PanelContainer = root.get_node_or_null(_SHOP_LEVEL) as PanelContainer
@@ -6813,6 +7164,8 @@ func _refresh_hud_core(full: bool) -> void:
 			if match_ctrl.battle_game_stage_count == 0:
 				ttext = "等待首次花费"
 				stage_name = "准备·待开钟"
+				if net_hud != null and net_hud.needs_stage_barrier() and net_hud.is_prepare_spend_gate_pending():
+					ttext = net_hud.spend_gate_wait_hud_text()
 			else:
 				ttext = "等待其他席结束战斗"
 				stage_name = "准备"
@@ -6974,7 +7327,8 @@ func _refresh_fetter_ui(root: Node) -> void:
 		else:
 			effect_lines.append(eff)
 		for e: Variant in effect_lines:
-			var ed: Dictionary = TypedVariant.as_dict(e)
+			var ed: Dictionary = TypedVariant.as_dict(e).duplicate(true)
+			ed["_fetter_id"] = fid
 			var eff_txt: String = UiAssets.fetter_effect_text(ed)
 			if eff_txt == "":
 				continue
@@ -8326,6 +8680,8 @@ func _try_fit_full_ship_synth_or_swap(ship: ShipUnit, item_id: String, inv_idx: 
 		return false
 	var fit: Array = ship.get_function_fit()
 	for slot_i: int in range(fit.size()):
+		if ship.has_method("function_slot_locked") and ship.function_slot_locked(slot_i):
+			continue
 		var entry: Dictionary = TypedVariant.as_dict(fit[slot_i])
 		var other: String = str(entry.get("id", "")).strip_edges()
 		if other == "":
@@ -10929,14 +11285,17 @@ func _on_lock_toggled(_pressed: bool) -> void:
 	pass
 
 func _on_exp_pressed() -> void:
-	## Scene may still fire pressed; prefer button_down/up hold path.
-	pass
+	## Android: `pressed` is the reliable short-tap; ignore if hold-repeat already buying.
+	if _exp_hold_repeating or _exp_bought_this_press:
+		return
+	if _try_buy_exp_once():
+		_exp_bought_this_press = true
 
 func _wire_exp_hold(btn: Button) -> void:
 	if btn == null:
 		return
-	if btn.pressed.is_connected(_on_exp_pressed):
-		btn.pressed.disconnect(_on_exp_pressed)
+	if not btn.pressed.is_connected(_on_exp_pressed):
+		btn.pressed.connect(_on_exp_pressed)
 	if not btn.button_down.is_connected(_on_exp_button_down):
 		btn.button_down.connect(_on_exp_button_down)
 	if not btn.button_up.is_connected(_on_exp_button_up):
@@ -10944,14 +11303,16 @@ func _wire_exp_hold(btn: Button) -> void:
 
 func _on_exp_button_down() -> void:
 	_exp_hold_active = true
+	_exp_bought_this_press = false
 	_exp_hold_t = 0.0
 	_exp_hold_repeat_t = 0.0
 	_exp_hold_repeating = false
 
 func _on_exp_button_up() -> void:
-	## Short tap: release before the hold delay → one buy. Once repeating, buys already ran.
-	if _exp_hold_active and not _exp_hold_repeating:
-		_try_buy_exp_once()
+	## Short tap fallback when `pressed` did not fire (some Android paths).
+	if _exp_hold_active and not _exp_hold_repeating and not _exp_bought_this_press:
+		if _try_buy_exp_once():
+			_exp_bought_this_press = true
 	_exp_hold_active = false
 	_exp_hold_t = 0.0
 	_exp_hold_repeat_t = 0.0
@@ -10968,6 +11329,8 @@ func _tick_exp_hold(delta: float) -> void:
 		_exp_hold_repeat_t = 0.0
 		if not _try_buy_exp_once():
 			_exp_hold_active = false
+		else:
+			_exp_bought_this_press = true
 		return
 	_exp_hold_repeat_t += delta
 	while _exp_hold_repeat_t >= _EXP_HOLD_INTERVAL_S:
@@ -10975,10 +11338,14 @@ func _tick_exp_hold(delta: float) -> void:
 		if not _try_buy_exp_once():
 			_exp_hold_active = false
 			break
+		_exp_bought_this_press = true
 
 func _try_buy_exp_once() -> bool:
 	var cost: int = TypedVariant.as_int(DataStore.economy.get("buy_exp_gold_cost", 4), 0)
-	if match_ctrl == null or match_ctrl.player_gold < cost:
+	if match_ctrl == null:
+		return false
+	if match_ctrl.player_gold < cost:
+		match_ctrl.notice.emit("黄币不足")
 		return false
 	var before: int = match_ctrl.player_gold
 	## `_grant_exp` emits hud_refresh; while hold-active `_refresh_hud` stays economy-only.
@@ -11132,7 +11499,7 @@ func _redeploy_saved_ships(ships: Array) -> void:
 		if typeof(entry_v) != TYPE_DICTIONARY:
 			continue
 		var entry: Dictionary = TypedVariant.as_dict(entry_v)
-		var sid: int = TypedVariant.as_int(entry.get("ship_id", 0), 0)
+		var sid: int = MatchSave.resolve_ship_entry_id(entry)
 		if sid <= 0:
 			continue
 		if DataStore.get_ship(sid).is_empty():
@@ -12055,7 +12422,9 @@ func _on_pause_pressed() -> void:
 	show_notice("已暂停" if get_tree().paused else "继续")
 
 func _on_collapse_left() -> void:
-	_hud_interact_ms = Time.get_ticks_msec()
+	var now: int = Time.get_ticks_msec()
+	_hud_interact_ms = now
+	_hud_interact_ms_left = now
 	_collapse_left = not _collapse_left
 	_collapse_left_syn = _collapse_left
 	_collapse_left_equip = _collapse_left
@@ -12066,7 +12435,9 @@ func _on_collapse_left_equip() -> void:
 	_on_collapse_left()
 
 func _on_collapse_right() -> void:
-	_hud_interact_ms = Time.get_ticks_msec()
+	var now: int = Time.get_ticks_msec()
+	_hud_interact_ms = now
+	_hud_interact_ms_right = now
 	_collapse_right = not _collapse_right
 	_apply_adaptive_hud_layout(true)
 	_sync_default_camera_to_hud()
@@ -12091,7 +12462,9 @@ func _restore_detail_ship_panel() -> bool:
 	return true
 
 func _on_collapse_bottom() -> void:
-	_hud_interact_ms = Time.get_ticks_msec()
+	var now: int = Time.get_ticks_msec()
+	_hud_interact_ms = now
+	_hud_interact_ms_bottom = now
 	var was_collapsed: bool = _collapse_bottom
 	_collapse_bottom = not _collapse_bottom
 	## Hide/show bottom strip only — do not re-snap left shop / LevelExp (UI_AND_SHELL §3.1).
@@ -12104,17 +12477,37 @@ func _on_collapse_bottom() -> void:
 		_sync_default_camera_to_hud()
 
 func _try_auto_collapse_hud_once() -> void:
-	## UI_AND_SHELL §2.5 — whole match: first Battle only.
-	if _hud_auto_collapsed_once:
+	## UI_AND_SHELL §2.5 — per-panel 2s grace (mp_ux plan §6).
+	var now: int = Time.get_ticks_msec()
+	var changed: bool = false
+	if now - _hud_interact_ms_left >= 2000:
+		if not _collapse_left:
+			changed = true
+		_collapse_left_syn = true
+		_collapse_left_equip = true
+		_collapse_left = true
+	if now - _hud_interact_ms_right >= 2000:
+		if not _collapse_right:
+			changed = true
+		_collapse_right = true
+	if now - _hud_interact_ms_bottom >= 2000:
+		if not _collapse_bottom:
+			changed = true
+		_collapse_bottom = true
+	# #region agent log
+	_dbg_agent("G", "match_root.gd:auto_collapse", "auto_collapse", {
+		"skip_l": now - _hud_interact_ms_left < 2000,
+		"skip_r": now - _hud_interact_ms_right < 2000,
+		"skip_b": now - _hud_interact_ms_bottom < 2000,
+		"cl": _collapse_left,
+		"cr": _collapse_right,
+		"cb": _collapse_bottom,
+	})
+	# #endregion
+	if not changed and _collapse_left and _collapse_right and _collapse_bottom:
+		## Still refresh chrome visibility (mode buttons).
+		_apply_adaptive_hud_layout(true)
 		return
-	_hud_auto_collapsed_once = true
-	if Time.get_ticks_msec() - _hud_interact_ms < 2000:
-		return
-	_collapse_left_syn = true
-	_collapse_left_equip = true
-	_collapse_left = true
-	_collapse_right = true
-	_collapse_bottom = true
 	_cam_pose_before_shop_valid = false
 	_cam_pose_before_shop.clear()
 	_apply_adaptive_hud_layout(true)
@@ -12122,12 +12515,7 @@ func _try_auto_collapse_hud_once() -> void:
 
 
 func _try_auto_expand_hud_once() -> void:
-	## UI_AND_SHELL §2.5 — whole match: GAME_END only.
-	if _hud_auto_expanded_once:
-		return
-	_hud_auto_expanded_once = true
-	if Time.get_ticks_msec() - _hud_interact_ms < 2000:
-		return
+	## Expand all panels after Battle (per-panel grace only gates collapse).
 	_collapse_left_syn = false
 	_collapse_left_equip = false
 	_collapse_left = false
@@ -12135,9 +12523,15 @@ func _try_auto_expand_hud_once() -> void:
 	_collapse_bottom = false
 	_apply_adaptive_hud_layout()
 	_sync_default_camera_to_hud()
+	# #region agent log
+	_dbg_agent("G", "match_root.gd:auto_expand", "auto_expand", {"stage": "prepare_or_end"})
+	# #endregion
 
 
 func _on_stage_changed_ui(stage: int) -> void:
+	# #region agent log
+	var _stg_t0: int = Time.get_ticks_msec()
+	# #endregion
 	_apply_collapse_arrow_frames()
 	var stage_label: String = "准备" if stage == MatchController.Stage.PREPARE else ("战斗" if stage == MatchController.Stage.BATTLE else "结束")
 	_append_battle_log("进入%s阶段" % stage_label)
@@ -12145,6 +12539,12 @@ func _on_stage_changed_ui(stage: int) -> void:
 		## SEMI_ASYNC §4.5 — never carry conditional wall draw / auto 4× into a new Battle.
 		if _nullsec_speed:
 			_nullsec_speed.reset_round()
+			# #region agent log
+			_dbg_agent("C", "match_root.gd:_on_stage_changed_ui", "battle_reset_speed", {
+				"after_reset": _nullsec_speed.current_speed(),
+				"mc_before_apply": TypedVariant.as_float(match_ctrl.speed_multiplier, -1.0) if match_ctrl else -1.0,
+			})
+			# #endregion
 			_apply_resolved_speed()
 		_try_auto_collapse_hud_once()
 		_flash_enemy_locks_on_battle_start()
@@ -12189,13 +12589,30 @@ func _on_stage_changed_ui(stage: int) -> void:
 			_trigger_camera_headup("stage_change")
 		else:
 			_hide_slot_markers_now()
-	# 回合结束：战斗 -> 准备；HUD 不在此处自动展开（整局仅 GAME_END 展开一次）。
+	# 回合结束：战斗 -> 准备；自动展开底栏/侧栏（对战阶段结束）。
 	# 镜头锁当前 HUD 默认（底栏/右栏收展组合）。
 	# 负安局若要播末日/击毁，先把 HUD/镜头转场压住，等演出结束再走 prepare 展示。
 	if _last_match_stage == MatchController.Stage.BATTLE and stage == MatchController.Stage.PREPARE:
+		_try_auto_expand_hud_once()
 		## SEMI_ASYNC §3.1a — PVP watch peers only. PVE stays local (§3.2); sync via battle_done.
 		var net_end: NullsecNetSession = _nullsec_net_session()
-		var pve_local_end: bool = _nullsec_pve != null and _nullsec_pve.is_pve_task()
+		## Stamp sync fingerprint for barrier logs (progress desync diagnosis).
+		GameSession.pending_nullsec["diag_stage"] = "prepare"
+		GameSession.pending_nullsec["diag_task"] = (
+			str(_nullsec_pve.current_task) if _nullsec_pve != null else ""
+		)
+		GameSession.pending_nullsec["round_r"] = (
+			TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else 0
+		)
+		GameSession.pending_nullsec["battle_stage_count"] = (
+			TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else 0
+		)
+		GameSession.pending_nullsec["diag_armed"] = match_ctrl.prepare_clock_armed if match_ctrl else false
+		var pve_local_end: bool = (
+			_nullsec_pve != null
+			and _nullsec_pve.is_pve_task()
+			and not _nullsec_pve.always_pvp
+		)
 		if (
 			not pve_local_end
 			and net_end != null
@@ -12206,7 +12623,15 @@ func _on_stage_changed_ui(stage: int) -> void:
 			var hs: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 			net_end.broadcast_battle_ended(str(match_ctrl.last_round_result), hs, "host_complete")
 		elif pve_local_end and net_end != null and net_end.is_host:
+			## PVE: skip result flip RPC, but battle_done gate still required (§3.0a).
 			SessionDiagnostics.log("mp.battle_ended_skip", "pve_local_no_broadcast")
+			# #region agent log
+			_dbg_agent("D2", "match_root.gd:stage_ui", "pve_end_keep_barrier", {
+				"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else -1,
+				"task": str(_nullsec_pve.current_task) if _nullsec_pve else "",
+				"host": net_end.is_host,
+			})
+			# #endregion
 		if GameSession.pending_mode == "nullsec":
 			_apply_nullsec_prepare_stage_gates()
 			_nullsec_prepare_ui_pending = true
@@ -12221,8 +12646,28 @@ func _on_stage_changed_ui(stage: int) -> void:
 	elif stage == MatchController.Stage.GAME_END:
 		_try_auto_expand_hud_once()
 	_last_match_stage = stage
+	if stage == MatchController.Stage.BATTLE:
+		GameSession.pending_nullsec["diag_stage"] = "battle"
+	elif stage == MatchController.Stage.PREPARE:
+		GameSession.pending_nullsec["diag_stage"] = "prepare"
+	if match_ctrl:
+		GameSession.pending_nullsec["diag_armed"] = match_ctrl.prepare_clock_armed
+		GameSession.pending_nullsec["round_r"] = TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0)
+		GameSession.pending_nullsec["battle_stage_count"] = TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0)
 	_refresh_hud()
 	SessionDiagnostics.log("stage", stage_label)
+	# #region agent log
+	_dbg_agent("S1", "match_root.gd:stage_ui", "stage_changed_ms", {
+		"stage": stage,
+		"label": stage_label,
+		"dt_ms": Time.get_ticks_msec() - _stg_t0,
+		"player_n": board.count_alive_field(ShipUnit.TEAM_PLAYER) if board else -1,
+		"ai_n": board.count_alive_field(ShipUnit.TEAM_AI) if board else -1,
+		"round": TypedVariant.as_int(match_ctrl.battle_game_stage_count, 0) if match_ctrl else -1,
+		"task": str(_nullsec_pve.current_task) if _nullsec_pve else "",
+		"pve": _nullsec_local_is_pve(),
+	})
+	# #endregion
 
 
 func _on_slow_learn_applied() -> void:
@@ -12250,7 +12695,7 @@ func _apply_nullsec_prepare_presentation() -> void:
 	if not _nullsec_prepare_ui_pending:
 		return
 	_nullsec_prepare_ui_pending = false
-	## Do not auto-expand HUD here — only GAME_END may try expand once.
+	## HUD already expanded on Battle→Prepare; keep markers / camera.
 	_show_slot_markers_now()
 	if not _camera_manual_pose():
 		_cam_headup_phase = 0
@@ -12265,7 +12710,11 @@ func _apply_remote_watch_only_for_battle() -> void:
 	if match_ctrl == null:
 		return
 	var net: NullsecNetSession = _nullsec_net_session()
-	var pve_local: bool = _nullsec_pve != null and _nullsec_pve.is_pve_task()
+	var pve_local: bool = (
+		_nullsec_pve != null
+		and _nullsec_pve.is_pve_task()
+		and not _nullsec_pve.always_pvp
+	)
 	match_ctrl.remote_watch_only = (
 		not pve_local and net != null and net.needs_stage_barrier() and not net.is_host
 	)
@@ -12749,17 +13198,47 @@ func _nullsec_prepare_pvp_round() -> void:
 			var net_ai: NullsecNetSession = _nullsec_net_session()
 			if net_ai != null:
 				net_ai.request_prepare_fleet_snapshot(rival)
+		## Still restore own board on rejoin even vs AI rival.
+		if _rejoin_fleet_restore_pending:
+			_wire_prepare_fleet_sync()
+			var net_own: NullsecNetSession = _nullsec_net_session()
+			if net_own != null:
+				net_own.request_prepare_fleet_snapshot(local_seat)
+			else:
+				_rejoin_fleet_restore_pending = false
 	else:
 		_wire_prepare_fleet_sync()
-		_push_local_prepare_fleet()
 		var net: NullsecNetSession = _nullsec_net_session()
-		if net != null and rival >= 0:
-			net.request_prepare_fleet_snapshot(rival)
+		## SEMI_ASYNC §5.3a — rejoin: restore own fleet before any empty push.
+		if _rejoin_fleet_restore_pending and net != null:
+			print("[mp.diag] pvp_prepare rejoin_restore request own+rival")
+			# #region agent log
+			_dbg_agent("R2", "match_root.gd:pvp_prepare", "rejoin_request_fleets", {
+				"local": local_seat,
+				"rival": rival,
+				"player_alive": board.count_alive_field(ShipUnit.TEAM_PLAYER) if board else -1,
+			})
+			# #endregion
+			net.request_prepare_fleet_snapshot(local_seat)
+			if rival >= 0:
+				net.request_prepare_fleet_snapshot(rival)
 		else:
-			print("[mp.diag] pvp_prepare human path no net/rival")
+			_push_local_prepare_fleet()
+			if net != null and rival >= 0:
+				net.request_prepare_fleet_snapshot(rival)
+			else:
+				print("[mp.diag] pvp_prepare human path no net/rival")
 	## Rival seat is a titan holder too — its buff rides the same fetter rail.
 	board.set_titan_fetter_race(ShipUnit.TEAM_AI, _seat_titan_race(rival))
 	board.set_titan_fetter_race(ShipUnit.TEAM_PLAYER, _local_titan_race_for_ui())
+	# #region agent log
+	_dbg_agent("R3", "match_root.gd:pvp_prepare", "titan_race_after_prepare", {
+		"local_race": _local_titan_race_for_ui(),
+		"rival_race": _seat_titan_race(rival),
+		"berth_vis": _titan_berth.visible if _titan_berth else false,
+		"rejoin_pending": _rejoin_fleet_restore_pending,
+	})
+	# #endregion
 	if combat and _nullsec_rng:
 		var serial: int = maxi(1, TypedVariant.as_int(match_ctrl.round_phase_value, 1) if match_ctrl else 1)
 		combat.bind_match_rng(_nullsec_rng, serial)
@@ -12779,7 +13258,9 @@ func _wire_prepare_fleet_sync() -> void:
 
 
 func _on_prepare_board_changed_for_net() -> void:
-	if _applying_rival_fleet:
+	if _applying_rival_fleet or _applying_local_fleet:
+		return
+	if _rejoin_fleet_restore_pending:
 		return
 	if GameSession.pending_mode != "nullsec":
 		return
@@ -12901,6 +13382,8 @@ func _fleet_snapshot_sig(ships: Array) -> String:
 
 
 func _push_local_prepare_fleet() -> void:
+	if _rejoin_fleet_restore_pending:
+		return
 	var net: NullsecNetSession = _nullsec_net_session()
 	if net == null:
 		return
@@ -12956,7 +13439,42 @@ func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
 		return
 	var local_seat: int = TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0)
 	var rival: int = _nullsec_rival_seat(local_seat)
-	print("[mp.diag] fleet_apply_check seat=%d rival=%d n=%d" % [seat, rival, ships.size()])
+	print("[mp.diag] fleet_apply_check seat=%d rival=%d local=%d n=%d rejoin=%s" % [
+		seat, rival, local_seat, ships.size(), _rejoin_fleet_restore_pending
+	])
+	# #region agent log
+	_dbg_agent("R4", "match_root.gd:fleet_snap", "fleet_snapshot_rx", {
+		"seat": seat,
+		"local": local_seat,
+		"rival": rival,
+		"n": ships.size(),
+		"rejoin_pending": _rejoin_fleet_restore_pending,
+	})
+	# #endregion
+	## SEMI_ASYNC §5.3a — restore own fleet on rejoin (not rival-only).
+	if _rejoin_fleet_restore_pending and seat == local_seat:
+		## Empty snap must not wipe / finish restore — host may still push.
+		if ships.is_empty():
+			SessionDiagnostics.log("mp.rejoin_fleet", "own_empty_skip seat=%d" % seat)
+			# #region agent log
+			_dbg_agent("R14", "match_root.gd:fleet_snap", "rejoin_own_empty_skip", {
+				"seat": seat,
+				"player_n": board.count_alive_field(ShipUnit.TEAM_PLAYER) if board else -1,
+			})
+			# #endregion
+			return
+		_apply_local_prepare_fleet(ships)
+		_rejoin_own_fleet_done = true
+		# #region agent log
+		_dbg_agent("R14", "match_root.gd:fleet_snap", "rejoin_own_applied", {
+			"seat": seat,
+			"n": ships.size(),
+			"player_n": board.count_alive_field(ShipUnit.TEAM_PLAYER) if board else -1,
+		})
+		# #endregion
+		SessionDiagnostics.log("mp.rejoin_fleet", "own_applied n=%d" % ships.size())
+		_maybe_finish_rejoin_fleet_restore()
+		return
 	if seat != rival:
 		print("[mp.diag] fleet_apply SKIP (not rival)")
 		return
@@ -12966,6 +13484,8 @@ func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
 	if sig == _fleet_apply_sig and ai_alive > 0 and not empty_recover:
 		print("[mp.diag] fleet_apply SKIP (same sig ai=%d)" % ai_alive)
 		_try_flush_pending_enter_battle()
+		if _rejoin_fleet_restore_pending:
+			_maybe_finish_rejoin_fleet_restore()
 		return
 	if sig == _fleet_apply_sig and ai_alive <= 0:
 		print("[mp.diag] fleet_apply FORCE (same sig but ai empty n=%d)" % ships.size())
@@ -12976,6 +13496,102 @@ func _on_prepare_fleet_snapshot(seat: int, ships: Array) -> void:
 		match_ctrl.resume_combat_after_empty_fleet()
 	else:
 		_try_flush_pending_enter_battle()
+	if _rejoin_fleet_restore_pending:
+		_maybe_finish_rejoin_fleet_restore()
+
+
+func _maybe_finish_rejoin_fleet_restore() -> void:
+	if not _rejoin_fleet_restore_pending:
+		return
+	if not _rejoin_own_fleet_done:
+		return
+	## Rival optional if bye / no human rival; wait until rival apply idle if queued.
+	if _applying_rival_fleet or _applying_local_fleet:
+		return
+	var player_n: int = board.count_alive_field(ShipUnit.TEAM_PLAYER) if board else 0
+	if player_n <= 0:
+		## Own marked done but board still empty — keep pending; do not push empty to host.
+		SessionDiagnostics.log("mp.rejoin_fleet", "finish_blocked player_n=0")
+		# #region agent log
+		_dbg_agent("R5", "match_root.gd:rejoin_done", "rejoin_finish_blocked_empty", {
+			"player_n": player_n,
+			"ai_n": board.count_alive_field(ShipUnit.TEAM_AI) if board else -1,
+		})
+		# #endregion
+		return
+	_rejoin_fleet_restore_pending = false
+	# #region agent log
+	_dbg_agent("R5", "match_root.gd:rejoin_done", "rejoin_fleet_restored", {
+		"player_n": player_n,
+		"ai_n": board.count_alive_field(ShipUnit.TEAM_AI) if board else -1,
+		"local_race": _local_titan_race_for_ui(),
+	})
+	# #endregion
+	SessionDiagnostics.log("mp.rejoin_fleet", "restored player_n=%d" % player_n)
+	_push_local_prepare_fleet()
+
+
+func _apply_local_prepare_fleet(ships: Array) -> void:
+	## Restore rejoiner's own half — no side flip (SEMI_ASYNC §5.3a).
+	if board == null:
+		return
+	_applying_local_fleet = true
+	_local_fleet_queue.clear()
+	for s: ShipUnit in board.all_ships().duplicate():
+		if s == null or not is_instance_valid(s) or s.is_unmanned:
+			continue
+		if TypedVariant.as_int(s.team_id, 0) == ShipUnit.TEAM_PLAYER:
+			board.remove_ship_node(s)
+	for entry_v: Variant in ships:
+		_local_fleet_queue.append(TypedVariant.as_dict(entry_v))
+	if not is_processing():
+		set_process(true)
+	_process_local_fleet_queue()
+
+
+func _process_local_fleet_queue() -> void:
+	if board == null:
+		_local_fleet_queue.clear()
+		_applying_local_fleet = false
+		return
+	const K: int = 3
+	var n: int = 0
+	while n < K and not _local_fleet_queue.is_empty():
+		var entry: Dictionary = TypedVariant.as_dict(_local_fleet_queue.pop_front())
+		var sid: int = TypedVariant.as_int(entry.get("ship_id", 0), 0)
+		if sid <= 0:
+			continue
+		var star: int = maxi(1, TypedVariant.as_int(entry.get("star", 1), 1))
+		var st: String = str(entry.get("slot_type", "field"))
+		if st != "hangar" and st != "field":
+			st = "field"
+		var x: int = TypedVariant.as_int(entry.get("x", 0), 0)
+		var z: int = TypedVariant.as_int(entry.get("z", 0), 0)
+		var side: int = TypedVariant.as_int(entry.get("side", ShipUnit.TEAM_PLAYER), ShipUnit.TEAM_PLAYER)
+		var ship: ShipUnit = board.spawn_ship(sid, star, ShipUnit.TEAM_PLAYER, st, x, z)
+		if ship != null and is_instance_valid(ship):
+			ship.net_uid = str(entry.get("net_uid", ship.net_uid))
+			var hx: int = TypedVariant.as_int(entry.get("hangar_home_x", -1), -1)
+			if hx >= 0:
+				ship.hangar_home_x = hx
+				ship.hangar_home_z = TypedVariant.as_int(entry.get("hangar_home_z", 0), 0)
+			elif st == "hangar":
+				ship.stamp_hangar_home()
+			if st == "field":
+				board.move_ship_to_field_side(ship, x, z, side)
+			var fit_ids: Array = TypedVariant.as_array(entry.get("fit", []))
+			if not fit_ids.is_empty():
+				var fit_entries: Array = []
+				for fid_v: Variant in fit_ids:
+					fit_entries.append({"id": str(fid_v)})
+				ship.set_function_fit(fit_entries)
+		n += 1
+	if _local_fleet_queue.is_empty():
+		board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+		_applying_local_fleet = false
+		print("[mp.diag] local_fleet_apply done field_player=%d" % board.count_alive_field(ShipUnit.TEAM_PLAYER))
+		_refresh_hud()
+		_maybe_finish_rejoin_fleet_restore()
 
 
 func _apply_rival_prepare_fleet(ships: Array) -> void:
@@ -13058,6 +13674,7 @@ func _process_rival_fleet_queue() -> void:
 		)
 		_try_flush_pending_enter_battle()
 		_refresh_hud()
+		_maybe_finish_rejoin_fleet_restore()
 
 
 func _nullsec_pvp_prepare_guest_hop() -> void:
@@ -13461,8 +14078,8 @@ func _ensure_hud_edge_chrome(root: Control) -> void:
 	var stale_modes: Node = root.get_node_or_null("RightCol/RightInner/RightModeBtns")
 	if stale_modes != null and stale_modes.get_child_count() == 0:
 		stale_modes.queue_free()
-	## Collapsed right: only collapse arrow — hide mode trio (UI_AND_SHELL §3.4).
-	mode_col.visible = not _collapse_right
+	## Collapsed right: keep mode trio visible (UI_AND_SHELL §2.5) — click expands + switches.
+	mode_col.visible = true
 	## Bottom shop collapse — above Shop top edge, centered.
 	var bottom_chrome: PanelContainer = _make_edge_chrome(root, "BottomEdgeChrome")
 	bottom_chrome.z_index = 40
@@ -13508,7 +14125,9 @@ func _ensure_hud_mode_buttons(root: Control) -> void:
 
 
 func _set_right_pane_mode(mode: int) -> void:
-	_hud_interact_ms = Time.get_ticks_msec()
+	var now: int = Time.get_ticks_msec()
+	_hud_interact_ms = now
+	_hud_interact_ms_right = now
 	_right_pane_mode = mode
 	if _collapse_right:
 		_collapse_right = false
@@ -13785,3 +14404,34 @@ func _sync_all_tactical_stems() -> void:
 	for s: ShipUnit in board.all_ships():
 		if s != null and is_instance_valid(s) and s.has_method("sync_tactical_stem"):
 			s.call("sync_tactical_stem")
+
+
+# #region agent log
+func _dbg_agent(hypothesis_id: String, location: String, message: String, data: Dictionary = {}) -> void:
+	SessionDiagnostics.log(
+		"dbg.%s" % hypothesis_id,
+		"%s %s %s" % [location, message, JSON.stringify(data)]
+	)
+	## Android: SessionDiagnostics only — sync FileAccess on barrier pulse can freeze emu.
+	if OS.has_feature("mobile") or OS.get_name() == "Android":
+		return
+	var payload: Dictionary = {
+		"sessionId": "0c9657",
+		"runId": "pre-fix",
+		"hypothesisId": hypothesis_id,
+		"location": location,
+		"message": message,
+		"data": data,
+		"timestamp": int(Time.get_unix_time_from_system() * 1000.0),
+	}
+	var line: String = JSON.stringify(payload)
+	for path: String in ["H:/debug-0c9657.log", "user://debug/agent_509535.log"]:
+		var f: FileAccess = FileAccess.open(path, FileAccess.READ_WRITE)
+		if f == null:
+			f = FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			continue
+		f.seek_end()
+		f.store_line(line)
+		f.close()
+# #endregion

@@ -67,7 +67,10 @@ func play(firer: ShipUnit, target: ShipUnit, kind: String, duration: float, proj
 		_sfx.play_for(firer, kind)
 	if (PlayerSettings.instance() as PlayerSettings) and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode):
 		return
-	_play_kind(firer, target, null, kind, duration, projectile_travel_s, projectile_speed_cells)
+	var kind_def: Dictionary = {}
+	if firer.has_method("resolve_weapon_fx_def"):
+		kind_def = firer.resolve_weapon_fx_def()
+	_play_kind(firer, target, null, kind, duration, projectile_travel_s, projectile_speed_cells, kind_def)
 
 
 ## Visual-only beam/shot toward an anchor. Optional `shield_hit` ties shield glow to this shot
@@ -88,12 +91,13 @@ func play_to_anchor(
 	if (PlayerSettings.instance() as PlayerSettings) and bool((PlayerSettings.instance() as PlayerSettings).no_model_perf_mode):
 		return
 	_shot_shield_hit = shield_hit.duplicate(true) if not shield_hit.is_empty() else {}
-	_play_kind(firer, null, anchor, kind, duration, -1.0, -1.0)
+	_play_kind(firer, null, anchor, kind, duration, -1.0, -1.0, {})
 	_shot_shield_hit = {}
 
 
 ## Function-bucket ship-to-ship FX (COMBAT §8.2) — nos/neut/damp/painter/…
-func play_function(firer: ShipUnit, target: ShipUnit, kind: String, duration: float = 1.0) -> void:
+## Optional kind_def: merged ModFxResolve override (COMBAT §8.2a).
+func play_function(firer: ShipUnit, target: ShipUnit, kind: String, duration: float = 1.0, kind_def: Dictionary = {}) -> void:
 	if firer == null or target == null or _world == null:
 		return
 	var k: String = str(kind).strip_edges()
@@ -118,7 +122,7 @@ func play_function(firer: ShipUnit, target: ShipUnit, kind: String, duration: fl
 		e["t_left"] = maxf(TypedVariant.as_float(e.get("t_left", 0.0), 0.0), dur)
 		return
 	var before: int = _active.size()
-	_play_kind(firer, target, null, k, dur, -1.0, -1.0)
+	_play_kind(firer, target, null, k, dur, -1.0, -1.0, kind_def)
 	if _active.size() > before:
 		var entry: Dictionary = _active[_active.size() - 1]
 		entry["fx_role"] = "function"
@@ -132,12 +136,15 @@ func _play_kind(
 	kind: String,
 	duration: float,
 	projectile_travel_s: float,
-	projectile_speed_cells: float
+	projectile_speed_cells: float,
+	kind_def_override: Dictionary = {}
 ) -> void:
 	## SFX already fired from play* entrypoints; VFX-only path here.
 	var cfg: Dictionary = DataStore.weapon_fx
 	var kinds: Dictionary = TypedVariant.as_dict(cfg.get("kinds", {}))
-	var kdef: Dictionary = TypedVariant.as_dict(kinds.get(kind, kinds.get("laser", {})))
+	var kdef: Dictionary = kind_def_override
+	if kdef.is_empty():
+		kdef = TypedVariant.as_dict(kinds.get(kind, kinds.get("laser", {})))
 	if kdef.is_empty():
 		return
 	var style: String = str(kdef.get("style", "beam"))
@@ -287,10 +294,16 @@ func _ensure_stretch_shader() -> Shader:
 
 
 func _load_tex(path: String) -> Texture2D:
-	if path == "" or not ResourceLoader.exists(path):
+	if path == "":
 		return null
-	var v: Variant = load(path)
-	return v if v is Texture2D else null
+	## Prefer UiAssets (res:// ResourceLoader + absolute/user Image.load).
+	var via_ui: Texture2D = UiAssets.tex(path)
+	if via_ui != null:
+		return via_ui
+	if ResourceLoader.exists(path):
+		var v: Variant = load(path)
+		return v if v is Texture2D else null
+	return null
 
 
 func _make_stretch_mat(color: Color, kdef: Dictionary, grid_mix_override: float = -1.0) -> Material:

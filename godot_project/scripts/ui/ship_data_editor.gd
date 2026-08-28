@@ -638,6 +638,9 @@ func _list_label(sid: int) -> String:
 			var label: String = "%d · %s" % [sid, str(d.get("name", "?"))]
 			if TypedVariant.as_bool(d.get("is_unmanned", false)):
 				label += "（无人）"
+			var mod_pkg: String = str(d.get("_mod_package", ""))
+			if mod_pkg != "":
+				label += " [%s]" % mod_pkg
 			return label
 		Tab.MODULES:
 			var m: Dictionary = _working_modules.get(sid, DataStore.get_module(sid))
