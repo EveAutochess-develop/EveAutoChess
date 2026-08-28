@@ -1,0 +1,233 @@
+[
+  {
+    "id": 8000,
+    "model_key": "gsts_duxi",
+    "name": "潜龙级",
+    "name_en": "Worm",
+    "race": "古斯塔斯",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "cf7_t1"
+  },
+  {
+    "id": 8001,
+    "model_key": "gsts_qianlong",
+    "name": "毒蜥级",
+    "name_en": "Gila",
+    "race": "古斯塔斯",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "cc2_t1"
+  },
+  {
+    "id": 8002,
+    "model_key": "gsts_xiangweishe",
+    "name": "响尾蛇级",
+    "name_en": "Rattlesnake",
+    "race": "古斯塔斯",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "cb2_t1"
+  },
+  {
+    "id": 8003,
+    "model_key": "tsl_delamier",
+    "name": "德拉米尔级",
+    "name_en": "Dramiel",
+    "race": "天使",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "angf1_t1"
+  },
+  {
+    "id": 8004,
+    "model_key": "tsl_sainabo",
+    "name": "塞纳波级",
+    "name_en": "Cynabal",
+    "race": "天使",
+    "ship_group": "巡洋",
+    "model_long_axis": 200.0,
+    "sof_hull": "angbc1_t1"
+  },
+  {
+    "id": 8005,
+    "model_key": "tsl_makerui",
+    "name": "马克瑞级",
+    "name_en": "Machariel",
+    "race": "天使",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "angb1_t1"
+  },
+  {
+    "id": 8006,
+    "model_key": "ts_yemoxia",
+    "name": "夜魔侠级",
+    "name_en": "Daredevil",
+    "race": "天蛇",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "angf2_t1"
+  },
+  {
+    "id": 8007,
+    "model_key": "ts_jingti",
+    "name": "警惕级",
+    "name_en": "Vigilant",
+    "race": "天蛇",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "gc4_t1"
+  },
+  {
+    "id": 8008,
+    "model_key": "ts_fuchouzhe",
+    "name": "复仇者级",
+    "name_en": "Vindicator",
+    "race": "天蛇",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "gb2_t1"
+  },
+  {
+    "id": 8009,
+    "model_key": "jmh_asiteluo",
+    "name": "阿斯特罗级",
+    "name_en": "Astero",
+    "race": "姐妹会",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "soef1_t1"
+  },
+  {
+    "id": 8010,
+    "model_key": "jmh_sitexiusi",
+    "name": "斯特修斯级",
+    "name_en": "Stratios",
+    "race": "姐妹会",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "soec1_t1"
+  },
+  {
+    "id": 8011,
+    "model_key": "jmh_niesituo",
+    "name": "涅斯托级",
+    "name_en": "Nestor",
+    "race": "姐妹会",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "soeb1_t1"
+  },
+  {
+    "id": 8012,
+    "model_key": "xxz_ningxue",
+    "name": "凝血级",
+    "name_en": "Cruor",
+    "race": "血袭者",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "af8_t1"
+  },
+  {
+    "id": 8013,
+    "model_key": "xxz_ashimu",
+    "name": "阿什姆级",
+    "name_en": "Ashimmu",
+    "race": "血袭者",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "ac6_t1"
+  },
+  {
+    "id": 8014,
+    "model_key": "xxz_bagelong",
+    "name": "巴戈龙级",
+    "name_en": "Bhaalgorn",
+    "race": "血袭者",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "ab2_t1"
+  },
+  {
+    "id": 8015,
+    "model_key": "mdt_jiamu",
+    "name": "加姆级",
+    "name_en": "Garmur",
+    "race": "莫德团",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "morf1_t1"
+  },
+  {
+    "id": 8016,
+    "model_key": "mdt_aosusi",
+    "name": "奥苏斯级",
+    "name_en": "Orthrus",
+    "race": "莫德团",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "morc1_t1"
+  },
+  {
+    "id": 8017,
+    "model_key": "mdt_bagaisi",
+    "name": "巴盖斯级",
+    "name_en": "Barghest",
+    "race": "莫德团",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "morb1_t1"
+  },
+  {
+    "id": 8018,
+    "model_key": "ss_monv",
+    "name": "魔女级",
+    "name_en": "Succubus",
+    "race": "萨沙",
+    "ship_group": "护卫",
+    "model_long_axis": 80.0,
+    "sof_hull": "sf1_t1"
+  },
+  {
+    "id": 8019,
+    "model_key": "ss_youling",
+    "name": "幽灵级",
+    "name_en": "Phantasm",
+    "race": "萨沙",
+    "ship_group": "巡洋",
+    "model_long_axis": 174.0,
+    "sof_hull": "sc1_t1"
+  },
+  {
+    "id": 8020,
+    "model_key": "ss_emeng",
+    "name": "噩梦级",
+    "name_en": "Nightmare",
+    "race": "萨沙",
+    "ship_group": "战列",
+    "model_long_axis": 450.0,
+    "sof_hull": "sb1_t1"
+  },
+  {
+    "id": 8023,
+    "model_key": "tsl_zhengfuzhe",
+    "name": "征服者级",
+    "name_en": "Vanquisher",
+    "race": "天使",
+    "ship_group": "泰坦",
+    "model_long_axis": 2200.0,
+    "sof_hull": "angt1_t1"
+  },
+  {
+    "id": 8025,
+    "model_key": "ss_yueshengzhe",
+    "name": "跃升者级",
+    "name_en": "Delirium",
+    "race": "萨沙",
+    "ship_group": "突击航母",
+    "model_long_axis": 1100.0,
+    "sof_hull": "sca1_t1",
+    "note": "User reassign: TQ sca1 mesh was under ss_revenant; that hull is 跃升者 for this batch"
+  }
+]

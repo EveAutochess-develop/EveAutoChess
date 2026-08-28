@@ -1,0 +1,19 @@
+{
+  "source": "preview_apply",
+  "synced_at": "2026-08-07T20:40:00+10:00",
+  "note": "预览调参写回游戏；soft_d≡attack_diameter≡伤害柱径",
+  "core_d": 1.2,
+  "soft_d": 2.5,
+  "flow_speed": 3.0,
+  "prepare_d": 3.6,
+  "prepare_alpha": 0.0,
+  "tip_frac": 0.8771498771498771,
+  "content_refs": {
+    "attack_diameter": 2.5,
+    "soft_d_ref": 2.5,
+    "core_d_ref": 1.2,
+    "prepare_d_ref": 3.6,
+    "prepare_alpha": 0.0,
+    "flow_speed": 3.0
+  }
+}

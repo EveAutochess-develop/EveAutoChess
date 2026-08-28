@@ -81,6 +81,7 @@ var _tex_sensor: Texture2D
 var _tex_grad: Texture2D
 var _tex_base_beam: Texture2D
 var _lance_pack: Node3D
+var _haze: HeatHazeFx = null
 ## Tunables: 凝实直径 / 淡色直径 / 流动 / 准备直径 / V弧遮罩起始距发出点 / 准备透明度
 var _core_d: float = _DEF_CORE_D
 var _soft_d: float = _DEF_SOFT_D
@@ -427,7 +428,24 @@ func _rebuild_phase_fx() -> void:
 	_fire_root = _make_fire_fx()
 	_lance_pack.add_child(_prepare_root)
 	_lance_pack.add_child(_fire_root)
+	_sync_preview_haze()
 	_apply_phase_visibility()
+
+
+func _sync_preview_haze() -> void:
+	if _lance_pack == null:
+		return
+	if _haze == null or not is_instance_valid(_haze):
+		_haze = HeatHazeFx.new()
+		_haze.name = "LanceHeatHaze"
+		## Align with runtime: emit at local y=0 along +Y. Pack is centered at beam mid —
+		## offset haze so muzzle sits at pack bottom (−beam_h/2 in pack space).
+		_haze.position = Vector3(0.0, -_beam_h * 0.5, 0.0)
+		_lance_pack.add_child(_haze)
+	var soft: float = _prepare_d if _phase == PHASE_PREPARE else _soft_d
+	_haze.configure_cone(_beam_h, soft, 0.003, 0.85)
+	_haze.set_lance_breath(_phase == PHASE_PREPARE)
+	_haze.visible = true
 
 
 func _attach_mixed_icon(parent: Node3D) -> void:
@@ -749,6 +767,10 @@ func _apply_phase_visibility() -> void:
 		_prepare_root.visible = _phase == PHASE_PREPARE
 	if _fire_root != null:
 		_fire_root.visible = _phase == PHASE_FIRE
+	if _haze != null and is_instance_valid(_haze):
+		_haze.set_lance_breath(_phase == PHASE_PREPARE)
+		var soft: float = _prepare_d if _phase == PHASE_PREPARE else _soft_d
+		_haze.configure_cone(_beam_h, soft, 0.003, 0.85)
 
 
 func _refresh_hud() -> void:

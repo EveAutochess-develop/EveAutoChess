@@ -45,6 +45,10 @@ var _astern_local: Vector3 = Vector3(0.0, 0.0, 1.0)
 var _rebuild_interval_s: float = 0.0
 var _rebuild_acc: float = 0.0
 var _mesh_style: String = STYLE_RIBBON
+## MATCH_FLOW §2.1: skip trail hot path at ≥sim_high_speed_fx_from so presentation cannot starve sim.
+static var high_speed_skip: bool = false
+## Per-ship merged visual (global + trail_override). Empty until setup().
+var _vis_eff: Dictionary = {}
 
 
 static func _no_model() -> bool:
@@ -53,6 +57,8 @@ static func _no_model() -> bool:
 
 static func ensure_on(unit: Node3D, team_player: bool) -> EngineBoosterTrail:
 	_purge_legacy(unit)
+	if high_speed_skip:
+		return null
 	if _no_model():
 		_strip_on(unit)
 		return null
@@ -66,7 +72,7 @@ static func ensure_on(unit: Node3D, team_player: bool) -> EngineBoosterTrail:
 
 
 static func set_emitting_on(unit: Node3D, on: bool) -> void:
-	if _no_model():
+	if high_speed_skip or _no_model():
 		return
 	var trail: EngineBoosterTrail = unit.get_node_or_null(ROOT_NAME) as EngineBoosterTrail
 	if trail == null:
@@ -105,6 +111,7 @@ static func _purge_legacy(unit: Node3D) -> void:
 func setup(unit: Node3D, team_player: bool) -> void:
 	_ship = unit
 	_team_player = team_player
+	_vis_eff = _build_vis_eff(unit)
 	_is_unmanned = false
 	var kind: String = ""
 	if unit != null:
@@ -131,12 +138,31 @@ func setup(unit: Node3D, team_player: bool) -> void:
 		_locals = _engine_locals_for(unit)
 		_outlines = _engine_outlines_for(unit, _locals)
 		_radii = _radii_from_outlines(_locals, _outlines)
+		var width_mul_ship: float = TypedVariant.as_float(_vis().get("unmanned_single_strand_width_mul", 1.0), 1.0)
+		if absf(width_mul_ship - 1.0) > 0.001:
+			for i: int in range(_radii.size()):
+				_radii[i] = maxf(0.04, _radii[i] * width_mul_ship)
 	_tint = _team_tint(team_player)
 	if unit != null:
 		_world = unit.get_parent() as Node3D
 	_apply_configured_mesh_style()
 	_ensure_mesh_slots()
 	set_process(true)
+
+
+func _build_vis_eff(unit: Node3D) -> Dictionary:
+	var base: Dictionary = DataStore.visual if DataStore else {}
+	var ov: Dictionary = {}
+	if unit != null and unit.has_method("resolve_trail_override"):
+		var raw: Variant = unit.call("resolve_trail_override")
+		ov = TypedVariant.as_dict(raw)
+	elif unit != null and DataStore != null:
+		var sid: int = TypedVariant.as_int(unit.get("ship_id"), 0)
+		if sid > 0:
+			ov = TypedVariant.as_dict(DataStore.get_ship(sid).get("trail_override", {}))
+	if ov.is_empty():
+		return base.duplicate(true)
+	return ModTrailResolve.merge_onto_visual(base, ov)
 
 
 func _apply_configured_mesh_style() -> void:
@@ -221,6 +247,8 @@ func set_emitting(on: bool) -> void:
 
 
 func _vis() -> Dictionary:
+	if not _vis_eff.is_empty():
+		return _vis_eff
 	return DataStore.visual if DataStore else {}
 
 

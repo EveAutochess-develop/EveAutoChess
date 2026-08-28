@@ -34,6 +34,10 @@ var _pack: Node3D
 var _prepare_root: Node3D
 var _fire_root: Node3D
 var _scan_rig: Node3D
+var _haze: HeatHazeFx = null
+var _haze_prepare: bool = true
+var _haze_soft: float = -1.0
+var _haze_h: float = -1.0
 var _mats: Array = []
 var _scroll_mats: Array = []
 var _time_s: float = 0.0
@@ -68,6 +72,7 @@ func configure(
 			@warning_ignore("unsafe_cast")
 			var sm: ShaderMaterial = m_v as ShaderMaterial
 			sm.set_shader_parameter("travel_speed", _flow_speed)
+	_sync_haze(prepare)
 	_apply_phase(prepare)
 
 
@@ -81,6 +86,7 @@ func set_pose(origin: Vector3, dir: Vector3, scale_mul: float, prepare: bool) ->
 	var fwd: Vector3 = right.cross(up).normalized()
 	global_transform.basis = Basis(right, up, fwd)
 	scale = Vector3(scale_mul, scale_mul, scale_mul)
+	_sync_haze(prepare)
 	_apply_phase(prepare)
 
 
@@ -124,7 +130,40 @@ func _build() -> void:
 	_add_crossed(_fire_root, _soft_d, _beam_h, _make_base_mat(0.55, 0.95, 1.8, true), _beam_h * 0.5)
 	_add_crossed(_fire_root, _core_d, _beam_h, _make_base_mat(1.4, 1.0, 3.2, true), _beam_h * 0.5)
 	_add_lenses(_fire_root)
+	_ensure_haze()
+	_sync_haze(true)
 	_apply_phase(true)
+
+
+func _ensure_haze() -> void:
+	if _haze != null and is_instance_valid(_haze):
+		return
+	if not HeatHazeFx.fx_allowed():
+		return
+	_haze = HeatHazeFx.new()
+	_haze.name = "LanceHeatHaze"
+	_pack.add_child(_haze)
+
+
+func _sync_haze(prepare: bool) -> void:
+	_ensure_haze()
+	if _haze == null or not is_instance_valid(_haze):
+		return
+	## Prep uses telegraph diameter; Fire/End use soft (damage) diameter.
+	var soft_for_haze: float = _prep_d if prepare else _soft_d
+	var need_mesh: bool = (
+		absf(soft_for_haze - _haze_soft) > 0.001
+		or absf(_beam_h - _haze_h) > 0.001
+	)
+	if need_mesh:
+		_haze.configure_cone(_beam_h, soft_for_haze, 0.003, 0.85)
+		_haze_soft = soft_for_haze
+		_haze_h = _beam_h
+	if prepare != _haze_prepare or need_mesh:
+		## Prep → contract toward muzzle (dread); Fire → expand outward.
+		_haze.set_lance_breath(prepare)
+		_haze_prepare = prepare
+	_haze.visible = true
 
 
 func _make_prepare_fx() -> Node3D:

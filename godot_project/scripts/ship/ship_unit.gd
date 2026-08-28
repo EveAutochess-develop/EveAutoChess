@@ -25,6 +25,14 @@ var drone_bay_slots: int = 0  # 发射管 / active drone quota
 var _plugin_modules: Array = []
 ## Function bucket fit — max 3 incl. cyno: `{id, def}` (EQUIPMENT §2).
 var _function_fit: Array = []
+## Parallel to fit slots — from hull `function_slots.slots[].locked` (MOD_PROTOCOL P1).
+var _function_slot_locked: Array = []
+## Temp combat fetters from grant_fetter (MOD_PROTOCOL P8).
+var _runtime_fetter_ids: Array = []
+var _runtime_fetter_until: Dictionary = {}
+## Blink burst (MOD_PROTOCOL P7) — multiplies combat_move_speed until sim time.
+var _blink_speed_mul: float = 1.0
+var _blink_until_time: float = -1.0
 ## Mixed lance channel — suppresses normal weapons while Prep/Fire/End.
 var lance_suppress_weapons: bool = false
 var _heal_received_mul: float = 1.0
@@ -501,8 +509,13 @@ func _find_board_controller() -> Node:
 func apply_hull_morph_emission(strength: float, kind: String = "siege") -> void:
 	if _model_root == null:
 		return
+	## Pick-proxy only: never paint emission onto the invisible sphere.
+	if _model_root.has_meta("no_model_pick_sphere"):
+		return
 	var tint: Color = Color(1.0, 0.55, 0.25) if kind != "industrial" else Color(0.4, 1.0, 0.55)
 	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if _is_pick_proxy_mesh(mi):
+			continue
 		_set_mesh_emission(mi, strength, tint, true)
 
 
@@ -511,7 +524,13 @@ func restore_emission_after_hull_morph() -> void:
 	_apply_combat_tint_visual(_combat_glow_left_s > 0.0)
 
 
+func _is_pick_proxy_mesh(mi: MeshInstance3D) -> bool:
+	return mi != null and mi.has_meta("no_model_pick_sphere")
+
+
 func _set_mesh_emission(mi: MeshInstance3D, strength: float, tint: Color, morph_tint: bool) -> void:
+	if _is_pick_proxy_mesh(mi):
+		return
 	var mats: Array = []
 	if mi.material_override != null:
 		mats.append(mi.material_override)
@@ -541,13 +560,27 @@ func _ensure_mesh() -> void:
 		return
 	## Berth titans keep GLB even in no-model (UI_AND_SHELL: 泰坦停泊仍加载).
 	var berth_decor: bool = get_parent() is TitanBerth
-	## Performance mode: skip GLB load; keep empty node for transforms / health bar.
+	## Performance mode: skip GLB; transparent pick sphere so BOARD raycast still works.
 	if (not berth_decor) and PlayerSettings.get_or_null() != null and PlayerSettings.get_or_null().no_model_perf_mode:
-		_model_root = Node3D.new()
-		_model_root.name = "NoModelPlaceholder"
-		add_child(_model_root)
+		_attach_no_model_pick_proxy()
 		return
 	var path: String = _mesh_path_safe()
+	if path != "" and path.ends_with(".obj") and FileAccess.file_exists(path):
+		var obj_mesh: ArrayMesh = ModObjLoader.load_obj(path)
+		if obj_mesh != null:
+			_model_root = Node3D.new()
+			_model_root.name = "ModObjHull"
+			var mi: MeshInstance3D = MeshInstance3D.new()
+			mi.mesh = obj_mesh
+			_model_root.add_child(mi)
+			add_child(_model_root)
+			_apply_model_orientation(_model_root)
+			_normalize_model_scale(_model_root)
+			MobileModelLoad.apply_tree(_model_root, _model_display_size)
+			_tint_model(_model_root)
+			_attach_siege_addon_if_any()
+			_cache_model_rest_pose()
+			return
 	if path != "" and ResourceLoader.exists(path):
 		var packed: Resource = load(path)
 		if packed is PackedScene:
@@ -561,8 +594,47 @@ func _ensure_mesh() -> void:
 			_attach_siege_addon_if_any()
 			_cache_model_rest_pose()
 			return
-	## Missing model: leave empty (no placeholder box). Drop-in §0 bundle restores mesh.
+	## Missing model: transparent pick sphere (BOARD_AND_INPUT §4 · MOD_PROTOCOL).
+	_attach_no_model_pick_proxy()
 	_muzzle_local = Vector3(0.0, 0.3, -0.9)
+	var ship: Dictionary = DataStore.get_ship(ship_id) if DataStore else {}
+	if str(ship.get("_mod_package", "")).strip_edges() != "":
+		var label: String = str(ship.get("name", ""))
+		if label.strip_edges() == "":
+			label = str(ship_id)
+		SessionDiagnostics.log("ship.model_missing", "%s 模型美术素材加载失败" % label)
+
+
+## Near-clear sphere under `_model_root` for pick / soft-follow when hull mesh is absent.
+func _attach_no_model_pick_proxy() -> void:
+	_model_root = Node3D.new()
+	_model_root.name = "NoModelPlaceholder"
+	_model_root.set_meta("no_model_pick_sphere", true)
+	add_child(_model_root)
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	mi.name = "PickSphere"
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = 0.5
+	sphere.height = 1.0
+	sphere.radial_segments = 16
+	sphere.rings = 8
+	mi.mesh = sphere
+	mi.set_meta("no_model_pick_sphere", true)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	## Fully invisible; triangles remain for BOARD ray pick (BOARD_AND_INPUT §4).
+	## Combat tint / morph must never overwrite this (set_combat_tint skips meta).
+	mat.albedo_color = Color(1.0, 1.0, 1.0, 0.0)
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	mat.emission_enabled = false
+	mi.material_override = mat
+	_model_root.add_child(mi)
+	_normalize_model_scale(_model_root)
+	_cache_model_rest_pose()
 
 
 ## UI_AND_SHELL no-model toggle: drop or rebuild hull mesh on an already-spawned unit.
@@ -638,7 +710,11 @@ func _mesh_path_safe() -> String:
 		var path: String = str(DataStore.ship_mesh_path(ship_id))
 		if path != "" and ResourceLoader.exists(path):
 			return path
-	var key: String = str(DataStore.get_ship(ship_id).get("model_key", "")) if DataStore else ""
+	var ship: Dictionary = DataStore.get_ship(ship_id) if DataStore else {}
+	var mod_glb: String = str(ship.get("_mod_model_glb", ""))
+	if mod_glb != "" and FileAccess.file_exists(mod_glb):
+		return mod_glb
+	var key: String = str(ship.get("model_key", ""))
 	if key != "":
 		var bundle_mesh: String = "res://assets/models/ships/%s/model.glb" % key
 		if ResourceLoader.exists(bundle_mesh):
@@ -1318,6 +1394,9 @@ func tick_combat_glow(sim_delta: float) -> void:
 
 
 func _apply_combat_tint_visual(in_combat: bool) -> void:
+	## Invisible pick sphere must stay a=0; combat glow used to paint it opaque white.
+	if _model_root != null and _model_root.has_meta("no_model_pick_sphere"):
+		return
 	var unity_strength: float = 0.06 if in_combat else 0.0
 	var echoes_strength: float = 0.08 if in_combat else 0.0
 	var std_strength: float = 0.18 if in_combat else 0.0
@@ -1332,6 +1411,8 @@ func _apply_combat_tint_visual(in_combat: bool) -> void:
 		return
 	var neutral2: Color = Color(0.82, 0.84, 0.88, 1.0)
 	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if _is_pick_proxy_mesh(mi):
+			continue
 		if mi.material_override is ShaderMaterial:
 			var smat: ShaderMaterial = mi.material_override as ShaderMaterial
 			var strength: float = unity_strength if smat.shader == _UNITY_SHIP_SHADER else echoes_strength
@@ -1476,6 +1557,7 @@ func reload_stats() -> void:
 func _load_function_fit_from_slots(fs: Dictionary) -> void:
 	_function_fit.clear()
 	_plugin_modules.clear()
+	_refresh_function_slot_locked(fs)
 	if typeof(fs) != TYPE_DICTIONARY:
 		return
 	var slots: Array = TypedVariant.as_array(fs.get("slots", []))
@@ -1497,6 +1579,57 @@ func _load_function_fit_from_slots(fs: Dictionary) -> void:
 
 func get_function_fit() -> Array:
 	return _function_fit.duplicate(true)
+
+
+func _refresh_function_slot_locked(fs: Dictionary = {}) -> void:
+	_function_slot_locked.clear()
+	for _i: int in range(FunctionFit.MAX_SLOTS):
+		_function_slot_locked.append(false)
+	var use_fs: Dictionary = fs
+	if use_fs.is_empty():
+		use_fs = TypedVariant.as_dict(DataStore.get_ship(ship_id).get("function_slots", {}))
+	var slots: Array = TypedVariant.as_array(use_fs.get("slots", []))
+	for i: int in range(mini(slots.size(), FunctionFit.MAX_SLOTS)):
+		var md: Dictionary = TypedVariant.as_dict(slots[i])
+		_function_slot_locked[i] = TypedVariant.as_bool(md.get("locked", false), false)
+
+
+func function_slot_locked(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= _function_slot_locked.size():
+		return false
+	return TypedVariant.as_bool(_function_slot_locked[slot_index], false)
+
+
+func add_runtime_fetter(fetter_id: String, until_sim_time: float) -> void:
+	var fid: String = fetter_id.strip_edges()
+	if fid == "":
+		return
+	if not _runtime_fetter_ids.has(fid):
+		_runtime_fetter_ids.append(fid)
+	_runtime_fetter_until[fid] = until_sim_time
+
+
+func get_active_runtime_fetters(sim_time: float) -> Array:
+	var out: Array = []
+	for fid_v: Variant in _runtime_fetter_ids:
+		var fid: String = str(fid_v)
+		var until: float = TypedVariant.as_float(_runtime_fetter_until.get(fid, -1.0), -1.0)
+		if until < 0.0 or sim_time <= until:
+			out.append(fid)
+	return out
+
+
+func prune_runtime_fetters(sim_time: float) -> void:
+	var kept: Array = []
+	for fid_v: Variant in _runtime_fetter_ids:
+		var fid: String = str(fid_v)
+		var until: float = TypedVariant.as_float(_runtime_fetter_until.get(fid, -1.0), -1.0)
+		if until < 0.0 or sim_time <= until:
+			kept.append(fid)
+		else:
+			_runtime_fetter_until.erase(fid)
+	_runtime_fetter_ids = kept
+
 
 ## Prepare-phase fit from inventory. Returns {ok, reason} — reason: size | full | unknown | cyno_hull | …
 func try_fit_function_module(module_id: String, slot_index: int = -1) -> Dictionary:
@@ -1525,6 +1658,8 @@ func try_fit_function_module(module_id: String, slot_index: int = -1) -> Diction
 		target = _function_fit.size()
 	else:
 		target = clampi(target, 0, FunctionFit.MAX_SLOTS - 1)
+	if function_slot_locked(target):
+		return {"ok": false, "reason": "slot_locked"}
 	if target < _function_fit.size():
 		return {"ok": false, "reason": "slot_taken"}
 	if target > _function_fit.size():
@@ -1563,6 +1698,8 @@ func _function_fit_has_unique_line(line: String) -> bool:
 
 ## Prepare unequip. Returns removed module id (empty if miss).
 func unequip_function_at(slot_index: int) -> String:
+	if function_slot_locked(slot_index):
+		return ""
 	if slot_index < 0 or slot_index >= _function_fit.size():
 		return ""
 	var entry: Dictionary = _function_fit[slot_index]
@@ -1632,6 +1769,10 @@ func reset_combat_runtime() -> void:
 	FunctionFit.abort_mixed_lances(self)
 	_stat_modifiers.clear()
 	FunctionFit.reset_combat_state(self)
+	_runtime_fetter_ids.clear()
+	_runtime_fetter_until.clear()
+	_blink_speed_mul = 1.0
+	_blink_until_time = -1.0
 	## Carrier pool re-inits on next ensure; do not wipe living fighters' squadron id.
 	fighter_squadron_pool_left = -1
 	fighter_next_squadron_id = 0
@@ -1666,6 +1807,8 @@ func get_stat(stat_name: String, base_value: float) -> float:
 func layer_resist(layer: String, dtype: String, base: float) -> float:
 	var add: float = 0.0
 	var mul: float = 1.0
+	var has_set: bool = false
+	var set_v: float = 0.0
 	for m: Variant in _stat_modifiers:
 		if typeof(m) != TYPE_DICTIONARY:
 			continue
@@ -1674,10 +1817,16 @@ func layer_resist(layer: String, dtype: String, base: float) -> float:
 		if stat_name != "resist_%s_%s" % [layer, dtype]:
 			continue
 		match str(md.get("op", "add")):
+			"set":
+				has_set = true
+				set_v = TypedVariant.as_float(md.get("value", 0.0))
 			"add":
 				add += TypedVariant.as_float(md.get("value", 0.0))
 			"mul":
 				mul *= TypedVariant.as_float(md.get("value", 1.0))
+	## Absolute set (set_resist_active) may reach 1.0; normal add path stays capped at 0.95.
+	if has_set:
+		return clampf(set_v, 0.0, 1.0)
 	return clampf((base + add) * mul, 0.0, 0.95)
 
 func add_stat_modifier(source: String, stat_name: String, op: String, value: float, duration: float = -1.0, stack_id: String = "") -> void:
@@ -1730,6 +1879,8 @@ func combat_move_speed() -> float:
 	## Excavators wander the belt slowly (MINING §2.1): 1/5 mapped move speed.
 	if is_unmanned and str(unmanned_kind) == "mining_excavator":
 		speed *= TypedVariant.as_float(DataStore.combat.get("mining_excavator_move_mul", 0.2))
+	if _blink_until_time > _combat_sim_time and _blink_speed_mul > 1.0:
+		speed *= _blink_speed_mul
 	return speed
 
 
@@ -2577,9 +2728,37 @@ func resolve_weapon_fx_kind() -> String:
 	var explicit: String = str(ship.get("weapon_fx", "")).strip_edges()
 	if explicit != "":
 		return explicit
+	## Override without weapon_fx: use base kind for SFX / kind string.
+	var ov: Dictionary = TypedVariant.as_dict(ship.get("weapon_fx_override", {}))
+	var ov_base: String = str(ov.get("base", "")).strip_edges()
+	if ov_base != "":
+		return ov_base
 	if is_logistic:
 		return "heal"
 	return str(cfg.get("default_kind", "laser"))
+
+
+## Full interaction FX def (stock + optional interaction_fx_override). COMBAT §8.4.
+func resolve_interaction_fx_def() -> Dictionary:
+	return InteractionFxResolve.from_unit_data(DataStore.get_ship(ship_id))
+
+
+## Ship/unmanned engine trail appearance override (MOD_PROTOCOL §1.2.0c). Empty = global visual.json.
+func resolve_trail_override() -> Dictionary:
+	return TypedVariant.as_dict(DataStore.get_ship(ship_id).get("trail_override", {}))
+
+
+## Full kind def for FiringFx (stock + optional weapon_fx_override). COMBAT §8.2a.
+func resolve_weapon_fx_def() -> Dictionary:
+	var ship: Dictionary = DataStore.get_ship(ship_id)
+	var kinds: Dictionary = TypedVariant.as_dict(DataStore.weapon_fx.get("kinds", {}))
+	var ov: Dictionary = TypedVariant.as_dict(ship.get("weapon_fx_override", {}))
+	if not ov.is_empty():
+		var merged: Dictionary = ModFxResolve.merge_override(ov, kinds)
+		if not merged.is_empty():
+			return merged
+	var kind: String = resolve_weapon_fx_kind()
+	return TypedVariant.as_dict(kinds.get(kind, kinds.get("laser", {}))).duplicate(true)
 
 func apply_hit(raw_emp: float, raw_thermal: float = 0.0, raw_kinetic: float = 0.0, raw_explosive: float = 0.0) -> Dictionary:
 	## Returns {destroyed:bool, dealt:float}. Layer overflow pierces shield→armor→structure when combat flag is on.

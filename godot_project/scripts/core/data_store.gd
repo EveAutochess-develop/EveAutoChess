@@ -12,6 +12,7 @@ var visual: Dictionary = {}
 ## UI_AND_SHELL §3.1.1 / CONTENT_FORMAT §3.6b — HUD panel fracs from preview snap.
 var hud_layout: Dictionary = {}
 var weapon_fx: Dictionary = {}
+var interaction_fx: Dictionary = {}
 var titan_pvp: Dictionary = {}
 ## MULTIPLAYER_PVP §7.1 — read-only title catalog (array of {id,name,condition}).
 var combat_evals: Array = []
@@ -61,6 +62,7 @@ func reload_all() -> void:
 	visual = _load_balance("visual.json")
 	hud_layout = ContentRuntimeData.load_json_prefer_runtime("ui/hud_layout.json")
 	weapon_fx = _load_balance("weapon_fx.json")
+	interaction_fx = _load_balance("interaction_fx.json")
 	titan_pvp = _load_balance("titan_pvp.json")
 	combat_evals = _load_combat_evals()
 	## Portrait/mesh maps stay PCK-only (not semi-exposed).
@@ -93,6 +95,10 @@ func reload_all() -> void:
 	## A live host override outranks whatever is on this client's disk.
 	if not host_ships_override.is_empty():
 		_apply_ships_table(host_ships_override)
+	## Third-party mods (MODS.md) — after official tables; never overwrite official same id.
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null:
+		mm.merge_enabled_into_datastore(self)
 	ShipLook.clear_caches()
 
 func _load_balance(file_name: String) -> Dictionary:
@@ -177,6 +183,12 @@ func ship_mesh_path_resolved(ship_id: int) -> String:
 	if path != "" and _res_file_ok(path):
 		return path
 	var ship: Dictionary = get_ship(ship_id)
+	var mod_glb: String = str(ship.get("_mod_model_glb", ""))
+	if mod_glb != "" and FileAccess.file_exists(mod_glb):
+		return mod_glb
+	var mod_obj: String = str(ship.get("_mod_model_obj", ""))
+	if mod_obj != "" and FileAccess.file_exists(mod_obj):
+		return mod_obj
 	var key: String = str(ship.get("model_key", ""))
 	var bundle: Dictionary = resolve_model_bundle(key)
 	return str(bundle.get("mesh", ""))
@@ -484,6 +496,13 @@ static func _keyed_by_type_id(table: Dictionary) -> Dictionary:
 ## has to be written too or the edit would be reverted on the next reload.
 func save_ship_json(ship_id: int, data: Dictionary) -> bool:
 	var rel: String = str(ship_sources.get(ship_id, "ships/%d.json" % ship_id))
+	## Mod units write back to unit folder + repack (MODS.md §8).
+	if rel.begins_with("mod:"):
+		var mm: ModManager = ModManager.get_or_null()
+		if mm != null and mm.write_unit_json(ship_id, data):
+			ships[ship_id] = data
+			return true
+		return false
 	var text: String = JSON.stringify(data, "  ")
 	var ok: bool = _write_text(ContentRuntimeData.runtime_path(rel), text)
 	if OS.has_feature("editor"):

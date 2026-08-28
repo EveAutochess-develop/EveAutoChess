@@ -1408,6 +1408,8 @@ func recalculate_fetters(team: int) -> Array:
 		var ship: Dictionary = DataStore.get_ship(s.ship_id)
 		for fid: Variant in TypedVariant.as_array(ship.get("fetter_ids", [])):
 			counts[fid] = TypedVariant.as_int(counts.get(fid, 0), 0) + 1
+		for rf: Variant in s.get_active_runtime_fetters(s._combat_sim_time):
+			counts[rf] = TypedVariant.as_int(counts.get(rf, 0), 0) + 1
 	var active: Array = []
 	for fid: Variant in counts.keys():
 		var fetter: Dictionary = DataStore.fetters.get(fid, {})
@@ -1564,10 +1566,14 @@ func recalculate_fetters(team: int) -> Array:
 ## independent of Field counts, and it buffs every hull on that side.
 func set_titan_fetter_race(team: int, race: String) -> void:
 	var r: String = race.to_lower()
-	if r == "" or not DataStore.fetters.has("titan_%s" % r):
+	if r == "":
 		_titan_fetter_race.erase(team)
 	else:
-		_titan_fetter_race[team] = r
+		var fid: String = ModManager.titan_fetter_id_for(r)
+		if fid == "" or not DataStore.fetters.has(fid):
+			_titan_fetter_race.erase(team)
+		else:
+			_titan_fetter_race[team] = r
 	recalculate_fetters(team)
 
 
@@ -1579,7 +1585,7 @@ func _append_titan_fetter(team: int, active: Array) -> void:
 	var race: String = str(_titan_fetter_race.get(team, ""))
 	if race == "":
 		return
-	var fid: String = "titan_%s" % race
+	var fid: String = ModManager.titan_fetter_id_for(race)
 	var fetter: Dictionary = DataStore.fetters.get(fid, {})
 	var effects: Array = TypedVariant.as_array(fetter.get("effects", []))
 	if effects.is_empty():

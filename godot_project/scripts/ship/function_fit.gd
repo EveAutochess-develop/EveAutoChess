@@ -7,7 +7,19 @@ const MAX_SLOTS: int = 3
 const _RESIST_KEYS: Array[String] = ["emp", "thermal", "kinetic", "explosive"]
 
 ## Size tiers allowed by hull group (EQUIPMENT §2).
+## Non-empty ship `function_allowed_sizes` overrides group inference (MOD_PROTOCOL).
 static func allowed_sizes_for_ship(ship_data: Dictionary) -> PackedStringArray:
+	var override_v: Variant = ship_data.get("function_allowed_sizes", null)
+	if typeof(override_v) == TYPE_ARRAY:
+		var override_a: Array = TypedVariant.as_array(override_v)
+		if not override_a.is_empty():
+			var out: PackedStringArray = PackedStringArray()
+			for s_any: Variant in override_a:
+				var s: String = str(s_any).strip_edges().to_upper()
+				if s != "" and s not in out:
+					out.append(s)
+			if not out.is_empty():
+				return out
 	var group: String = str(ship_data.get("ship_group", "")).to_lower()
 	var role: String = str(ship_data.get("capital_role", "")).to_lower()
 	if role != "" or group in [
@@ -34,9 +46,34 @@ static func size_allowed_for_ship(ship_data: Dictionary, module_def: Dictionary)
 	if typeof(allowed_on) == TYPE_ARRAY and not TypedVariant.as_array(allowed_on).is_empty():
 		if size not in TypedVariant.as_array(allowed_on):
 			return false
+	if not _allowed_ships_match(ship_data, module_def):
+		return false
 	if not MixedLance.capital_role_allowed(ship_data, module_def):
 		return false
 	return true
+
+
+## Non-empty `allowed_ships` requires ship `_mod_package`+`local_id` hit (vanilla → reject).
+static func _allowed_ships_match(ship_data: Dictionary, module_def: Dictionary) -> bool:
+	var raw: Variant = module_def.get("allowed_ships", null)
+	if typeof(raw) != TYPE_ARRAY:
+		return true
+	var want: Array = TypedVariant.as_array(raw)
+	if want.is_empty():
+		return true
+	var pkg: String = str(ship_data.get("_mod_package", "")).strip_edges()
+	if pkg == "":
+		return false
+	var lid: int = TypedVariant.as_int(ship_data.get("local_id", -1), -1)
+	if lid < 0:
+		lid = TypedVariant.as_int(ship_data.get("id", -1), -1) % 10000
+	for entry_any: Variant in want:
+		var entry: Dictionary = TypedVariant.as_dict(entry_any)
+		if str(entry.get("package", "")).strip_edges() != pkg:
+			continue
+		if TypedVariant.as_int(entry.get("local_id", -2), -2) == lid:
+			return true
+	return false
 
 static func weapon_gate_matches(ship: ShipUnit, module_def: Dictionary) -> bool:
 	var gate: Variant = module_def.get("weapon_gate", null)
@@ -301,7 +338,8 @@ static func update_function_target(ship: ShipUnit, board: BoardController, weapo
 		ship._function_target = null
 		return
 	var needs_hostile: bool = false
-	var needs_ally: bool = false
+	var needs_ally_cap: bool = false
+	var needs_ally_heal: bool = false
 	for entry: Variant in ship.get_function_fit():
 		var _entry_d: Dictionary = TypedVariant.as_dict(entry)
 		var def: Dictionary = TypedVariant.as_dict(_entry_d.get("def", {}))
@@ -309,18 +347,21 @@ static func update_function_target(ship: ShipUnit, board: BoardController, weapo
 			continue
 		if TypedVariant.as_bool(def.get("passive", false)):
 			continue
-		if is_hostile_targeting(def):
-			needs_hostile = true
-		elif is_ally_targeting(def):
-			needs_ally = true
-	if not needs_hostile and not needs_ally:
+		match targeting_kind(def):
+			"enemy":
+				needs_hostile = true
+			"ally_cap":
+				needs_ally_cap = true
+			"ally":
+				needs_ally_heal = true
+	if not needs_hostile and not needs_ally_cap and not needs_ally_heal:
 		ship._function_target = null
 		return
 	if needs_hostile:
 		if ship.is_logistic:
 			var ally_needs: ShipUnit = _best_heal_ally(ship, board)
 			if ally_needs != null:
-				ship._function_target = null
+				ship._function_target = ally_needs
 				return
 		var tgt: ShipUnit = weapon_target
 		if tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed and tgt.team_id != ship.team_id:
@@ -328,7 +369,10 @@ static func update_function_target(ship: ShipUnit, board: BoardController, weapo
 			return
 		ship._function_target = _pick_enemy(ship, board)
 		return
-	if needs_ally:
+	if needs_ally_heal:
+		ship._function_target = _best_heal_ally(ship, board)
+		return
+	if needs_ally_cap:
 		ship._function_target = _pick_ally_cap(ship, board)
 
 static func _pick_enemy(ship: ShipUnit, board: BoardController) -> ShipUnit:
@@ -418,6 +462,9 @@ static func tick_active_modules(
 		if activate == "mixed_lance":
 			MixedLance.tick(ship, board, fid, def, sim_dt, sim_time)
 			continue
+		if activate == "blink":
+			_tick_blink_module(ship, board, fid, def, sim_dt, sim_time, auth_rng)
+			continue
 		if activate != "periodic":
 			if activate == "on_need":
 				if ship.max_shield <= 0.0 or ship.shield_hp >= ship.max_shield * 0.9:
@@ -468,8 +515,14 @@ static func _try_fire_module(
 		return
 	if cap_need > 0.0:
 		ship.cap_current = maxf(0.0, ship.cap_current - cap_need)
-	_fire_module_effects(ship, tgt, def, sim_time, auth_rng)
+	_fire_module_effects(ship, board, tgt, def, sim_time, auth_rng)
 	_play_function_fx(ship, tgt, def)
+	_play_interaction_fx(
+		ship,
+		tgt,
+		def,
+		str(def.get("shop_category", "")) == "superweapon"
+	)
 	rt["cd"] = cycle
 	ship._function_runtime[fid] = rt
 
@@ -497,7 +550,11 @@ static func _module_would_apply(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) 
 		var fxd: Dictionary = TypedVariant.as_dict(fx)
 		match str(fxd.get("op", "")):
 			"repair":
-				if _repair_layer_has_room(ship, str(fxd.get("layer", "armor"))):
+				var repair_tgt: ShipUnit = tgt if targeting_kind(def) == "ally" and tgt != null else ship
+				if repair_tgt != null and is_instance_valid(repair_tgt):
+					if _repair_layer_has_room(repair_tgt, str(fxd.get("layer", "armor"))):
+						any = true
+				elif _repair_layer_has_room(ship, str(fxd.get("layer", "armor"))):
 					any = true
 			"remote_cap":
 				if cap_on and tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed and tgt.cap_capacity > 0.5 and tgt.cap_current < tgt.cap_capacity - 0.5:
@@ -508,7 +565,12 @@ static func _module_would_apply(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) 
 			"neut":
 				if cap_on and tgt != null and is_instance_valid(tgt) and tgt.cap_current > 0.5:
 					any = true
-			"add_resist_active", "mul_stat_active", "debuff_mul":
+			"add_resist_active", "set_resist_active", "mul_stat_active":
+				any = true
+			"debuff_mul":
+				if tgt != null and is_instance_valid(tgt):
+					any = true
+			"spawn_strike_drone", "grant_fetter":
 				any = true
 	if any:
 		return true
@@ -519,6 +581,9 @@ static func _module_would_apply(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) 
 
 
 static func resolve_function_fx_kind(def: Dictionary) -> String:
+	var explicit: String = str(def.get("fx_kind", "")).strip_edges()
+	if explicit != "":
+		return explicit
 	var line: String = str(def.get("line", "")).strip_edges().to_lower()
 	var id: String = str(def.get("id", "")).strip_edges().to_lower()
 	if line == "nos" or id.begins_with("nos_"):
@@ -536,6 +601,11 @@ static func resolve_function_fx_kind(def: Dictionary) -> String:
 			return "guidance_disrupt"
 		"target_painter":
 			return "target_painter"
+	## Override-only: use base as kind when fx_kind/heuristics empty.
+	var ov: Dictionary = TypedVariant.as_dict(def.get("weapon_fx_override", {}))
+	var ov_base: String = str(ov.get("base", "")).strip_edges()
+	if ov_base != "":
+		return ov_base
 	return ""
 
 
@@ -552,8 +622,22 @@ static func guest_visual_fx(ship: ShipUnit) -> Dictionary:
 		return {
 			"kind": kind,
 			"duration_s": maxf(0.35, TypedVariant.as_float(def.get("duration_s", 1.0))),
+			"kind_def": resolve_function_fx_def(def),
 		}
 	return {}
+
+
+static func resolve_function_fx_def(def: Dictionary) -> Dictionary:
+	var kinds: Dictionary = TypedVariant.as_dict(DataStore.weapon_fx.get("kinds", {}))
+	var ov: Dictionary = TypedVariant.as_dict(def.get("weapon_fx_override", {}))
+	if not ov.is_empty():
+		var merged: Dictionary = ModFxResolve.merge_override(ov, kinds)
+		if not merged.is_empty():
+			return merged
+	var kind: String = resolve_function_fx_kind(def)
+	if kind == "":
+		return {}
+	return TypedVariant.as_dict(kinds.get(kind, {})).duplicate(true)
 
 
 static func _play_function_fx(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) -> void:
@@ -578,9 +662,32 @@ static func _play_function_fx(ship: ShipUnit, tgt: ShipUnit, def: Dictionary) ->
 	if not fx_obj.has_method("play_function"):
 		return
 	var dur: float = TypedVariant.as_float(def.get("duration_s", 1.0))
+	var kind_def: Dictionary = resolve_function_fx_def(def)
 	## Match module active / cycle window (COMBAT §8.2) — do not clip to a short flash.
 	@warning_ignore("unsafe_cast")
-	fx_obj.call("play_function", ship, tgt, kind, maxf(0.35, dur))
+	fx_obj.call("play_function", ship, tgt, kind, maxf(0.35, dur), kind_def)
+
+
+static func _play_interaction_fx(ship: ShipUnit, tgt: ShipUnit, def: Dictionary, superweapon: bool = false) -> void:
+	if ship == null or not is_instance_valid(ship) or not ship.is_inside_tree():
+		return
+	var fx_def: Dictionary = InteractionFxResolve.resolve_for_module(ship, def)
+	if fx_def.is_empty():
+		return
+	var root: Node = ship.get_tree().get_first_node_in_group("match_root")
+	if root == null or not root.get("interaction_fx"):
+		return
+	var ixp_v: Variant = root.get("interaction_fx")
+	if ixp_v == null or not (ixp_v is Object):
+		return
+	@warning_ignore("unsafe_cast")
+	var ixp: Object = ixp_v as Object
+	if not ixp.has_method("play_burst"):
+		return
+	var anchor: Node3D = tgt if tgt != null and is_instance_valid(tgt) else ship
+	var trigger: String = "superweapon_fire" if superweapon else "module_activate"
+	ixp.call("play_burst", trigger, ship, anchor, fx_def, -1.0)
+
 
 static func _resolve_module_target(ship: ShipUnit, board: BoardController, def: Dictionary) -> ShipUnit:
 	match targeting_kind(def):
@@ -602,14 +709,24 @@ static func _resolve_module_target(ship: ShipUnit, board: BoardController, def: 
 					return ally
 			ship._function_target = null
 			return _pick_ally_cap(ship, board)
+		"ally":
+			var ft3: Variant = ship._function_target
+			if ft3 != null and is_instance_valid(ft3) and ft3 is ShipUnit:
+				@warning_ignore("unsafe_cast")
+				var ally2: ShipUnit = ft3 as ShipUnit
+				if not ally2.is_destroyed and ally2.team_id == ship.team_id:
+					return ally2
+			ship._function_target = null
+			return _best_heal_ally(ship, board)
 		_:
 			return ship
 
 static func _fire_module_effects(
 	ship: ShipUnit,
+	board: BoardController,
 	tgt: ShipUnit,
 	def: Dictionary,
-	_sim_time: float,
+	sim_time: float,
 	_auth_rng: Callable,
 ) -> void:
 	var dur: float = TypedVariant.as_float(def.get("duration_s", 0.0))
@@ -641,7 +758,8 @@ static func _fire_module_effects(
 				scaled["amount"] = TypedVariant.as_float(scaled.get("amount", 0.0), 0.0) * cap_mul
 		match op:
 			"repair":
-				_apply_repair(ship, scaled)
+				var heal_on: ShipUnit = tgt if targeting_kind(def) == "ally" and tgt != null and is_instance_valid(tgt) else ship
+				_apply_repair(heal_on, scaled)
 			"nos":
 				_apply_nos(ship, tgt, TypedVariant.as_float(scaled.get("amount", 0.0)))
 			"neut":
@@ -649,12 +767,18 @@ static func _fire_module_effects(
 			"remote_cap":
 				_apply_remote_cap(ship, tgt, TypedVariant.as_float(scaled.get("amount", 0.0)))
 			"add_resist_active":
-				_apply_resist_buff(ship, scaled, dur, str(def.get("id", "fn")))
+				_apply_resist_buff(ship, scaled, dur, str(def.get("id", "fn")), false)
+			"set_resist_active":
+				_apply_resist_buff(ship, scaled, dur, str(def.get("id", "fn")), true)
 			"mul_stat_active":
 				_apply_self_mul_buff(ship, scaled, dur, str(def.get("id", "fn")))
 			"debuff_mul":
 				if tgt != null and is_instance_valid(tgt):
 					_apply_debuff_mul(tgt, scaled, dur, str(def.get("id", "fn")))
+			"spawn_strike_drone":
+				_spawn_strike_drones(ship, board, tgt, scaled, def, sim_time, _auth_rng)
+			"grant_fetter":
+				_apply_grant_fetter(ship, board, tgt, scaled, def, sim_time)
 
 static func _apply_repair(ship: ShipUnit, fx: Dictionary) -> void:
 	var layer: String = str(fx.get("layer", "armor"))
@@ -768,7 +892,7 @@ static func _float_text_pool(ship: ShipUnit) -> Node:
 	@warning_ignore("unsafe_cast")
 	return (combat as Node).get_node_or_null("FloatTextPool")
 
-static func _apply_resist_buff(ship: ShipUnit, fx: Dictionary, dur: float, source: String) -> void:
+static func _apply_resist_buff(ship: ShipUnit, fx: Dictionary, dur: float, source: String, absolute_set: bool = false) -> void:
 	var layer: String = str(fx.get("layer", "shield"))
 	var add: float = TypedVariant.as_float(fx.get("amount", 0.0)) / 100.0
 	var layers: Array = []
@@ -776,9 +900,10 @@ static func _apply_resist_buff(ship: ShipUnit, fx: Dictionary, dur: float, sourc
 		layers = ["shield", "armor", "structure"]
 	else:
 		layers = [layer]
+	var op: String = "set" if absolute_set else "add"
 	for ln: Variant in layers:
 		for k: String in _RESIST_KEYS:
-			ship.add_stat_modifier(source, "resist_%s_%s" % [ln, k], "add", add, dur, "%s_%s" % [source, ln])
+			ship.add_stat_modifier(source, "resist_%s_%s" % [ln, k], op, add, dur, "%s_%s" % [source, ln])
 
 static func _apply_self_mul_buff(ship: ShipUnit, fx: Dictionary, dur: float, source: String) -> void:
 	var stat: String = str(fx.get("stat", ""))
@@ -817,7 +942,9 @@ static func on_first_damage(ship: ShipUnit, sim_time: float) -> void:
 			@warning_ignore("unsafe_cast")
 			var fxd: Dictionary = fx as Dictionary
 			if str(fxd.get("op", "")) == "add_resist_active":
-				_apply_resist_buff(ship, fxd, dur, fid)
+				_apply_resist_buff(ship, fxd, dur, fid, false)
+			elif str(fxd.get("op", "")) == "set_resist_active":
+				_apply_resist_buff(ship, fxd, dur, fid, true)
 		rt["cooldown"] = sim_time + TypedVariant.as_float(def.get("cooldown_s", 240.0))
 		ship._function_runtime[fid] = rt
 
@@ -1092,6 +1219,147 @@ static func reset_combat_state(ship: ShipUnit) -> void:
 	ship._function_target = null
 	ship._function_runtime.clear()
 	ship._implant_state.clear()
+	ship._blink_speed_mul = 1.0
+	ship._blink_until_time = -1.0
+
+
+static func _tick_blink_module(
+	ship: ShipUnit,
+	board: BoardController,
+	fid: String,
+	def: Dictionary,
+	sim_dt: float,
+	sim_time: float,
+	_auth_rng: Callable,
+) -> void:
+	var rt: Dictionary = _runtime(ship, fid)
+	rt["cd"] = maxf(0.0, TypedVariant.as_float(rt.get("cd", 0.0)) - sim_dt)
+	var blink_until: float = TypedVariant.as_float(rt.get("blink_until", -1.0), -1.0)
+	if blink_until > sim_time:
+		ship._blink_until_time = blink_until
+		return
+	if blink_until > 0.0 and blink_until <= sim_time:
+		rt.erase("blink_until")
+		ship._blink_speed_mul = 1.0
+		ship._blink_until_time = -1.0
+		ship._function_runtime[fid] = rt
+		return
+	if TypedVariant.as_float(rt.get("cd", 0.0)) > 0.0:
+		return
+	var cap_need: float = TypedVariant.as_float(def.get("capacitor_need", 0.0))
+	if cap_need > 0.0 and ship.cap_current < cap_need:
+		return
+	var tgt: ShipUnit = _resolve_module_target(ship, board, def)
+	var range_cells: float = TypedVariant.as_float(def.get("range_cells", 0.0))
+	if range_cells > 0.0:
+		if tgt == null or not is_instance_valid(tgt) or tgt.is_destroyed:
+			return
+		if ship.grid_dist_to(tgt) > range_cells + 0.001:
+			return
+	if cap_need > 0.0:
+		ship.cap_current = maxf(0.0, ship.cap_current - cap_need)
+	var dur: float = maxf(0.05, TypedVariant.as_float(def.get("blink_duration_s", 0.1), 0.1))
+	var mul: float = TypedVariant.as_float(def.get("blink_speed_mul", 0.0))
+	if mul <= 0.0:
+		var cur: float = maxf(ship.combat_move_speed(), 0.5)
+		var cap_wu: float = TypedVariant.as_float(DataStore.combat.get("blink_speed_cap_wu", 48.0), 48.0)
+		mul = maxf(1.0, cap_wu / cur)
+	ship._blink_speed_mul = mul
+	ship._blink_until_time = sim_time + dur
+	rt["blink_until"] = sim_time + dur
+	var cycle: float = TypedVariant.as_float(def.get("duration_s", 1.0))
+	if cycle <= 0.0:
+		cycle = 1.0
+	rt["cd"] = cycle
+	ship._function_runtime[fid] = rt
+	_play_function_fx(ship, tgt, def)
+	_play_interaction_fx(
+		ship,
+		tgt,
+		def,
+		str(def.get("shop_category", "")) == "superweapon"
+	)
+
+
+static func _spawn_strike_drones(
+	ship: ShipUnit,
+	board: BoardController,
+	tgt: ShipUnit,
+	fx: Dictionary,
+	_def: Dictionary,
+	_sim_time: float,
+	_auth_rng: Callable,
+) -> void:
+	if board == null:
+		return
+	var count: int = maxi(1, TypedVariant.as_int(fx.get("count", 1), 1))
+	var drone_ship_id: int = TypedVariant.as_int(fx.get("drone_ship_id", 0), 0)
+	if drone_ship_id <= 0:
+		var local_id: int = TypedVariant.as_int(fx.get("drone_local_id", 0), 0)
+		if local_id > 0:
+			var pn: String = str(DataStore.get_ship(ship.ship_id).get("_mod_package", "")).strip_edges()
+			var mm: ModManager = ModManager.get_or_null()
+			if mm != null and pn != "":
+				drone_ship_id = mm.runtime_id(pn, local_id)
+	if drone_ship_id <= 0 or DataStore.get_ship(drone_ship_id).is_empty():
+		return
+	var loadout: Dictionary = TypedVariant.as_dict(fx.get("drone_loadout", {}))
+	var module_id: String = str(loadout.get("module_id", "")).strip_edges()
+	var anchor: ShipUnit = ship
+	if tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed:
+		anchor = tgt
+	for _i: int in range(count):
+		var jitter: Vector3 = Vector3(randf_range(-0.8, 0.8), 0.0, randf_range(-0.8, 0.8))
+		var world_pos: Vector3 = anchor.global_position + jitter
+		var drone: ShipUnit = board.spawn_unmanned(drone_ship_id, ship.team_id, world_pos, ship)
+		if drone == null or not is_instance_valid(drone):
+			continue
+		if module_id != "":
+			var mod_def: Dictionary = DataStore.get_function_module(module_id)
+			if not mod_def.is_empty():
+				drone.set_function_fit([{"id": module_id, "def": mod_def.duplicate(true)}])
+				apply_passives_to_ship(drone)
+
+
+static func _apply_grant_fetter(
+	ship: ShipUnit,
+	board: BoardController,
+	tgt: ShipUnit,
+	fx: Dictionary,
+	def: Dictionary,
+	sim_time: float,
+) -> void:
+	if board == null:
+		return
+	var fetter_id: String = str(fx.get("fetter_id", "")).strip_edges()
+	if fetter_id == "" or not DataStore.fetters.has(fetter_id):
+		return
+	var dur: float = TypedVariant.as_float(fx.get("duration_s", def.get("duration_s", 0.0)), 0.0)
+	var until: float = -1.0 if dur <= 0.0 else sim_time + dur
+	var side: String = str(fx.get("target_side", "")).strip_edges().to_lower()
+	if side == "":
+		side = "ally" if targeting_kind(def) == "ally" else "enemy"
+	var range_cells: float = TypedVariant.as_float(fx.get("range_cells", def.get("range_cells", 0.0)), 0.0)
+	var targets: Array = []
+	if range_cells > 0.0:
+		var team: int = ship.team_id if side == "ally" else (ShipUnit.TEAM_AI if ship.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER)
+		for o: ShipUnit in board.field_ships(team):
+			if o.is_destroyed:
+				continue
+			if ship.grid_dist_to(o) <= range_cells + 0.001:
+				targets.append(o)
+	elif tgt != null and is_instance_valid(tgt) and not tgt.is_destroyed:
+		targets.append(tgt)
+	elif side == "ally":
+		var ally: ShipUnit = _best_heal_ally(ship, board)
+		if ally != null:
+			targets.append(ally)
+	var teams: Dictionary = {}
+	for t: ShipUnit in targets:
+		t.add_runtime_fetter(fetter_id, until)
+		teams[t.team_id] = true
+	for tid: int in teams.keys():
+		board.recalculate_fetters(tid)
 
 
 ## Same-line size up: two identical ids whose def has synth_next → that next id.

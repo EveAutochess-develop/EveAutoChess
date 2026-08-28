@@ -10,6 +10,7 @@ const FALLBACK_CONE: String = "res://assets/vfx/cyno/cyno_cone.png"
 
 var follow: Node3D = null
 var _spin: float = 0.0
+var _haze: HeatHazeFx = null
 
 
 func setup(follow_ship: Node3D) -> void:
@@ -99,6 +100,13 @@ func _build() -> void:
 	column.scale_amount_max = 1.0
 	column.material_override = _add_mat(Color(0.6, 0.95, 1.0, 0.9), soft, 2.0, true)
 	add_child(column)
+
+	if HeatHazeFx.fx_allowed():
+		_haze = HeatHazeFx.new()
+		_haze.name = "CynoHeatHaze"
+		add_child(_haze)
+		## Point-center; radius tracks ground disc (~3.2).
+		_haze.configure_point(1.7, 0.0065, 1.0, 0.12)
 
 
 func _add_mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = false) -> StandardMaterial3D:

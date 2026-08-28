@@ -9,6 +9,8 @@ const LOG_PATH: String = "user://debug/eveac_session.log"
 const EXPORT_DIR_USER: String = "user://debug/exports"
 const _SELF: String = "res://scripts/debug/session_diagnostics.gd"
 const SPIKE_MS_DEFAULT: float = 33.0
+## Wall-clock frame gap ≥ this → jank.frame (emu stutter scaffold).
+const JANK_FRAME_MS: float = 50.0
 
 var enabled: bool = true
 var _queue: PackedStringArray = PackedStringArray()
@@ -24,6 +26,14 @@ var _spike_ms: float = SPIKE_MS_DEFAULT
 ## Host MP / match boot: denser flush so last lines survive process death (DIAGNOSTICS §2.2).
 var _critical_window: String = ""
 var _critical_depth: int = 0
+## #region agent log — emu jank scaffold (session 509535)
+var _jank_last_wall_usec: int = 0
+var _jank_count: int = 0
+var _jank_max_dt_ms: float = 0.0
+var _jank_sum_dt_ms: float = 0.0
+var _jank_frames: int = 0
+var _jank_log_cd: float = 0.0
+## #endregion
 
 static var _pending: Node = null
 
@@ -239,6 +249,30 @@ func _pick_export_path(fname: String) -> String:
 func _process(delta: float) -> void:
 	if not enabled:
 		return
+	# #region agent log — wall-clock jank scaffold (H1: main-thread stalls ≥50ms)
+	var wall_now: int = Time.get_ticks_usec()
+	if _jank_last_wall_usec > 0:
+		var dt_ms: float = float(wall_now - _jank_last_wall_usec) * 0.001
+		_jank_frames += 1
+		_jank_sum_dt_ms += dt_ms
+		if dt_ms > _jank_max_dt_ms:
+			_jank_max_dt_ms = dt_ms
+		_jank_log_cd = maxf(0.0, _jank_log_cd - delta)
+		if dt_ms >= JANK_FRAME_MS:
+			_jank_count += 1
+			if _jank_log_cd <= 0.0:
+				_jank_log_cd = 0.5
+				log_event(
+					"jank.frame",
+					"dt_ms=%.1f fps=%.0f mem=%d stage_delta=%.1f hyp=H1" % [
+						dt_ms,
+						Engine.get_frames_per_second(),
+						OS.get_static_memory_usage(),
+						delta * 1000.0,
+					]
+				)
+	_jank_last_wall_usec = wall_now
+	# #endregion
 	## End-of-frame: count frames that had samples; reset per-frame accumulators.
 	for k: Variant in _perf.keys():
 		var b: Dictionary = TypedVariant.as_dict(_perf[k])
@@ -325,6 +359,15 @@ func _emit_heartbeat() -> void:
 		detail += " units=%d" % units
 	if mobile_n >= 0:
 		detail += " mobile=%d" % mobile_n
+	## #region agent log — roll jank counters into heartbeat
+	if _jank_frames > 0:
+		var avg_dt: float = _jank_sum_dt_ms / float(_jank_frames)
+		detail += " jank_n=%d jank_max=%.1f dt_avg=%.1f" % [_jank_count, _jank_max_dt_ms, avg_dt]
+		_jank_count = 0
+		_jank_max_dt_ms = 0.0
+		_jank_sum_dt_ms = 0.0
+		_jank_frames = 0
+	## #endregion
 	log_event("heartbeat", detail)
 
 

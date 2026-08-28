@@ -345,10 +345,11 @@ static func delete_slot(slot_id: String) -> Dictionary:
 
 static func _build_save_dict(mc: MatchController, board: BoardController, ai: AiController) -> Dictionary:
 	var ships: Array = []
+	var mm: ModManager = ModManager.get_or_null()
 	for s: ShipUnit in board.all_ships():
 		if s == null or s.is_destroyed or s.is_unmanned:
 			continue
-		ships.append({
+		var entry: Dictionary = {
 			"ship_id": s.ship_id,
 			"star": s.star,
 			"team": s.team_id,
@@ -358,7 +359,12 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 			"field_side_team": s.field_side_team,
 			"hangar_home_x": s.hangar_home_x,
 			"hangar_home_z": s.hangar_home_z,
-		})
+		}
+		if mm != null:
+			var mref: Dictionary = mm.mod_ref_for_ship(s.ship_id)
+			if not mref.is_empty():
+				entry["mod_ref"] = mref
+		ships.append(entry)
 	var shop_slots: Array = []
 	if mc._shop != null:
 		for e_v: Variant in mc._shop.slots:
@@ -390,9 +396,13 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 	if mode_out == "":
 		## Never persist blank/garbage as endless — default dual-citadel versus.
 		mode_out = "versus" if str(mc.mode) != "nullsec" else "nullsec"
+	var mods_ordered: Array = []
+	if mm != null:
+		mods_ordered = mm.enabled_mods_ordered()
 	return {
 		"save_version": SAVE_VERSION,
 		"mode": mode_out,
+		"enabled_mods_ordered": mods_ordered,
 		"battle_game_stage_count": mc.battle_game_stage_count,
 		"round_phase_value": mc.round_phase_value,
 		"battle_phase_value": mc.battle_phase_value,
@@ -422,6 +432,63 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 		},
 		"ships": ships,
 	}
+
+
+## Returns {ok, reason, diffs[]} — refuse silent resume when mod set mismatches (MODS.md §6).
+static func validate_mods_for_resume(data: Dictionary) -> Dictionary:
+	var saved: Array = TypedVariant.as_array(data.get("enabled_mods_ordered", []))
+	var mm: ModManager = ModManager.get_or_null()
+	var current: Array = mm.enabled_mods_ordered() if mm != null else []
+	if saved.is_empty() and current.is_empty():
+		return {"ok": true, "diffs": []}
+	var diffs: Array = []
+	var saved_map: Dictionary = {}
+	for e_any: Variant in saved:
+		var e: Dictionary = TypedVariant.as_dict(e_any)
+		saved_map[str(e.get("package_name", ""))] = e
+	var cur_map: Dictionary = {}
+	for c_any: Variant in current:
+		var c: Dictionary = TypedVariant.as_dict(c_any)
+		cur_map[str(c.get("package_name", ""))] = c
+	for pn_any: Variant in saved_map.keys():
+		var pn: String = str(pn_any)
+		if not cur_map.has(pn):
+			diffs.append({"kind": "missing", "package_name": pn})
+		else:
+			var s: Dictionary = TypedVariant.as_dict(saved_map[pn])
+			var c2: Dictionary = TypedVariant.as_dict(cur_map[pn])
+			if str(s.get("content_hash", "")) != str(c2.get("content_hash", "")):
+				diffs.append({"kind": "hash", "package_name": pn})
+	for pn2_any: Variant in cur_map.keys():
+		var pn2: String = str(pn2_any)
+		if not saved_map.has(pn2):
+			diffs.append({"kind": "extra", "package_name": pn2})
+	## Order-only mismatch
+	if diffs.is_empty():
+		var order_diff: bool = false
+		if saved.size() == current.size():
+			for i: int in range(saved.size()):
+				var se: Dictionary = TypedVariant.as_dict(saved[i])
+				var ce: Dictionary = TypedVariant.as_dict(current[i])
+				if str(se.get("package_name", "")) != str(ce.get("package_name", "")) \
+						or TypedVariant.as_int(se.get("install_order", 0)) != TypedVariant.as_int(ce.get("install_order", 0)):
+					order_diff = true
+					break
+		if order_diff:
+			diffs.append({"kind": "order"})
+	if diffs.is_empty():
+		return {"ok": true, "diffs": []}
+	return {"ok": false, "reason": "mods_mismatch", "diffs": diffs}
+
+
+## Remap ship_id via mod_ref under current install_order.
+static func resolve_ship_entry_id(entry: Dictionary) -> int:
+	var raw: int = TypedVariant.as_int(entry.get("ship_id", 0), 0)
+	var mref: Dictionary = TypedVariant.as_dict(entry.get("mod_ref", {}))
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		return raw
+	return mm.resolve_ship_id(raw, mref)
 
 static func _count_team_ships(data: Dictionary, team: int) -> int:
 	var n: int = 0

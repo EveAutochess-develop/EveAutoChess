@@ -1225,6 +1225,7 @@ func guest_present_tick(
 	var now: int = Time.get_ticks_msec()
 	var pos_k: float = 1.0 - exp(-delta / _g_pos_smooth_s)
 	var hp_k: float = 1.0 - exp(-delta / _g_hp_smooth_s)
+	var emit_n: int = 0
 	for iid_v: Variant in _g_state.keys():
 		var iid: int = TypedVariant.as_int(iid_v, 0)
 		@warning_ignore("unsafe_cast")
@@ -1234,6 +1235,8 @@ func guest_present_tick(
 			continue
 		var st: Dictionary = _g_state[iid_v]
 		_guest_tick_motion(s, st, delta, pos_k, now)
+		if s.combat_speed_now() > 0.15:
+			emit_n += 1
 		_guest_tick_hp(s, st, delta, hp_k)
 		_guest_tick_fire(s, st, delta, speed_mul, firing_fx, float_text)
 	## Lance FX may outlive motion state entries; drive from the aim set.
@@ -1245,6 +1248,10 @@ func guest_present_tick(
 			_g_lance_iids.erase(lance_iid_v)
 			continue
 		MixedLance.guest_tick_visual(ls, delta)
+	# #region agent log
+	if emit_n > 0 and (now % 2000) < 50:
+		SessionDiagnostics.log("mp.guest_trail", "emit_n=%d ships=%d" % [emit_n, _g_state.size()])
+	# #endregion
 
 
 func _guest_tick_motion(s: ShipUnit, st: Dictionary, delta: float, pos_k: float, now: int) -> void:
@@ -1259,16 +1266,43 @@ func _guest_tick_motion(s: ShipUnit, st: Dictionary, delta: float, pos_k: float,
 		st["vel"] = vel
 	var err: Vector3 = TypedVariant.as_vector3(st.get("err", Vector3.ZERO), Vector3.ZERO)
 	var take: Vector3 = err * pos_k
+	## Cap correction step so sparse light-packet quant noise does not rubber-band (twitch).
+	var vmax: float = maxf(0.5, s.combat_move_speed())
+	var max_corr: float = vmax * delta * 2.5
+	if take.length() > max_corr:
+		take = take.normalized() * max_corr
 	st["err"] = err - take
 	var step: Vector3 = vel * delta + take
 	if step.length_squared() > 1.0e-10:
 		s.global_position += step
 	s.move_velocity_wu = vel
-	if vel.length_squared() > 0.01:
+	## Watch peers skip CombatResolver — must drive trails from coast velocity (COMBAT §14D).
+	var emit_min: float = TypedVariant.as_float(DataStore.combat.get("move_trail_emit_speed_wu_s", 0.15), 0.15)
+	var speed_now: float = s.combat_speed_now()
+	EngineBoosterTrail.set_emitting_on(s, speed_now > emit_min)
+	## Face from authority velocity only (not err take) to avoid yaw snap twitch.
+	if vel.length_squared() > emit_min * emit_min:
 		if s.y_axis_unlocked():
 			s.face_dir_3d(vel)
 		else:
-			s.face_dir_xz(vel)
+			_guest_smooth_face_xz(s, vel, delta)
+
+
+func _guest_smooth_face_xz(s: ShipUnit, dir: Vector3, delta: float) -> void:
+	if s == null or not is_instance_valid(s):
+		return
+	if (s.immobile_in_combat and not s.hull_morph_unstacking) or s.has_cyno_module():
+		return
+	var flat: Vector3 = Vector3(dir.x, 0.0, dir.z)
+	if flat.length_squared() < 0.0001:
+		return
+	flat = flat.normalized()
+	var target_y: float = atan2(-flat.x, -flat.z)
+	var cur: float = s.rotation.y
+	var diff: float = wrapf(target_y - cur, -PI, PI)
+	## ~0.12s settle — soft enough to hide light-packet facing flips.
+	var k: float = 1.0 - exp(-delta / 0.12)
+	s.rotation.y = cur + diff * k
 
 
 func _guest_tick_hp(s: ShipUnit, st: Dictionary, delta: float, hp_k: float) -> void:
@@ -1347,7 +1381,8 @@ func _guest_play_function(s: ShipUnit, fn_iid: int, firing_fx: Object) -> void:
 	firing_fx.call(
 		"play_function", s, t,
 		str(def.get("kind", "")),
-		TypedVariant.as_float(def.get("duration_s", 1.0), 1.0)
+		TypedVariant.as_float(def.get("duration_s", 1.0), 1.0),
+		TypedVariant.as_dict(def.get("kind_def", {}))
 	)
 
 

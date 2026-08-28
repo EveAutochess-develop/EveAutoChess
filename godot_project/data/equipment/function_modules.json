@@ -14,14 +14,14 @@
       "blurb_holes": {
         "capacitor_need": 320.0,
         "duration_s": 10.0,
-        "mul": 2.15
+        "mul": 4.0
       },
       "capacitor_need": 320.0,
       "cost": 9.0,
       "duration_s": 10.0,
       "effects": [
         {
-          "mul": 2.15,
+          "mul": 4.0,
           "op": "mul_stat_active",
           "stat": "speed"
         }
@@ -56,14 +56,14 @@
       "blurb_holes": {
         "capacitor_need": 80.0,
         "duration_s": 10.0,
-        "mul": 2.15
+        "mul": 4.0
       },
       "capacitor_need": 80.0,
       "cost": 4.0,
       "duration_s": 10.0,
       "effects": [
         {
-          "mul": 2.15,
+          "mul": 4.0,
           "op": "mul_stat_active",
           "stat": "speed"
         }
@@ -97,14 +97,14 @@
       "blurb_holes": {
         "capacitor_need": 20.0,
         "duration_s": 10.0,
-        "mul": 2.15
+        "mul": 4.0
       },
       "capacitor_need": 20.0,
       "cost": 1.0,
       "duration_s": 10.0,
       "effects": [
         {
-          "mul": 2.15,
+          "mul": 4.0,
           "op": "mul_stat_active",
           "stat": "speed"
         }
@@ -1082,7 +1082,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16010000001,
+      "typeID": 16010000001.0,
       "weapon_gate": "heal"
     },
     "implant_auto_def": {
@@ -1124,7 +1124,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16011000001,
+      "typeID": 16011000001.0,
       "weapon_gate": "drone"
     },
     "implant_barrage": {
@@ -1169,7 +1169,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16002000001,
+      "typeID": 16002000001.0,
       "weapon_gate": "cannon"
     },
     "implant_bombing": {
@@ -1211,7 +1211,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16008000001,
+      "typeID": 16008000001.0,
       "weapon_gate": "drone"
     },
     "implant_focus_crystal": {
@@ -1253,7 +1253,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16000000001,
+      "typeID": 16000000001.0,
       "weapon_gate": "laser"
     },
     "implant_he_coil": {
@@ -1293,7 +1293,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16003000001,
+      "typeID": 16003000001.0,
       "weapon_gate": "rail"
     },
     "implant_pulse_crystal": {
@@ -1343,7 +1343,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16001000001,
+      "typeID": 16001000001.0,
       "weapon_gate": "laser"
     },
     "implant_shield_support": {
@@ -1383,7 +1383,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16009000001,
+      "typeID": 16009000001.0,
       "weapon_gate": "heal"
     },
     "implant_sniper": {
@@ -1423,7 +1423,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16005000001,
+      "typeID": 16005000001.0,
       "weapon_gate": "cannon"
     },
     "implant_support_proj": {
@@ -1463,7 +1463,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16006000001,
+      "typeID": 16006000001.0,
       "weapon_gate": "missile"
     },
     "implant_thermal_cycle": {
@@ -1503,7 +1503,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16004000001,
+      "typeID": 16004000001.0,
       "weapon_gate": "rail"
     },
     "implant_warhead": {
@@ -1538,7 +1538,7 @@
       "synth_into": [],
       "synth_next": null,
       "targeting": "none",
-      "typeID": 16007000001,
+      "typeID": 16007000001.0,
       "weapon_gate": "missile"
     },
     "membrane_ms": {
@@ -1716,6 +1716,62 @@
       "targeting": "none",
       "typeID": 35770.0,
       "weapon_gate": "missile"
+    },
+    "mixed_lance": {
+      "activate": "mixed_lance",
+      "allowed_on": [
+        "XL"
+      ],
+      "attack_diameter": 2.5,
+      "blurb": "一次性装备。仅无畏；每舰一把。准备 {prep_sec}s → 开火 {fire_sec}s → 收缩收束。柱长=棋盘对角线；攻击直径 {attack_diameter}。开火期间每 {tick_sec}s 一跳：对柱内（敌我）造成 max({damage_floor}, 最大总血×{damage_hp_pct_display}%) 四通道均分（可被抗性削减；非整段合计一次）。中招治疗−80%、速度−90%（60s刷新）。用完消失。",
+      "blurb_holes": {
+        "attack_diameter": 2.5,
+        "damage_floor": 1000.0,
+        "damage_hp_pct_display": 5.0,
+        "fire_sec": 10.0,
+        "prep_sec": 10.0,
+        "tick_sec": 0.5
+      },
+      "capacitor_need": 0.0,
+      "consumable": true,
+      "core_d_ref": 1.2,
+      "cost": 19.0,
+      "damage_floor": 1000.0,
+      "damage_hp_pct": 0.05,
+      "duration_s": 0.0,
+      "effects": [],
+      "end_sec": 2.1,
+      "fire_sec": 10.0,
+      "flow_speed": 3.0,
+      "heal_debuff_sec": 60.0,
+      "heal_received_mul": 0.2,
+      "icon": "res://assets/vfx/lance/icon_amarr.png",
+      "id": "mixed_lance",
+      "implant": false,
+      "line": "mixed_lance",
+      "name": "混合长枪",
+      "passive": false,
+      "prep_sec": 10.0,
+      "prepare_alpha": 0.0,
+      "prepare_d_ref": 3.6,
+      "range_cells": 0.0,
+      "require_capital_roles": [
+        "dreadnought"
+      ],
+      "shop_category": "superweapon",
+      "shop_pool": true,
+      "size": "XL",
+      "soft_d_ref": 2.5,
+      "speed_debuff_sec": 60.0,
+      "speed_mul": 0.1,
+      "synth_from": null,
+      "synth_into": [],
+      "synth_next": null,
+      "targeting": "none",
+      "tick_sec": 0.5,
+      "typeID": 0.0,
+      "unique_per_ship": true,
+      "weapon_gate": null
     },
     "neut_l": {
       "activate": "periodic",
@@ -3043,62 +3099,6 @@
       "synth_next": null,
       "targeting": "none",
       "typeID": 1998.0,
-      "weapon_gate": null
-    },
-    "mixed_lance": {
-      "activate": "mixed_lance",
-      "allowed_on": [
-        "XL"
-      ],
-      "require_capital_roles": [
-        "dreadnought"
-      ],
-      "unique_per_ship": true,
-      "consumable": true,
-      "blurb": "一次性装备。仅无畏；每舰一把。准备 {prep_sec}s → 开火 {fire_sec}s → 收缩收束。柱长=棋盘对角线；攻击直径 {attack_diameter}。开火期间每 {tick_sec}s 一跳：对柱内（敌我）造成 max({damage_floor}, 最大总血×{damage_hp_pct_display}%) 四通道均分（可被抗性削减；非整段合计一次）。中招治疗−80%、速度−90%（60s刷新）。用完消失。",
-      "blurb_holes": {
-        "prep_sec": 10.0,
-        "fire_sec": 10.0,
-        "tick_sec": 0.5,
-        "attack_diameter": 2.5,
-        "damage_floor": 1000.0,
-        "damage_hp_pct_display": 5.0
-      },
-      "prep_sec": 10.0,
-      "fire_sec": 10.0,
-      "tick_sec": 0.5,
-      "end_sec": 2.1,
-      "attack_diameter": 2.5,
-      "soft_d_ref": 2.5,
-      "core_d_ref": 1.2,
-      "prepare_d_ref": 3.6,
-      "prepare_alpha": 0.0,
-      "flow_speed": 3.0,
-      "damage_hp_pct": 0.05,
-      "damage_floor": 1000.0,
-      "heal_received_mul": 0.2,
-      "heal_debuff_sec": 60.0,
-      "speed_mul": 0.1,
-      "speed_debuff_sec": 60.0,
-      "capacitor_need": 0.0,
-      "cost": 19.0,
-      "duration_s": 0.0,
-      "effects": [],
-      "icon": "res://assets/vfx/lance/icon_amarr.png",
-      "id": "mixed_lance",
-      "implant": false,
-      "line": "mixed_lance",
-      "name": "混合长枪",
-      "passive": false,
-      "range_cells": 0.0,
-      "shop_category": "superweapon",
-      "shop_pool": true,
-      "size": "XL",
-      "synth_from": null,
-      "synth_into": [],
-      "synth_next": null,
-      "targeting": "none",
-      "typeID": 0,
       "weapon_gate": null
     }
   }

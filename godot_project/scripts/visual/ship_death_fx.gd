@@ -4,6 +4,7 @@ class_name ShipDeathFx
 
 const FX_SCRIPT: String = "res://scripts/vfx/echoes_ship_death_fx.gd"
 const EXPLODE_DURATION_S: float = 2.4
+const _EchoesDeathScript = preload("res://scripts/vfx/echoes_ship_death_fx.gd")
 
 static func scale_for_ship(ship_id: int) -> float:
 	var ship: Dictionary = DataStore.get_ship(ship_id)
@@ -48,14 +49,16 @@ static func should_spawn_wreck(ship_id: int) -> bool:
 static func spawn_explode(parent: Node, world_pos: Vector3, ship_id: int) -> Node3D:
 	if parent == null:
 		return null
-	var loaded: Variant = load(FX_SCRIPT)
-	if not (loaded is Script):
-		return null
-	var script: Script = loaded
+	## #region agent log
+	var t0: int = Time.get_ticks_usec()
+	## #endregion
 	var fx: Node3D = Node3D.new()
-	fx.set_script(script)
+	fx.set_script(_EchoesDeathScript)
 	fx.name = "ShipDeathFx_%d" % ship_id
 	parent.add_child(fx)
+	## #region agent log
+	var ready_ms: float = float(Time.get_ticks_usec() - t0) * 0.001
+	## #endregion
 	fx.global_position = world_pos
 	var sc: float = scale_for_ship(ship_id)
 	fx.scale = Vector3.ONE * sc
@@ -63,7 +66,19 @@ static func spawn_explode(parent: Node, world_pos: Vector3, ship_id: int) -> Nod
 	var runner: _DeathFxRunner = _DeathFxRunner.new()
 	parent.add_child(runner)
 	runner.begin(fx, not should_spawn_wreck(ship_id))
+	## #region agent log
+	var total_ms: float = float(Time.get_ticks_usec() - t0) * 0.001
+	SessionDiagnostics.log(
+		"fx.death_spawn",
+		"ship=%d ready_ms=%.1f total_ms=%.1f hyp=H1" % [ship_id, ready_ms, total_ms]
+	)
+	## #endregion
 	return fx
+
+
+## Preload death atlases/meshes/audio so first kill does not hitch.
+static func warm_cache() -> void:
+	_EchoesDeathScript.warm_resource_cache()
 
 
 class _DeathFxRunner extends Node:

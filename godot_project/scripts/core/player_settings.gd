@@ -25,6 +25,9 @@ var sfx_enabled: bool = true
 var sfx_volume_pct: float = 80.0
 ## Handbook §0.2 — in-match slow learn (default on).
 var in_match_slow_learn: bool = true
+var _boot_done: bool = false
+## Holds instance created while root.add_child is deferred (scene _ready race).
+static var _pending: PlayerSettings = null
 
 
 static func instance() -> Node:
@@ -36,6 +39,8 @@ static func instance() -> Node:
 	var existing: Node = tree.root.get_node_or_null(NodePath(String(NODE_NAME)))
 	if existing:
 		return existing
+	if _pending != null and is_instance_valid(_pending):
+		return _pending
 	var loaded: Variant = load(_SELF)
 	if not (loaded is GDScript):
 		return null
@@ -47,7 +52,11 @@ static func instance() -> Node:
 	@warning_ignore("unsafe_cast")
 	var n: Node = created as Node
 	n.name = String(NODE_NAME)
-	tree.root.add_child(n)
+	if n is PlayerSettings:
+		var ps: PlayerSettings = n as PlayerSettings
+		ps._ensure_boot()
+		_pending = ps
+	tree.root.add_child.call_deferred(n)
 	return n
 
 
@@ -59,6 +68,14 @@ static func get_or_null() -> PlayerSettings:
 
 
 func _ready() -> void:
+	_ensure_boot()
+	_pending = null
+
+
+func _ensure_boot() -> void:
+	if _boot_done:
+		return
+	_boot_done = true
 	_load_settings()
 	_apply_sfx_bus()
 

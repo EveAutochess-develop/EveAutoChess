@@ -78,6 +78,9 @@ static func from_session(net: Node) -> Dictionary:
 		"host_port": host_port,
 		"host_migrate_generation": TypedVariant.as_int(net.get("host_migrate_generation"), 0),
 		"match_seed": TypedVariant.as_int(payload.get("match_seed", 0), 0),
+		"enabled_mods_ordered": (
+			(ModManager.get_or_null().enabled_mods_ordered() if ModManager.get_or_null() != null else [])
+		),
 	}
 
 

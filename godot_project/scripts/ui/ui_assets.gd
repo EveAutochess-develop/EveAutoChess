@@ -54,6 +54,9 @@ const TONNAGE_ICON_MAP: Dictionary = {
 	"freighter": "freighter_32.png",
 	"titan": "titan_32.png",
 }
+## Mod-registered tonnage: ship_group -> absolute/res icon path (MODS.md).
+static var MOD_TONNAGE_ICON_PATHS: Dictionary = {}
+static var MOD_COIN_ICON_PATH: String = ""
 const SHIPGROUP_ICON_DIR: String = "res://assets/ui/icons/ShipGroup"
 const TONNAGE_DIR: String = "res://assets/ui/sprites/tonnage"
 const TONNAGE_OVERLAY_DIR: String = "res://assets/ui/sprites/tonnage_overlays"
@@ -72,6 +75,10 @@ const TONNAGE_OVERLAY_SETS: Dictionary = {
 	"fleet": {"bg": "fleet_member_bg", "badge": "fleet_member"},
 	"enemy": {"bg": "red_bg", "badge": "red_minus_badge"},
 	"friendly": {"bg": "blue_bg", "badge": "friendly_badge"},
+	## Mod relation profile (MOD_PROTOCOL P4): badge only, no faction bg.
+	"relation_fleet": {"bg": "", "badge": "fleet_member"},
+	"relation_enemy": {"bg": "", "badge": "red_minus_badge"},
+	"relation_friendly": {"bg": "", "badge": "friendly_badge"},
 }
 const TIPS_SKYBOX_DIR: String = "res://assets/ui/tips_skybox"
 const INDUSTRIAL_SHIP_GROUPS: Array = [
@@ -163,7 +170,7 @@ static func _tex_from_image_file(path: String) -> Texture2D:
 	var abs_path: String = path
 	# res:// is NOT a real filesystem path; globalize it so FileAccess + Image.load work
 	# even when PNGs were just written and .import is not settled yet.
-	if path.begins_with("res://"):
+	if path.begins_with("res://") or path.begins_with("user://"):
 		abs_path = ProjectSettings.globalize_path(path)
 	# Windows absolute path: C:\xxx or C:/xxx
 	elif path.length() >= 3 and path[1] == ":" and (path[2] == "\\" or path[2] == "/"):
@@ -171,7 +178,10 @@ static func _tex_from_image_file(path: String) -> Texture2D:
 	elif not (path.contains(":/") or path.begins_with("/") or path.begins_with("\\") ):
 		abs_path = ProjectSettings.globalize_path(path)
 	if abs_path == "" or not FileAccess.file_exists(abs_path):
-		return null
+		## FileAccess also accepts user:// / res:// tokens directly.
+		if not FileAccess.file_exists(path):
+			return null
+		abs_path = path
 	var img: Image = Image.new()
 	if img.load(abs_path) != OK:
 		return null
@@ -353,9 +363,8 @@ static func champion_icon(ship_name: String, ship_id: int = 0) -> Texture2D:
 	if ship_id > 0:
 		var ppath: String = _ship_portrait_path_safe(ship_id)
 		if ppath != "":
-			# Exported PCK: ResourceLoader first. Raw Image.load only helps editor reimports.
 			t = tex(ppath)
-			if t == null and OS.has_feature("editor"):
+			if t == null:
 				t = _tex_from_image_file(ppath)
 	if t != null:
 		_champ_cache[cache_key] = t
@@ -412,6 +421,13 @@ static func ore_tips_skybox(variant_key: String) -> Texture2D:
 static func shop_card_tips_skybox(ship: Dictionary, titan_race: String = "") -> Texture2D:
 	if ship == null or ship.is_empty():
 		return null
+	var shop_sky: String = str(ship.get("shop_skybox", "")).strip_edges()
+	if shop_sky != "":
+		var sky_tex: Texture2D = tex(shop_sky)
+		if sky_tex == null:
+			sky_tex = _tex_from_image_file(shop_sky)
+		if sky_tex != null:
+			return sky_tex
 	var group: String = str(ship.get("ship_group", ""))
 	var groups: Array = TypedVariant.as_array(ship.get("ship_groups", []))
 	var is_industrial: bool = group in INDUSTRIAL_SHIP_GROUPS
@@ -429,6 +445,9 @@ static func shop_card_tips_skybox(ship: Dictionary, titan_race: String = "") -> 
 		return ore_tips_skybox(ore_key)
 	var race: String = _normalize_race_key(str(ship.get("race", "")))
 	if race == "":
+		## Mod tonnage_groups: non-official ship_group without race tips → registered icon.
+		if MOD_TONNAGE_ICON_PATHS.has(group):
+			return tonnage_icon(group)
 		return null
 	return race_tips_skybox(race)
 
@@ -457,6 +476,13 @@ static func _normalize_race_key(raw: String) -> String:
 
 ## Resolve by fetter id ASCII `{id}.png` only (no Chinese filename fallback).
 ## Battlecruiser/battleship may fall back to tonnage icons.
+static func _mod_registered_icon_fallback(key: String) -> Texture2D:
+	## Mod tonnage_groups may register icons keyed by ship_group or fetter id.
+	if MOD_TONNAGE_ICON_PATHS.has(key):
+		return tonnage_icon(key)
+	return null
+
+
 static func fetter_icon(fetter_key: String, _display_name: String = "") -> Texture2D:
 	var cache_key: String = fetter_key
 	if _fetter_cache.has(cache_key) and _fetter_cache[cache_key] != null:
@@ -473,6 +499,8 @@ static func fetter_icon(fetter_key: String, _display_name: String = "") -> Textu
 		## Titan meta fetter borrows the race icon (UI_ICONS §8.5).
 		if t == null and fetter_key.begins_with("titan_"):
 			t = tex("res://assets/ui/race_icons/%s.png" % fetter_key.substr(6))
+		if t == null:
+			t = _mod_registered_icon_fallback(fetter_key)
 	if t != null:
 		_fetter_cache[cache_key] = t
 	else:
@@ -520,13 +548,18 @@ static func fetter_effect_text(eff: Dictionary) -> String:
 		"ArmorResist":
 			what = "甲抗"
 		"ShopRaceWeight":
-			## Titan meta only — not a combat mul; sidebar copy (FETTERS §4.2).
+			## Titan meta — empire: 本族; angel/faction: 势力舰 (FETTERS §4.2 / MULTIPLAYER_PVP §2.1).
+			if str(eff.get("_fetter_id", "")) == "titan_angel":
+				return "增加势力舰船刷新概率%%%d" % roundi(absf(val))
 			return "本族商店刷新%s%%" % signed
 		"SensorStrength":
 			what = "感应强度"
 		"CapWarfare":
 			what = "电容战"
 		"EwarCapWarfare":
+			## Angel titan sidebar shows shop line only; effect still applies in combat.
+			if str(eff.get("_fetter_id", "")) == "titan_angel":
+				return ""
 			return "电战/电容战%s%%" % signed
 	var amount: String = ""
 	if vt == "Percentage":
@@ -539,9 +572,53 @@ static func fetter_effect_text(eff: Dictionary) -> String:
 		return "%s%s%s" % [scope, what, amount]
 	return "%s%s" % [what, amount]
 
+static func register_mod_tonnage_icons(tonnage_defs: Dictionary) -> void:
+	MOD_TONNAGE_ICON_PATHS.clear()
+	for k_any: Variant in tonnage_defs.keys():
+		var def: Dictionary = TypedVariant.as_dict(tonnage_defs[k_any])
+		var icon: String = str(def.get("icon", ""))
+		if icon != "":
+			MOD_TONNAGE_ICON_PATHS[str(k_any)] = icon
+			_tonnage_cache.erase(str(k_any))
+
+
+static func register_mod_coin_icon(abs_path: String) -> void:
+	MOD_COIN_ICON_PATH = abs_path.strip_edges()
+	_tonnage_cache.erase("coin:mod")
+
+
+static func coin_icon_path() -> String:
+	if MOD_COIN_ICON_PATH != "" and FileAccess.file_exists(MOD_COIN_ICON_PATH):
+		return MOD_COIN_ICON_PATH
+	return ICON_MONEY
+
+
+static func coin_texture() -> Texture2D:
+	var p: String = coin_icon_path()
+	if p == "":
+		return null
+	var cache_key: String = "coin:mod" if p == MOD_COIN_ICON_PATH else "coin:base"
+	if _tonnage_cache.has(cache_key):
+		return _tonnage_cache[cache_key]
+	var t: Texture2D = tex(p)
+	if t == null:
+		t = _tex_from_image_file(p)
+	if t != null:
+		_tonnage_cache[cache_key] = t
+	return t
+
+
 static func tonnage_icon(ship_group: String) -> Texture2D:
 	if _tonnage_cache.has(ship_group):
 		return _tonnage_cache[ship_group]
+	if MOD_TONNAGE_ICON_PATHS.has(ship_group):
+		var mod_path: String = str(MOD_TONNAGE_ICON_PATHS[ship_group])
+		var mt: Texture2D = tex(mod_path)
+		if mt == null:
+			mt = _tex_from_image_file(mod_path)
+		if mt != null:
+			_tonnage_cache[ship_group] = mt
+			return mt
 	var file_name: String = str(TONNAGE_ICON_MAP.get(ship_group, ""))
 	if file_name == "":
 		return null

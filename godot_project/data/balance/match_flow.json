@@ -1,6 +1,6 @@
 {
   "prepare_duration_s": 16,
-  "prepare_first_round_bonus_s": 10,
+  "prepare_first_round_bonus_s": 0,
   "battle_duration_s": 900,
   "min_battle_duration_s": 1.25,
   "speed_steps": [0.2, 0.5, 1, 2, 4, 8, 16],
@@ -8,6 +8,10 @@
   "prepare_skip_speed": 100.0,
   "sim_fixed_step_s": 0.05,
   "sim_max_steps_per_frame": 8,
+  "sim_max_steps_per_frame_cap": 48,
+  "sim_high_speed_fx_from": 8,
+  "sim_frame_budget_ms": 14,
+  "sim_input_delta_cap_s": 0.05,
   "citadel_base_damage_by_round_band": [
     {"max_round": 3, "base": 0},
     {"max_round": 6, "base": 2},

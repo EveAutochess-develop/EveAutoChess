@@ -77,6 +77,9 @@ var _cyno: CynoController
 var _running: bool = false
 var _speed_step_index: int = 0
 var _sim_accum: float = 0.0
+## #region agent log
+var _dbg_speed_jank_acc: float = 0.0
+## #endregion
 var _battle_clock_diag_s: float = 0.0
 ## True when battle opens with either side already empty (symmetric instant wipe; no min_battle wait).
 var _battle_opened_empty: bool = false
@@ -145,7 +148,11 @@ func _process(delta: float) -> void:
 				ai_economy_finished.emit()
 	var t0: int = Time.get_ticks_usec()
 	## 倍速只放大仿真步长；禁止用 Engine.time_scale / 抬 max_fps 冒充加速。
-	var sim_delta: float = delta * speed_multiplier
+	## MATCH_FLOW §2.1: clamp input delta to break hitch→larger sim_dt spiral.
+	var mf_pre: Dictionary = DataStore.match_flow
+	var delta_cap: float = maxf(0.016, TypedVariant.as_float(mf_pre.get("sim_input_delta_cap_s", 0.05), 0.05))
+	var capped_delta: float = minf(delta, delta_cap)
+	var sim_delta: float = capped_delta * speed_multiplier
 	## Nullsec R1 Prepare: freeze until spend-gate arms the clock.
 	if stage == Stage.PREPARE and not prepare_clock_armed:
 		sim_delta = 0.0
@@ -178,9 +185,19 @@ func _process(delta: float) -> void:
 				_on_prepare_complete()
 	elif stage == Stage.BATTLE:
 		var fixed: float = maxf(0.001, TypedVariant.as_float(mf.get("sim_fixed_step_s", 0.05), 0.05))
-		var max_steps: int = maxi(1, TypedVariant.as_int(mf.get("sim_max_steps_per_frame", 8), 8))
+		var base_steps: int = maxi(1, TypedVariant.as_int(mf.get("sim_max_steps_per_frame", 8), 8))
+		var step_cap: int = maxi(base_steps, TypedVariant.as_int(mf.get("sim_max_steps_per_frame_cap", 48), 48))
+		## Drain enough substeps for current speed at low FPS (16x @ 20-30fps needs >8).
+		var need_steps: int = maxi(1, ceili(sim_delta / fixed))
+		var max_steps: int = clampi(maxi(base_steps, need_steps), 1, step_cap)
 		var accum_cap: float = fixed * float(max_steps)
+		var budget_ms: int = maxi(4, TypedVariant.as_int(mf.get("sim_frame_budget_ms", 14), 14))
+		var budget_usec: int = budget_ms * 1000
 		var advanced: float = 0.0
+		var fx_from: float = TypedVariant.as_float(mf.get("sim_high_speed_fx_from", 8.0), 8.0)
+		var thin_fx: bool = speed_multiplier + 0.001 >= fx_from
+		if _combat != null and _combat.has_method("set_high_speed_presentation"):
+			_combat.call("set_high_speed_presentation", thin_fx)
 		## SEMI_ASYNC §3.1a — watch peers render from authority snaps only.
 		if not remote_watch_only:
 			_sim_accum += sim_delta
@@ -188,7 +205,11 @@ func _process(delta: float) -> void:
 			if _sim_accum > accum_cap:
 				_sim_accum = accum_cap
 			var steps: int = 0
+			var t_budget0: int = Time.get_ticks_usec()
 			while _sim_accum >= fixed and steps < max_steps:
+				## Prefer frame pacing over unbounded catch-up under load.
+				if steps > 0 and (Time.get_ticks_usec() - t_budget0) >= budget_usec:
+					break
 				var tc: int = Time.get_ticks_usec()
 				_combat.tick(fixed)
 				SessionDiagnostics.add_usec(&"combat", Time.get_ticks_usec() - tc)
@@ -228,8 +249,8 @@ func _process(delta: float) -> void:
 			elif timer >= min_b and _board.both_sides_no_offense():
 				## Neither side can finish the other off (all remaining hulls unarmed) — call it early.
 				_on_combat_complete("draw_no_offense")
-		## Glow shares Battle HUD clock (drained sim), not uncapped frame dt.
-		if _board and advanced > 0.0:
+		## Glow / presentation: skip entirely at high speed so FX does not starve sim budget.
+		if _board and advanced > 0.0 and not thin_fx:
 			for s: ShipUnit in _board.all_ships():
 				if s != null and is_instance_valid(s) and not s.is_destroyed:
 					s.tick_combat_glow(advanced)
@@ -239,34 +260,53 @@ func _process(delta: float) -> void:
 			var sim_t: float = _combat.sim_time() if _combat else 0.0
 			SessionDiagnostics.log(
 				"battle.clock",
-				"sim=%.2f timer=%.2f speed=%.2f advanced=%.3f" % [sim_t, timer, speed_multiplier, advanced]
+				"sim=%.2f timer=%.2f speed=%.2f advanced=%.3f steps_cap=%d" % [
+					sim_t, timer, speed_multiplier, advanced, max_steps,
+				]
 			)
+		# #region agent log
+		## H-D/E: high-speed frame cost / step pressure (sample ~1s when ≥2×).
+		if speed_multiplier + 0.001 >= 2.0:
+			_dbg_speed_jank_acc += delta
+			if _dbg_speed_jank_acc >= 1.0:
+				_dbg_speed_jank_acc = 0.0
+				_dbg_speed_log("D", "match_controller.gd:_process", "high_speed_frame", {
+					"speed": speed_multiplier,
+					"delta_ms": delta * 1000.0,
+					"capped_delta_ms": capped_delta * 1000.0,
+					"sim_delta": sim_delta,
+					"need_steps": need_steps,
+					"max_steps": max_steps,
+					"advanced": advanced,
+					"accum": _sim_accum,
+					"accum_cap": accum_cap,
+					"budget_ms": budget_ms,
+					"match_ctrl_us": Time.get_ticks_usec() - t0,
+					"thin_fx": thin_fx,
+					"runId": "post-fix",
+				})
+		# #endregion
 	hud_tick.emit()
 	SessionDiagnostics.add_usec(&"match_ctrl", Time.get_ticks_usec() - t0)
 	if stage == Stage.BATTLE:
 		InMatchSlowLearn.tick_pending(_ai, InMatchSlowLearn.SLICE_BATTLE_MS)
 
 func _init_speed_multiplier() -> void:
-	_load_preferred_battle_speed()
-	var mf: Dictionary = DataStore.match_flow
-	var steps: Array = TypedVariant.as_array(mf.get("speed_steps", [0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]))
-	## Preferred is for Battle; Prepare forces 1× in _enter_prepare.
-	speed_multiplier = _preferred_battle_speed
+	## MATCH_FLOW §2.1: new match always opens at 1× — do not carry cross-match cfg preferred.
+	_preferred_battle_speed = 1.0
+	speed_multiplier = 1.0
+	var steps: Array = TypedVariant.as_array(DataStore.match_flow.get("speed_steps", [0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]))
 	_speed_step_index = 0
 	for i: int in range(steps.size()):
-		if absf(TypedVariant.as_float(steps[i], 0.0) - speed_multiplier) < 0.001:
+		if absf(TypedVariant.as_float(steps[i], 0.0) - 1.0) < 0.001:
 			_speed_step_index = i
-			return
-	for i: int in range(steps.size()):
-		if TypedVariant.as_float(steps[i], 0.0) >= speed_multiplier:
-			_speed_step_index = i
-			speed_multiplier = TypedVariant.as_float(steps[i], speed_multiplier)
-			_preferred_battle_speed = speed_multiplier
-			return
-	if steps.size() > 0:
-		_speed_step_index = steps.size() - 1
-		speed_multiplier = TypedVariant.as_float(steps[_speed_step_index], speed_multiplier)
-		_preferred_battle_speed = speed_multiplier
+			break
+	_save_preferred_battle_speed()
+	# #region agent log
+	_dbg_speed_log("A", "match_controller.gd:_init_speed", "init_new_match_1x", {
+		"speed": speed_multiplier, "preferred": _preferred_battle_speed, "mode": mode, "runId": "post-fix"
+	})
+	# #endregion
 
 func _load_preferred_battle_speed() -> void:
 	var mf: Dictionary = DataStore.match_flow
@@ -302,6 +342,11 @@ func cycle_speed() -> void:
 func set_battle_speed(speed: float, persist_preferred: bool = true) -> void:
 	## persist_preferred=false: auto finish floor (SEMI_ASYNC §4.5) — runtime only.
 	if stage == Stage.PREPARE:
+		# #region agent log
+		_dbg_speed_log("B", "match_controller.gd:set_battle_speed", "blocked_prepare", {
+			"asked": speed, "persist": persist_preferred, "cur": speed_multiplier, "preferred": _preferred_battle_speed
+		})
+		# #endregion
 		return
 	speed_multiplier = maxf(0.05, speed)
 	Engine.time_scale = 1.0
@@ -310,6 +355,11 @@ func set_battle_speed(speed: float, persist_preferred: bool = true) -> void:
 	if persist_preferred:
 		_preferred_battle_speed = speed_multiplier
 		_save_preferred_battle_speed()
+	# #region agent log
+	_dbg_speed_log("C", "match_controller.gd:set_battle_speed", "applied", {
+		"speed": speed_multiplier, "persist": persist_preferred, "preferred": _preferred_battle_speed, "stage": stage
+	})
+	# #endregion
 	hud_refresh.emit()
 
 func force_draw_battle() -> void:
@@ -332,6 +382,11 @@ func _enter_prepare() -> void:
 	timer = 0.0
 	## Force 1× during prepare; keep preferred battle speed for next Battle.
 	speed_multiplier = 1.0
+	# #region agent log
+	_dbg_speed_log("B", "match_controller.gd:_enter_prepare", "prepare_force_1x", {
+		"speed": speed_multiplier, "preferred": _preferred_battle_speed, "mode": mode, "count": battle_game_stage_count
+	})
+	# #endregion
 	## Nullsec first Prepare waits for all contestant seats' first gold spend.
 	## Later prepares with MP barrier also start frozen (match_root / net gate).
 	prepare_clock_armed = true
@@ -408,6 +463,12 @@ func _on_prepare_complete() -> void:
 		if absf(TypedVariant.as_float(steps[i], speed_multiplier) - speed_multiplier) < 0.001:
 			_speed_step_index = i
 			break
+	# #region agent log
+	_dbg_speed_log("A", "match_controller.gd:_on_prepare_complete", "battle_restore_preferred", {
+		"speed": speed_multiplier, "preferred": _preferred_battle_speed, "mode": mode, "count": battle_game_stage_count,
+		"runId": "post-fix",
+	})
+	# #endregion
 	_board.set_prepare_mode(false)
 	_combat.start_combat()
 	InMatchSlowLearn.begin_battle(_board)
@@ -506,36 +567,45 @@ func _on_combat_complete(reason: String = "wipe") -> void:
 
 
 ## This-round concede (MULTIPLAYER_PVP §7.0c): settle as local wipe-loss, not full match surrender.
+## Nullsec barrier seats must go through host `request_concede_round` → `apply_authority_round_settle`.
 func concede_current_round() -> void:
 	if not _running or stage == Stage.GAME_END:
 		return
-	if _concede_lock:
+	apply_authority_round_settle("lose", "concede")
+
+
+## Authority round settle for Battle or Prepare (concede sync / watch peer).
+func apply_authority_round_settle(mapped_result: String, reason: String = "authority") -> void:
+	if not _running or stage == Stage.GAME_END:
 		return
-	_concede_lock = true
+	if _concede_lock and reason == "concede":
+		return
 	if stage == Stage.BATTLE:
-		force_authority_combat_complete("lose", "concede")
+		force_authority_combat_complete(mapped_result, reason)
 		return
 	if stage != Stage.PREPARE:
-		_concede_lock = false
 		return
-	## Prepare: skip the fight and settle the same lose path as a combat wipe.
+	_concede_lock = true
 	_combat.stop_combat()
 	_abort_cyno_channels()
 	_battle_opened_empty = false
 	last_round_empty_open = false
-	print("[mp.diag] combat_complete_concede stage=prepare")
-	SessionDiagnostics.log("mp.combat_concede", "prepare")
+	print("[mp.diag] combat_complete_authority_prepare reason=%s result=%s" % [reason, mapped_result])
+	SessionDiagnostics.log(
+		"mp.combat_concede" if reason == "concede" else "mp.combat_complete_auth_prep",
+		"prepare result=%s" % mapped_result
+	)
 	battle_game_stage_count += 1
 	round_phase_value += 1
 	var max_rp: int = TypedVariant.as_int(DataStore.match_flow.get("max_round_phase_value", 5), 5)
 	if round_phase_value > max_rp:
 		round_phase_value = 1
 		battle_phase_value += 1
-	last_round_player_field = 0
-	last_round_ai_field = _board.count_alive_field(ShipUnit.TEAM_AI) if _board else 1
-	if last_round_ai_field <= 0:
+	last_round_player_field = 0 if mapped_result == "lose" else (_board.count_alive_field(ShipUnit.TEAM_PLAYER) if _board else 1)
+	last_round_ai_field = 0 if mapped_result == "win" else (_board.count_alive_field(ShipUnit.TEAM_AI) if _board else 1)
+	if last_round_ai_field <= 0 and mapped_result != "win":
 		last_round_ai_field = 1
-	last_round_result = "lose"
+	last_round_result = mapped_result if mapped_result in ["win", "lose", "draw"] else "draw"
 	last_round_freighter_alive = false
 	InMatchSlowLearn.queue_round(self, _board)
 	_slow_learn_needs_followup = true
@@ -558,6 +628,10 @@ func concede_current_round() -> void:
 func force_authority_combat_complete(mapped_result: String, reason: String = "authority") -> void:
 	if stage != Stage.BATTLE:
 		return
+	if _concede_lock and reason == "concede":
+		return
+	if reason == "concede":
+		_concede_lock = true
 	_combat.stop_combat()
 	_abort_cyno_channels()
 	var was_empty_open: bool = _battle_opened_empty
@@ -1130,11 +1204,8 @@ func prepare_remaining() -> float:
 	return maxf(0.0, _prepare_duration_s() - timer)
 
 func _prepare_duration_s() -> float:
-	var base: float = TypedVariant.as_float(DataStore.match_flow.get("prepare_duration_s", 16), 16.0)
-	## New match first prepare only (`battle_game_stage_count` still 0 until after first battle).
-	if battle_game_stage_count == 0:
-		base += TypedVariant.as_float(DataStore.match_flow.get("prepare_first_round_bonus_s", 10), 10.0)
-	return base
+	## MATCH_FLOW: flat prepare_duration_s; first-round bonus retired (bonus key kept at 0 for legacy packs).
+	return TypedVariant.as_float(DataStore.match_flow.get("prepare_duration_s", 16), 16.0)
 
 func battle_elapsed() -> float:
 	return timer
@@ -1230,3 +1301,28 @@ func move_equipment_inventory(from_idx: int, to_idx: int) -> void:
 	var dst: String = str(equipment_inventory[to_idx])
 	equipment_inventory[from_idx] = dst
 	equipment_inventory[to_idx] = item
+
+
+# #region agent log
+func _dbg_speed_log(hypothesis_id: String, location: String, message: String, data: Dictionary = {}) -> void:
+	SessionDiagnostics.log("dbg.speed.%s" % hypothesis_id, "%s %s %s" % [location, message, JSON.stringify(data)])
+	var path: String = "H:/debug-0c9657.log"
+	if OS.has_feature("mobile") or OS.get_name() == "Android":
+		path = ProjectSettings.globalize_path("user://debug/debug-0c9657.log")
+	var f: FileAccess = FileAccess.open(path, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.seek_end()
+	f.store_line(JSON.stringify({
+		"sessionId": "0c9657",
+		"runId": str(data.get("runId", "pre-fix")),
+		"hypothesisId": hypothesis_id,
+		"location": location,
+		"message": message,
+		"data": data,
+		"timestamp": int(Time.get_unix_time_from_system() * 1000.0),
+	}))
+	f.close()
+# #endregion
