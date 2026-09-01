@@ -95,7 +95,40 @@ static func end_critical_window() -> void:
 
 
 static func mem_detail() -> String:
-	return "mem=%d" % OS.get_static_memory_usage()
+	var mem: int = OS.get_static_memory_usage()
+	if mem > 0:
+		return "mem=%d" % mem
+	var proc: int = int(Performance.get_monitor(Performance.MEMORY_STATIC))
+	return "mem=0 proc=%d" % proc
+
+
+class SessionErrorLogger extends Logger:
+	var _owner: SessionDiagnostics = null
+	var _flush_cd_msec: int = 0
+
+	func _init(owner: SessionDiagnostics) -> void:
+		_owner = owner
+
+	func _log_error(
+		function: String,
+		file: String,
+		line: int,
+		code: String,
+		rationale: String,
+		_editor_notify: bool,
+		_error_type: int,
+		_script_backtraces: Array
+	) -> void:
+		if _owner == null or not _owner.enabled:
+			return
+		var detail: String = "fn=%s file=%s line=%d code=%s msg=%s" % [
+			function, file.get_file(), line, code, rationale
+		]
+		_owner.log_event("error", detail)
+		var now: int = Time.get_ticks_msec()
+		if now - _flush_cd_msec >= 250:
+			_flush_cd_msec = now
+			_owner.flush_now()
 
 
 ## Hot path: integer usec only — no string alloc when disabled.
@@ -427,6 +460,8 @@ func _install_error_hook() -> void:
 	if _error_hook_installed:
 		return
 	_error_hook_installed = true
+	var hook: SessionErrorLogger = SessionErrorLogger.new(self)
+	OS.add_logger(hook)
 
 
 func _exit_tree() -> void:

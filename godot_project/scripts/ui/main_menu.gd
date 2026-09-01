@@ -2116,6 +2116,8 @@ func _on_versus() -> void:
 	GameSession.resume_payload = {}
 	GameSession.pending_mode = "versus"
 	GameSession.pending_nullsec = {}
+	SessionDiagnostics.begin_critical_window("solo_match_boot")
+	SessionDiagnostics.log_critical("net.scene_change_match", "mode=versus %s" % SessionDiagnostics.mem_detail())
 	MatchLoadOverlay.set_phase("正在进入对局场景", 0.15)
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 
@@ -2127,6 +2129,8 @@ func _on_endless() -> void:
 	GameSession.resume_payload = {}
 	GameSession.pending_mode = "endless"
 	GameSession.pending_nullsec = {}
+	SessionDiagnostics.begin_critical_window("solo_match_boot")
+	SessionDiagnostics.log_critical("net.scene_change_match", "mode=endless %s" % SessionDiagnostics.mem_detail())
 	MatchLoadOverlay.set_phase("正在进入对局场景", 0.15)
 	get_tree().change_scene_to_file("res://scenes/match.tscn")
 

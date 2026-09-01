@@ -1213,6 +1213,11 @@ func _on_enter_battle_released() -> void:
 		print("[mp.diag] enter_battle HOLD presentation")
 		SessionDiagnostics.log("mp.enter_hold", "presentation")
 		return
+	if not _nullsec_ai_economy_ready():
+		_pending_enter_battle = true
+		print("[mp.diag] enter_battle HOLD waiting ai economy")
+		SessionDiagnostics.log("mp.enter_hold", "waiting_ai_economy")
+		return
 	## Human PVP: never open Battle with an empty rival half — that instant-wipes into
 	## battle_done 开钟 freeze while the peer is still fighting.
 	if not _nullsec_human_rival_fleet_ready():
@@ -1233,6 +1238,15 @@ func _on_enter_battle_released() -> void:
 			_nullsec_rival_seat(TypedVariant.as_int(GameSession.pending_nullsec.get("local_seat", 0), 0))
 		))
 	match_ctrl.commit_prepare_complete()
+
+
+## True when local AI proxy economy finished when a fleet push is pending.
+func _nullsec_ai_economy_ready() -> bool:
+	if _ai_econ_pending_push_seat < 0:
+		return true
+	if ai == null or not ai.has_method("is_economy_busy"):
+		return true
+	return not ai.is_economy_busy()
 
 
 ## True when we may open Battle vs a human rival (AI seat / PVE / solo always ready).
@@ -1256,6 +1270,8 @@ func _try_flush_pending_enter_battle() -> void:
 		_pending_enter_battle = false
 		return
 	if not _nullsec_human_rival_fleet_ready():
+		return
+	if not _nullsec_ai_economy_ready():
 		return
 	_pending_enter_battle = false
 	print("[mp.diag] enter_battle FLUSH after fleet ready")
@@ -2930,6 +2946,19 @@ func _finish_match_boot() -> void:
 	MatchLoadOverlay.hide_overlay()
 	_boot_phase = 0
 	_nullsec_rt_step = -1
+	var onnx_detail: String = "eco_mode=unknown nets=0"
+	if ai != null:
+		var ld: Dictionary = ai.onnx_load_detail()
+		onnx_detail = "eco_mode=%s nets=%d/%d ready=%d" % [
+			ai.eco_mode_label(),
+			TypedVariant.as_int(ld.get("loaded", 0), 0),
+			TypedVariant.as_int(ld.get("total", 6), 6),
+			TypedVariant.as_int(ld.get("ready", 0), 0),
+		]
+	SessionDiagnostics.log_critical(
+		"ai.onnx.boot_ready",
+		"mode=%s %s %s" % [_boot_mode, onnx_detail, SessionDiagnostics.mem_detail()]
+	)
 	SessionDiagnostics.log_critical("match.boot_done", "mode=%s %s" % [_boot_mode, SessionDiagnostics.mem_detail()])
 	SessionDiagnostics.end_critical_window()
 
