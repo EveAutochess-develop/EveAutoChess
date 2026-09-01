@@ -32,3 +32,9 @@ Boot → 热更检查；可点「跳过热更」用内置 content。主菜单：
 导出壳：`build/EVEAutochess.exe`（上传 Releases 须批准）。
 
 设计权威：`eveautochess-design` · [`ENGINE_MIGRATION.md`](../eveautochess-design/docs/ENGINE_MIGRATION.md)
+
+## License
+
+本仓**原创源代码**（如 `godot_project/scripts/**`、`tools/**`）采用 [BSD 3-Clause License](LICENSE)。
+
+游戏内第三方或 EVE 相关美术、音频、模型等资源**不在**上述许可范围内，其权利归属各自权利人。
