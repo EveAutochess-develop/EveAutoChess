@@ -441,8 +441,13 @@ func _deferred_apply_slow_learn() -> void:
 
 
 func _on_prepare_complete() -> void:
+	var eco_was_busy: bool = (
+		_ai != null and _ai.has_method("is_economy_busy") and _ai.is_economy_busy()
+	)
 	if _ai and _ai.has_method("force_finish_economy"):
 		_ai.force_finish_economy()
+	if eco_was_busy:
+		ai_economy_finished.emit()
 	if mode != "nullsec" and _ai and _ai.has_method("finalize_prepare"):
 		_ai.finalize_prepare()
 	## Nullsec PVE: re-lock creeps with current gold before combat opens (MATCH_FLOW §5.1.2).

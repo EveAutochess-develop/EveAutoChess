@@ -14,6 +14,48 @@ var _nets: Dictionary = {} ## name -> {W0,b0,W1,b1,W2,b2} row-major PackedFloat3
 var _net_delta: Dictionary = {} ## overlay from user://eveac_ai/learn_delta
 var _infer_ready: bool = false
 const W_CLIP: float = 8.0
+const _NET_NAME_LIST: Array[String] = ["titan", "match_global", "ops", "shop", "fit", "place"]
+
+
+func load_status_detail() -> Dictionary:
+	var loaded: int = 0
+	for n: String in _NET_NAME_LIST:
+		if _nets.has(n):
+			loaded += 1
+	return {
+		"loaded": loaded,
+		"total": _NET_NAME_LIST.size(),
+		"ready": 1 if _infer_ready else 0,
+		"manifest": loaded_manifest_path,
+		"hash": model_bundle_hash,
+		"fallback_ready": 1 if fallback != null and fallback.is_ready() else 0,
+		"package_present": 1 if onnx_package_present else 0,
+	}
+
+
+func snapshot_for_infer(net_names: PackedStringArray) -> Dictionary:
+	var snap_nets: Dictionary = {}
+	var snap_delta: Dictionary = {}
+	for n: String in net_names:
+		if _nets.has(n):
+			snap_nets[n] = _duplicate_net_spec(TypedVariant.as_dict(_nets[n]))
+		if _net_delta.has(n):
+			snap_delta[n] = _duplicate_delta(TypedVariant.as_dict(_net_delta[n]))
+	return {"nets": snap_nets, "delta": snap_delta}
+
+
+static func infer_logits_from_snapshot(snap: Dictionary, net_name: String, x: PackedFloat32Array) -> PackedFloat32Array:
+	var nets: Dictionary = TypedVariant.as_dict(snap.get("nets", {}))
+	if not nets.has(net_name):
+		return PackedFloat32Array()
+	var spec: Dictionary = TypedVariant.as_dict(nets[net_name])
+	var deltas: Dictionary = TypedVariant.as_dict(snap.get("delta", {}))
+	var dlt: Dictionary = TypedVariant.as_dict(deltas.get(net_name, {}))
+	return _forward_mlp_static(spec, x, dlt)
+
+
+static func infer_shop_logits(snap: Dictionary, obs: PackedFloat32Array) -> PackedFloat32Array:
+	return infer_logits_from_snapshot(snap, "shop", obs)
 
 
 func try_autoload() -> bool:
@@ -177,14 +219,22 @@ func pick_lobby_titan_race(census: Dictionary = {}, current: String = "", round_
 
 
 func _forward_mlp(spec: Dictionary, x: PackedFloat32Array, dlt: Dictionary = {}) -> PackedFloat32Array:
-	var h1: PackedFloat32Array = _linear(spec, "0", x, dlt)
-	_silu_inplace(h1)
-	var h2: PackedFloat32Array = _linear(spec, "2", h1, dlt)
-	_silu_inplace(h2)
-	return _linear(spec, "4", h2, dlt)
+	return _forward_mlp_static(spec, x, dlt)
+
+
+static func _forward_mlp_static(spec: Dictionary, x: PackedFloat32Array, dlt: Dictionary = {}) -> PackedFloat32Array:
+	var h1: PackedFloat32Array = _linear_static(spec, "0", x, dlt)
+	_silu_inplace_static(h1)
+	var h2: PackedFloat32Array = _linear_static(spec, "2", h1, dlt)
+	_silu_inplace_static(h2)
+	return _linear_static(spec, "4", h2, dlt)
 
 
 func _linear(spec: Dictionary, layer: String, x: PackedFloat32Array, dlt: Dictionary = {}) -> PackedFloat32Array:
+	return _linear_static(spec, layer, x, dlt)
+
+
+static func _linear_static(spec: Dictionary, layer: String, x: PackedFloat32Array, dlt: Dictionary = {}) -> PackedFloat32Array:
 	var w_v: Variant = spec.get("W%s" % layer, [])
 	var b_v: Variant = spec.get("b%s" % layer, [])
 	var rows: int = TypedVariant.as_int(spec.get("out%s" % layer, 0), 0)
@@ -224,6 +274,36 @@ func _linear(spec: Dictionary, layer: String, x: PackedFloat32Array, dlt: Dictio
 
 
 func _silu_inplace(v: PackedFloat32Array) -> void:
+	_silu_inplace_static(v)
+
+
+static func _silu_inplace_static(v: PackedFloat32Array) -> void:
 	for i: int in range(v.size()):
 		var x: float = v[i]
 		v[i] = x / (1.0 + exp(-x))
+
+
+func _duplicate_net_spec(spec: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for k: Variant in spec.keys():
+		var v: Variant = spec[k]
+		if v is PackedFloat32Array:
+			@warning_ignore("unsafe_cast")
+			out[k] = (v as PackedFloat32Array).duplicate()
+		elif v is Array:
+			out[k] = TypedVariant.as_array(v).duplicate(true)
+		else:
+			out[k] = v
+	return out
+
+
+func _duplicate_delta(dlt: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for k: Variant in dlt.keys():
+		var v: Variant = dlt[k]
+		if v is PackedFloat32Array:
+			@warning_ignore("unsafe_cast")
+			out[k] = (v as PackedFloat32Array).duplicate()
+		else:
+			out[k] = v
+	return out

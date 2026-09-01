@@ -39,6 +39,16 @@ var _eco_obs: PackedFloat32Array = PackedFloat32Array()
 var _eco_filtered: Array = []
 var _eco_actions: int = 0
 var _onnx_shop_prepare: bool = false
+const ECO_MODE_ONNX: String = "onnx"
+const ECO_MODE_LIMITED: String = "limited"
+const ECO_WORKER_TIMEOUT_MS: int = 2000
+const ECO_DISPATCH_FAIL_MAX: int = 3
+const _SHOP_SNAP_NET_LIST: Array[String] = ["match_global", "ops", "shop"]
+var _eco_mode: String = ECO_MODE_ONNX
+var _eco_fail_streak: int = 0
+var _eco_worker_started_msec: int = 0
+static var _worker_logits: PackedFloat32Array = PackedFloat32Array()
+
 
 func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	_match = match_ctrl
@@ -47,12 +57,67 @@ func bind(match_ctrl: MatchController, board: BoardController) -> void:
 	AdminBus.register_handler(&"ai.deploy_ship", _on_deploy)
 	AdminBus.after_handoff.connect(_on_after)
 	weight_policy.try_autoload()
+	_log_onnx_load("bind")
 
 
 func reload_weight_policy() -> bool:
 	if weight_policy == null:
 		weight_policy = OnnxCpuPolicy.new()
-	return weight_policy.try_autoload()
+	var ok: bool = weight_policy.try_autoload()
+	_log_onnx_load("reload")
+	return ok
+
+
+func eco_mode_label() -> String:
+	return _eco_mode
+
+
+func onnx_load_detail() -> Dictionary:
+	if weight_policy == null:
+		return {}
+	return weight_policy.load_status_detail()
+
+
+func _log_onnx_load(tag: String) -> void:
+	if weight_policy == null:
+		SessionDiagnostics.log_critical("ai.onnx.load", "tag=%s policy=null" % tag)
+		return
+	var d: Dictionary = weight_policy.load_status_detail()
+	SessionDiagnostics.log_critical(
+		"ai.onnx.load",
+		"tag=%s ready=%d loaded=%d/%d hash=%s fallback=%d %s" % [
+			tag,
+			TypedVariant.as_int(d.get("ready", 0), 0),
+			TypedVariant.as_int(d.get("loaded", 0), 0),
+			TypedVariant.as_int(d.get("total", 6), 6),
+			str(d.get("hash", "")),
+			TypedVariant.as_int(d.get("fallback_ready", 0), 0),
+			SessionDiagnostics.mem_detail(),
+		]
+	)
+
+
+func _uses_onnx_eco() -> bool:
+	return _eco_mode == ECO_MODE_ONNX and _policy_nets_live()
+
+
+func _is_first_prepare() -> bool:
+	return _match != null and _match.battle_game_stage_count == 0
+
+
+func _enter_limited_eco(reason: String) -> void:
+	if _eco_mode == ECO_MODE_LIMITED:
+		return
+	cancel_economy_work()
+	_eco_mode = ECO_MODE_LIMITED
+	_onnx_shop_prepare = false
+	_eco_fail_streak = 0
+	SessionDiagnostics.log_critical(
+		"ai.onnx.fallback",
+		"reason=%s mode=%s %s" % [reason, str(_match.mode) if _match else "", SessionDiagnostics.mem_detail()]
+	)
+	if reason == "worker_timeout":
+		SessionDiagnostics.log_critical("ai.onnx.worker_timeout", "ms=%d" % ECO_WORKER_TIMEOUT_MS)
 
 
 func _policy_nets_live() -> bool:
@@ -69,6 +134,7 @@ func _ai_titan_id() -> String:
 
 func init_economy() -> void:
 	## Seat opening only — no shopping. Nullsec builds the rival hulls per PVP round.
+	cancel_economy_work()
 	endless = _match.mode == "endless"
 	var eco: Dictionary = DataStore.economy
 	ai_gold = TypedVariant.as_int(eco.get("base_gold", 5), 5)
@@ -90,6 +156,7 @@ func rebuild_round_army() -> void:
 	## Nullsec PVP draws a different rival every round, so the hulls are rebuilt from
 	## scratch — but out of the seat's accumulated level/gold, never a fresh level-1
 	## opening (MULTIPLAYER_MATCH_FLOW §5.0: 人机玩家与真人同套).
+	cancel_economy_work()
 	_used_field_cells.clear()
 	_refresh_shop()
 	_run_economy_turn()
@@ -100,6 +167,7 @@ func after_round() -> void:
 		## Hulls bought here would be wiped when the next round's board is authored, so
 		## the seat only banks gold/exp and spends it when it is actually the rival.
 		return
+	_used_field_cells.clear()
 	_refresh_shop()
 	_run_economy_turn()
 
@@ -553,7 +621,20 @@ func begin_economy_turn() -> void:
 	_eco_guard = 40
 	_eco_actions = 0
 	_eco_filtered = []
-	_onnx_shop_prepare = _policy_nets_live()
+	_eco_fail_streak = 0
+	if _is_first_prepare():
+		_eco_mode = ECO_MODE_LIMITED
+		_onnx_shop_prepare = false
+		_eco_guard = 1
+		SessionDiagnostics.log("ai.onnx.fallback", "reason=first_prepare_round")
+		return
+	if _policy_nets_live():
+		_eco_mode = ECO_MODE_ONNX
+		_onnx_shop_prepare = true
+	else:
+		_eco_mode = ECO_MODE_LIMITED
+		_onnx_shop_prepare = false
+		SessionDiagnostics.log("ai.onnx.fallback", "reason=load_not_ready phase=begin_economy")
 
 
 func is_economy_busy() -> bool:
@@ -577,14 +658,23 @@ func force_finish_economy() -> void:
 	_eco_active = false
 	_eco_busy = false
 	_finish_economy_apply()
+	if _board != null:
+		var on_field: int = _board.count_field(ShipUnit.TEAM_AI)
+		var hangar_n: int = _count_ai_hangar()
+		if on_field <= 0 and hangar_n > 0:
+			sync_field_for_prepare()
+			SessionDiagnostics.log_critical(
+				"ai.deploy.guarantee",
+				"field=%d hangar=%d %s" % [on_field, hangar_n, SessionDiagnostics.mem_detail()]
+			)
 
 
 func tick_economy_turn() -> bool:
 	if not _eco_active and not _eco_busy:
 		return false
-	if _policy_nets_live():
-		return _tick_onnx_economy()
-	return _tick_legacy_economy()
+	if _eco_mode == ECO_MODE_LIMITED or not _policy_nets_live():
+		return _tick_legacy_economy()
+	return _tick_onnx_economy()
 
 
 func _tick_legacy_economy() -> bool:
@@ -602,6 +692,10 @@ func _tick_legacy_economy() -> bool:
 func _tick_onnx_economy() -> bool:
 	if _eco_busy:
 		if _eco_task_id < 0 or not WorkerThreadPool.is_task_completed(_eco_task_id):
+			if Time.get_ticks_msec() - _eco_worker_started_msec > ECO_WORKER_TIMEOUT_MS:
+				_enter_limited_eco("worker_timeout")
+				if _eco_active:
+					return _tick_legacy_economy()
 			return false
 		WorkerThreadPool.wait_for_task_completion(_eco_task_id)
 		var tid: int = _eco_task_id
@@ -614,8 +708,27 @@ func _tick_onnx_economy() -> bool:
 			return false
 		if not _eco_active:
 			return false
-		var ok: bool = _dispatch_shop_policy(_eco_logits, _eco_obs, _eco_filtered)
+		_eco_logits = _worker_logits.duplicate()
+		var infer_usec: int = maxi(0, Time.get_ticks_msec() - _eco_worker_started_msec)
+		SessionDiagnostics.log(
+			"ai.onnx.infer_done",
+			"logits=%d usec=%d task=%d" % [_eco_logits.size(), infer_usec * 1000, tid]
+		)
+		if _eco_logits.is_empty():
+			_enter_limited_eco("empty_logits")
+			if _eco_active:
+				return _tick_legacy_economy()
+			return false
+		var ok: bool = _dispatch_shop_policy(_eco_logits, _eco_obs, _eco_filtered, ECO_MODE_ONNX)
 		_eco_actions += 1
+		if not ok:
+			_eco_fail_streak += 1
+			if _eco_fail_streak >= ECO_DISPATCH_FAIL_MAX:
+				_enter_limited_eco("dispatch_fail")
+				if _eco_active:
+					return _tick_legacy_economy()
+		else:
+			_eco_fail_streak = 0
 		if _eco_guard <= 0:
 			_eco_active = false
 			_finish_economy_apply()
@@ -635,7 +748,7 @@ func _tick_onnx_economy() -> bool:
 
 
 func _kick_eco_worker() -> bool:
-	if _eco_busy or not _eco_active:
+	if _eco_busy or not _eco_active or weight_policy == null:
 		return false
 	var filtered: Array = _collect_shop_legal()
 	if filtered.is_empty():
@@ -645,23 +758,32 @@ func _kick_eco_worker() -> bool:
 	_eco_guard -= 1
 	_eco_filtered = filtered
 	var ctx: Dictionary = _policy_obs_ctx().duplicate(true)
+	var snap: Dictionary = weight_policy.snapshot_for_infer(PackedStringArray(_SHOP_SNAP_NET_LIST))
+	var snap_nets: Dictionary = TypedVariant.as_dict(snap.get("nets", {}))
+	if snap_nets.is_empty():
+		_enter_limited_eco("empty_snapshot")
+		return false
+	_eco_obs = PolicyObs.encode_shop_from_snapshot(snap, ctx)
+	_worker_logits = PackedFloat32Array()
 	_eco_busy = true
-	_eco_task_id = WorkerThreadPool.add_task(_eco_infer_worker.bind(ctx))
+	_eco_worker_started_msec = Time.get_ticks_msec()
+	_eco_task_id = WorkerThreadPool.add_task(_shop_infer_task.bind(snap, _eco_obs))
+	SessionDiagnostics.log(
+		"ai.onnx.infer_begin",
+		"legal=%d task=%d %s" % [filtered.size(), _eco_task_id, SessionDiagnostics.mem_detail()]
+	)
 	return false
 
 
-func _eco_infer_worker(ctx: Dictionary) -> void:
-	var obs: PackedFloat32Array = PolicyObs.encode_shop(weight_policy, ctx)
-	var logits: PackedFloat32Array = PackedFloat32Array()
-	if weight_policy != null:
-		logits = weight_policy.infer_logits("shop", obs)
-	_eco_obs = obs
-	_eco_logits = logits
+static func _shop_infer_task(snap: Dictionary, obs: PackedFloat32Array) -> void:
+	_worker_logits = OnnxCpuPolicy.infer_shop_logits(snap, obs)
 
 
 func _finish_economy_apply() -> void:
 	sync_field_for_prepare()
-	if not _policy_nets_live():
+	if _is_first_prepare():
+		return
+	if not _uses_onnx_eco():
 		_random_buy_equipment()
 		_random_distribute_equipment()
 
@@ -757,7 +879,12 @@ func _try_policy_economy_action() -> bool:
 	return _dispatch_shop_policy(logits, obs, filtered)
 
 
-func _dispatch_shop_policy(logits: PackedFloat32Array, obs: PackedFloat32Array, filtered: Array) -> bool:
+func _dispatch_shop_policy(
+	logits: PackedFloat32Array,
+	obs: PackedFloat32Array,
+	filtered: Array,
+	via: String = ECO_MODE_ONNX
+) -> bool:
 	if filtered.is_empty():
 		return false
 	if not logits.is_empty() and not _policy_nets_live():
@@ -843,8 +970,8 @@ func _dispatch_shop_policy(logits: PackedFloat32Array, obs: PackedFloat32Array, 
 		InMatchSlowLearn.note_shop_sample(obs, learned, false)
 	SessionDiagnostics.log(
 		"ai.decide",
-		"net=shop pick=%d at=%s ok=%s gold=%d ship=%s item=%s" % [
-			pick, at, TypedVariant.as_bool(res.get("accepted", false), false),
+		"net=shop pick=%d at=%s ok=%s via=%s gold=%d ship=%s item=%s" % [
+			pick, at, TypedVariant.as_bool(res.get("accepted", false), false), via,
 			ai_gold, str(action.get("ship_id", "")), str(action.get("item_id", "")),
 		]
 	)
@@ -885,8 +1012,17 @@ func _shop_argmax_legal(logits: PackedFloat32Array, filtered: Array, exclude_i: 
 
 
 func _try_buy_one() -> bool:
-	if _policy_nets_live():
+	if _uses_onnx_eco():
 		return _try_policy_economy_action()
+	if _is_first_prepare():
+		var candidates: Array[int] = []
+		for i: int in range(shop_slots.size()):
+			var slot0: Dictionary = TypedVariant.as_dict(shop_slots[i])
+			if not TypedVariant.as_bool(slot0.get("purchased", false), false):
+				candidates.append(i)
+		if candidates.is_empty():
+			return false
+		return _buy_ai_shop_slot(candidates[randi() % candidates.size()])
 	var slot_i: int = -1
 	if weight_policy != null and weight_policy.is_ready():
 		slot_i = weight_policy.pick_unpurchased_shop_index(shop_slots, _ai_titan_id())
@@ -1267,7 +1403,7 @@ func sync_field_for_prepare() -> void:
 	## Fill field from hangar (same rules as economy turn). Safe after load/resume
 	## when board was overwritten and economy already ran on an empty board.
 	_deploy_hangar_to_field()
-	if not _policy_nets_live():
+	if not _uses_onnx_eco():
 		_ensure_one_logistic()
 	_reshuffle_ai_field()
 	_board.recalculate_fetters(ShipUnit.TEAM_AI)
@@ -1275,9 +1411,9 @@ func sync_field_for_prepare() -> void:
 func finalize_prepare() -> void:
 	## Deploy first. Six-net ONNX keeps hangar remainder (handbook §0.2 / §2).
 	sync_field_for_prepare()
-	if not _policy_nets_live():
+	if not _uses_onnx_eco():
 		_random_distribute_equipment()
-	if _policy_nets_live() or (_onnx_shop_prepare and _eco_actions > 0):
+	if _uses_onnx_eco() or (_onnx_shop_prepare and _eco_actions > 0):
 		return
 	_sell_hangar_remainder()
 

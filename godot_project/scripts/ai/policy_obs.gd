@@ -18,6 +18,65 @@ static func shop_in_dim() -> int:
 	return N_SHIP_SHOP * SHIP_DIM + N_EQ_SHOP * EQ_DIM + D_DIM + 8
 
 
+static func ops_intent_from_snapshot(snap: Dictionary, ctx: Dictionary) -> PackedFloat32Array:
+	var intent: PackedFloat32Array = PackedFloat32Array()
+	intent.resize(D_DIM)
+	var nets: Dictionary = TypedVariant.as_dict(snap.get("nets", {}))
+	if not nets.has("match_global") or not nets.has("ops"):
+		return intent
+	var ops: PackedFloat32Array = encode_ops(ctx)
+	var mg: PackedFloat32Array = PackedFloat32Array()
+	mg.resize(MG_DIM)
+	mg[0] = TypedVariant.as_float(ctx.get("gold", 0), 0.0) / 50.0
+	mg[1] = TypedVariant.as_float(ctx.get("level", 1), 1.0) / 20.0
+	mg[2] = TypedVariant.as_float(ctx.get("round", 1), 1.0) / 20.0
+	var g: PackedFloat32Array = OnnxCpuPolicy.infer_logits_from_snapshot(snap, "match_global", mg)
+	if g.size() < D_DIM:
+		g.resize(D_DIM)
+	var ops_in: PackedFloat32Array = _concat3(ops, g, PackedFloat32Array())
+	var o: PackedFloat32Array = OnnxCpuPolicy.infer_logits_from_snapshot(snap, "ops", ops_in)
+	var n: int = mini(D_DIM, o.size())
+	for i: int in range(n):
+		intent[i] = o[i]
+	return intent
+
+
+static func encode_shop_from_snapshot(snap: Dictionary, ctx: Dictionary) -> PackedFloat32Array:
+	var feat: PackedFloat32Array = PackedFloat32Array()
+	feat.resize(N_SHIP_SHOP * SHIP_DIM + N_EQ_SHOP * EQ_DIM)
+	var shop: Array = TypedVariant.as_array(ctx.get("shop_slots", []))
+	var equips: Array = TypedVariant.as_array(ctx.get("equipment_slots", []))
+	for i: int in range(N_SHIP_SHOP):
+		var sid: int = 0
+		if i < shop.size():
+			var slot: Dictionary = TypedVariant.as_dict(shop[i])
+			if not TypedVariant.as_bool(slot.get("purchased", false), false):
+				sid = TypedVariant.as_int(slot.get("ship_id", 0), 0)
+		_blit(feat, i * SHIP_DIM, live_ship_vec(sid, 1))
+	for i: int in range(N_EQ_SHOP):
+		var eid: String = ""
+		if i < equips.size():
+			var es: Dictionary = TypedVariant.as_dict(equips[i])
+			if not TypedVariant.as_bool(es.get("purchased", false), false):
+				eid = str(es.get("id", ""))
+		_blit(feat, N_SHIP_SHOP * SHIP_DIM + i * EQ_DIM, live_equip_vec(eid))
+	var intent: PackedFloat32Array = ops_intent_from_snapshot(snap, ctx)
+	var gold: float = TypedVariant.as_float(ctx.get("gold", 0), 0.0)
+	var level: float = TypedVariant.as_float(ctx.get("level", 1), 1.0)
+	var pieces: float = TypedVariant.as_float(ctx.get("piece_count", 0), 0.0)
+	var extra: PackedFloat32Array = PackedFloat32Array([
+		gold / 50.0,
+		level / 20.0,
+		TypedVariant.as_float(ctx.get("save_p", 0.0), 0.0),
+		TypedVariant.as_float(ctx.get("scan_p", 0.0), 0.0),
+		TypedVariant.as_float(ctx.get("xp_p", 0.0), 0.0),
+		TypedVariant.as_float(ctx.get("sell_p", 0.0), 0.0),
+		pieces / 12.0,
+		1.0,
+	])
+	return _concat3(feat, intent, extra)
+
+
 static func encode_shop(policy: OnnxCpuPolicy, ctx: Dictionary) -> PackedFloat32Array:
 	var feat: PackedFloat32Array = PackedFloat32Array()
 	feat.resize(N_SHIP_SHOP * SHIP_DIM + N_EQ_SHOP * EQ_DIM)
