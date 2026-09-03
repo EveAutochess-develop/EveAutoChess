@@ -179,6 +179,12 @@ static func _flagship_test_capital_ids() -> Array:
 
 
 static func _first_free_field_cell(occ: Dictionary, team: int) -> Vector2i:
+	if BoardPolarGrid.is_polar():
+		for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+			var probe: Dictionary = {"team": team, "slot_type": "field", "x": cell.x, "z": cell.y}
+			if not occ.has(_occ_key(probe)):
+				return cell
+		return Vector2i(-1, -1)
 	var fw: int = TypedVariant.as_int(DataStore.board.get("field_width", 12), 12)
 	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 6)
 	## Prefer mid-line corners (cyno testing posture).
@@ -198,7 +204,11 @@ static func _first_free_field_cell(occ: Dictionary, team: int) -> Vector2i:
 
 
 static func _first_free_hangar_cell(occ: Dictionary, team: int) -> Vector2i:
-	var hw: int = TypedVariant.as_int(DataStore.board.get("hangar_width", 15), 15)
+	var hw: int = (
+		BoardPolarGrid.hangar_width()
+		if BoardPolarGrid.is_polar()
+		else TypedVariant.as_int(DataStore.board.get("hangar_width", 15), 15)
+	)
 	var hh: int = TypedVariant.as_int(DataStore.board.get("hangar_height", 1), 1)
 	for z: int in range(hh):
 		for x: int in range(hw):
@@ -401,6 +411,8 @@ static func _build_save_dict(mc: MatchController, board: BoardController, ai: Ai
 		mods_ordered = mm.enabled_mods_ordered()
 	return {
 		"save_version": SAVE_VERSION,
+		"board_layout": str(DataStore.board.get("layout", BoardPolarGrid.LAYOUT_POLAR)),
+		"layout_rev": str(DataStore.board.get("layout_rev", "polar_2026_09")),
 		"mode": mode_out,
 		"enabled_mods_ordered": mods_ordered,
 		"battle_game_stage_count": mc.battle_game_stage_count,

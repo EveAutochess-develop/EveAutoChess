@@ -16,6 +16,7 @@ uniform float rg_colorize : hint_range(0.0, 1.0) = 0.55;
 uniform float pmwo_metallic : hint_range(0.0, 1.0) = 0.55;
 uniform float pmwo_roughness : hint_range(0.0, 1.0) = 0.85;
 uniform float combat_emission_strength : hint_range(0.0, 2.0) = 0.0;
+uniform vec3 combat_emission_color = vec3(1.0);
 
 void fragment() {
 	vec4 ad = texture(albedo_tex, UV);
@@ -42,5 +43,9 @@ void fragment() {
 	ROUGHNESS = clamp(1.0 - pmwo.g * pmwo_roughness + (1.0 - reduction.r) * 0.12, 0.06, 0.97);
 	SPECULAR = 0.22;
 	AO = clamp(mix(1.0, reduction.r, 0.55), 0.35, 1.0);
-	EMISSION = team_tint.rgb * combat_emission_strength + rg.bbb * 0.03;
+	vec3 emit_tint = combat_emission_color;
+	if (dot(emit_tint, emit_tint) < 0.0001) {
+		emit_tint = team_tint.rgb;
+	}
+	EMISSION = emit_tint * combat_emission_strength + rg.bbb * 0.03;
 }

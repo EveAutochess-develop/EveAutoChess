@@ -254,6 +254,8 @@ func _process(delta: float) -> void:
 			for s: ShipUnit in _board.all_ships():
 				if s != null and is_instance_valid(s) and not s.is_destroyed:
 					s.tick_combat_glow(advanced)
+			if _board.has_method("tick_edge_glow"):
+				_board.tick_edge_glow(advanced)
 		_battle_clock_diag_s += advanced
 		if _battle_clock_diag_s >= 5.0:
 			_battle_clock_diag_s = 0.0

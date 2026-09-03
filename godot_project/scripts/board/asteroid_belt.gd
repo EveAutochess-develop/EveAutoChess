@@ -261,6 +261,16 @@ func bounds_box() -> AABB:
 
 ## Isolation strip between the two Field nearest rows; X within field span. Under-board Y is caller-side.
 func _midline_under_board_box() -> Dictionary:
+	if BoardPolarGrid.is_polar():
+		var half: float = BoardPolarGrid.isolation_half_width()
+		var margin: float = TypedVariant.as_float(DataStore.visual.get("asteroid_belt_margin_xz", 0.85), 0.85)
+		var r: float = BoardPolarGrid.play_radius()
+		return {
+			"x_min": -r + margin,
+			"x_max": r - margin,
+			"z_min": -half + margin,
+			"z_max": half - margin,
+		}
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var margin: float = TypedVariant.as_float(DataStore.visual.get("asteroid_belt_margin_xz", 0.85), 0.85)

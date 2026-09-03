@@ -18,6 +18,8 @@ var _markers: Node3D = null
 var _field_markers: Node3D = null
 var _hangar_markers: Node3D = null
 var _boundary_markers: Node3D = null
+var _prepare_radar: BoardPrepareRadar = null
+var _edge_glow: BoardEdgeGlow = null
 
 func setup(world_root: Node3D) -> void:
 	_world_root = world_root
@@ -39,6 +41,7 @@ func setup(world_root: Node3D) -> void:
 	_world_root.add_child(_boundary_markers)
 	_boundary_markers.visible = false
 	_build_slot_markers()
+	_setup_polar_fx()
 	AdminBus.register_handler(&"board.deploy", _on_deploy)
 	AdminBus.register_handler(&"board.move", _on_move)
 	AdminBus.register_handler(&"board.sell", _on_sell)
@@ -54,6 +57,7 @@ func reset_match() -> void:
 	_field_occupied.clear()
 	_hangar_occupied.clear()
 	_drag_ship = null
+	_apply_ship_drag_cursor(false)
 	board_changed.emit()
 
 func set_prepare_mode(v: bool) -> void:
@@ -62,8 +66,56 @@ func set_prepare_mode(v: bool) -> void:
 	if v:
 		set_field_markers_visible(true)
 		set_hangar_markers_visible(true)
+	var radar_ok: bool = (
+		v
+		and BoardPolarGrid.is_polar()
+		and (PlayerSettings.get_or_null() == null or not PlayerSettings.get_or_null().no_model_perf_mode)
+	)
+	if _prepare_radar != null and is_instance_valid(_prepare_radar):
+		_prepare_radar.set_active(radar_ok)
+	if _edge_glow != null and is_instance_valid(_edge_glow):
+		_edge_glow.set_active(not v and BoardPolarGrid.is_polar())
 	if not v and _drag_ship:
 		_cancel_drag()
+
+
+func tick_edge_glow(sim_dt: float) -> void:
+	if _edge_glow != null and is_instance_valid(_edge_glow):
+		_edge_glow.tick_glow(sim_dt)
+
+
+func _setup_polar_fx() -> void:
+	if not BoardPolarGrid.is_polar() or _world_root == null:
+		return
+	if _prepare_radar == null or not is_instance_valid(_prepare_radar):
+		_prepare_radar = BoardPrepareRadar.new()
+		_prepare_radar.name = "PrepareRadar"
+		_world_root.add_child(_prepare_radar)
+		_prepare_radar.setup(self)
+		_prepare_radar.set_active(_prepare_mode and not _radar_blocked_by_nomodel())
+	if _edge_glow == null or not is_instance_valid(_edge_glow):
+		_edge_glow = BoardEdgeGlow.new()
+		_edge_glow.name = "EdgeGlow"
+		_world_root.add_child(_edge_glow)
+		_edge_glow.setup(self)
+		_edge_glow.set_active(not _prepare_mode)
+
+
+func _radar_blocked_by_nomodel() -> bool:
+	return PlayerSettings.get_or_null() != null and PlayerSettings.get_or_null().no_model_perf_mode
+
+
+func refresh_prepare_radar_active() -> void:
+	if _prepare_radar == null or not is_instance_valid(_prepare_radar):
+		return
+	_prepare_radar.set_active(
+		_prepare_mode and BoardPolarGrid.is_polar() and not _radar_blocked_by_nomodel()
+	)
+
+
+func clear_prepare_radar_flashes() -> void:
+	if _prepare_radar != null and is_instance_valid(_prepare_radar):
+		_prepare_radar._clear_all_flashes()
 
 func set_field_markers_visible(v: bool) -> void:
 	if _field_markers:
@@ -85,6 +137,9 @@ func slot_markers_visible() -> bool:
 	return _field_markers != null and _field_markers.visible
 
 func _build_slot_markers() -> void:
+	if BoardPolarGrid.is_polar():
+		_build_polar_slot_markers()
+		return
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var hexa_path: String = "res://assets/models/env/Models_indicator_hexa.glb"
@@ -113,6 +168,16 @@ func _build_slot_markers() -> void:
 				var bm2: Node3D = _make_indicator(square_ps, false)
 				bm2.position = cell_to_world("hangar", team, x, 0)
 				_boundary_markers.add_child(bm2)
+
+func _build_polar_slot_markers() -> void:
+	for team: int in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
+		for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+			var m: MeshInstance3D = BoardSectorIndicator.make_field_marker(team, cell.x, cell.y)
+			_field_markers.add_child(m)
+		for hcell: Vector2i in BoardPolarGrid.enumerate_hangar_cells():
+			var m2: MeshInstance3D = BoardSectorIndicator.make_hangar_marker()
+			m2.position = cell_to_world("hangar", team, hcell.x, hcell.y)
+			_hangar_markers.add_child(m2)
 
 func _make_indicator(packed: PackedScene, is_hexa: bool) -> Node3D:
 	## Visual: hollow outline GLB only (filled disks looked wrong).
@@ -270,6 +335,8 @@ static func field_origin(team: int) -> Vector3:
 	return Vector3(ox, 0.0, oz)
 
 static func field_span_x() -> float:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.field_span_x()
 	## Widest row (odd row with +1) — player/AI share the same X silhouette.
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fw: int = TypedVariant.as_int(b.get("field_width", 12), 12)
@@ -279,6 +346,8 @@ static func field_span_x() -> float:
 	return float(widest - 1) * hox
 
 static func hangar_step_x() -> float:
+	if BoardPolarGrid.is_polar():
+		return -BoardPolarGrid.hangar_step()
 	## Default: span matches Field silhouette so Hangar edges align with hex outer tips.
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	if b.has("hangar_offset_x"):
@@ -312,6 +381,8 @@ static func hangar_origin(team: int) -> Vector3:
 	return Vector3(ox, 0.0, oz)
 
 static func cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vector3:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.cell_to_world(slot_type, team, x, z)
 	## Unity BoardController: origin + right*offsetX + forward*offsetZ (identity axes).
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var ox: float = TypedVariant.as_float(b.get("hex_offset_x", -3.0), -3.0)
@@ -338,6 +409,8 @@ static func cell_to_world(slot_type: String, team: int, x: int, z: int) -> Vecto
 
 ## Axis-aligned playable combat rect in XZ (both team fields + margin). Returns [min_x, max_x, min_z, max_z].
 static func combat_play_bounds_xz(margin_wu: float = 0.75) -> Vector4:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.combat_play_bounds_xz(margin_wu)
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var min_x: float = INF
@@ -356,6 +429,8 @@ static func combat_play_bounds_xz(margin_wu: float = 0.75) -> Vector4:
 	return Vector4(min_x - margin_wu, max_x + margin_wu, min_z - margin_wu, max_z + margin_wu)
 
 static func clamp_to_combat_play_area(pos: Vector3, margin_wu: float = 0.75) -> Vector3:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.clamp_to_play_disk(pos, margin_wu)
 	var bb: Vector4 = combat_play_bounds_xz(margin_wu)
 	pos.x = clampf(pos.x, bb.x, bb.y)
 	pos.z = clampf(pos.z, bb.z, bb.w)
@@ -365,7 +440,7 @@ static func clamp_to_combat_play_area(pos: Vector3, margin_wu: float = 0.75) -> 
 ## Vertical play band [y_min, y_max] from hangar cell width × floor/ceiling cells.
 static func play_volume_y() -> Vector2:
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
-	var step: float = absf(hangar_step_x())
+	var step: float = BoardPolarGrid.cell_step_wu() if BoardPolarGrid.is_polar() else absf(hangar_step_x())
 	var floor_cells: float = TypedVariant.as_float(b.get("play_floor_cells", 1), 1.0)
 	var ceil_cells: float = TypedVariant.as_float(b.get("play_ceiling_cells", 4), 4.0)
 	return Vector2(DECK_Y - floor_cells * step, DECK_Y + ceil_cells * step)
@@ -405,6 +480,8 @@ static func prepare_slot_bounds_xz(slot_type: String, team: int, margin_wu: floa
 	return Vector4(min_x - margin_wu, max_x + margin_wu, min_z - margin_wu, max_z + margin_wu)
 
 static func prepare_play_bounds_xz(team: int, margin_wu: float = 0.0) -> Vector4:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.prepare_play_bounds_xz(team, margin_wu)
 	var field_bb: Vector4 = prepare_slot_bounds_xz("field", team, margin_wu)
 	var hangar_bb: Vector4 = prepare_slot_bounds_xz("hangar", team, margin_wu)
 	return Vector4(
@@ -427,6 +504,10 @@ static func clamp_to_prepare_play_area(pos: Vector3, team: int, margin_wu: float
 	return pos
 
 static func _in_bounds(slot_type: String, x: int, z: int = 0) -> bool:
+	if BoardPolarGrid.is_polar():
+		if slot_type == "field":
+			return BoardPolarGrid.is_valid_field_cell(x, z)
+		return BoardPolarGrid.is_valid_hangar_cell(x, z)
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var hw: int = TypedVariant.as_int(b.get("hangar_width", 15), 15)
@@ -455,6 +536,8 @@ func spawn_ship(ship_id: int, star: int, team: int, slot_type: String, x: int, z
 		ship.stamp_hangar_home()
 	if _visual_follow_armed:
 		ship.arm_visual_follow()
+	if ship.has_method("on_board_slot_changed"):
+		ship.on_board_slot_changed()
 	board_changed.emit()
 	return ship
 
@@ -560,6 +643,8 @@ func swap_sides_center_symmetric() -> Dictionary:
 		occ2[_key(ship3.slot_type, new_team, ship3.grid_x, ship3.grid_z)] = ship3
 		if ship3.has_method("rebuild_health_bar"):
 			ship3.rebuild_health_bar()
+		if ship3.has_method("on_board_slot_changed"):
+			ship3.on_board_slot_changed()
 	refresh_cross_team_cell_offsets(true)
 	recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	recalculate_fetters(ShipUnit.TEAM_AI)
@@ -582,6 +667,8 @@ func move_ship_to_field_side(ship: ShipUnit, x: int, z: int, side_team: int) -> 
 	ship.global_position = cell_to_world("field", side_team, x, z)
 	_field_occupied[_key("field", ship.team_id, x, z)] = ship
 	refresh_cross_team_cell_offsets()
+	if ship.has_method("on_board_slot_changed"):
+		ship.on_board_slot_changed()
 	board_changed.emit()
 
 
@@ -656,7 +743,11 @@ func refresh_cross_team_cell_offsets(force_all: bool = false) -> void:
 
 func find_empty_hangar(team: int) -> Vector2i:
 	## Center-out on X (middle first, then left/right), same pattern as find_empty_field.
-	var hw: int = TypedVariant.as_int(DataStore.board.get("hangar_width", 15), 15)
+	var hw: int = (
+		BoardPolarGrid.hangar_width()
+		if BoardPolarGrid.is_polar()
+		else TypedVariant.as_int(DataStore.board.get("hangar_width", 15), 15)
+	)
 	var cx: int = hw >> 1
 	var x_order: Array[int] = []
 	for d: int in range(hw):
@@ -676,6 +767,8 @@ func find_empty_hangar(team: int) -> Vector2i:
 	return Vector2i(-1, -1)
 
 func find_empty_field(team: int) -> Vector2i:
+	if BoardPolarGrid.is_polar():
+		return _find_empty_field_polar(team)
 	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 6)
 	var random_deploy: bool = TypedVariant.as_bool(DataStore.ai.get("random_deploy", false), false)
 	if random_deploy:
@@ -710,6 +803,40 @@ func find_empty_field(team: int) -> Vector2i:
 		for x: int in x_order:
 			if not _field_occupied.has(_key("field", team, x, z)):
 				return Vector2i(x, z)
+	return Vector2i(-1, -1)
+
+func _find_empty_field_polar(team: int) -> Vector2i:
+	var random_deploy: bool = TypedVariant.as_bool(DataStore.ai.get("random_deploy", false), false)
+	if random_deploy:
+		var empties: Array[Vector2i] = []
+		for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+			if not _field_occupied.has(_key("field", team, cell.x, cell.y)):
+				empties.append(cell)
+		if empties.is_empty():
+			return Vector2i(-1, -1)
+		return empties[randi() % empties.size()]
+	for ring: int in range(1, BoardPolarGrid.RING_COUNT + 1):
+		var n: int = (
+			BoardPolarGrid.sectors_in_ring(ring)
+			if ring < BoardPolarGrid.RING_COUNT
+			else BoardPolarGrid.ring6_full_sectors()
+		)
+		var cx: int = n >> 1
+		var order: Array[int] = []
+		for d: int in range(n):
+			var left: int = cx - d
+			var right: int = cx + d
+			if d == 0:
+				if left >= 0 and left < n and BoardPolarGrid.is_valid_field_cell(ring, left):
+					order.append(left)
+			else:
+				if left >= 0 and left < n and BoardPolarGrid.is_valid_field_cell(ring, left):
+					order.append(left)
+				if right >= 0 and right < n and right != left and BoardPolarGrid.is_valid_field_cell(ring, right):
+					order.append(right)
+		for sector: int in order:
+			if not _field_occupied.has(_key("field", team, ring, sector)):
+				return Vector2i(ring, sector)
 	return Vector2i(-1, -1)
 
 func count_field(team: int) -> int:
@@ -899,6 +1026,7 @@ func _purge_freed_ships() -> void:
 			occ.erase(k2)
 	if _drag_ship != null and not is_instance_valid(_drag_ship):
 		_drag_ship = null
+		_apply_ship_drag_cursor(false)
 
 func reset_ships_after_round() -> void:
 	## MATCH_FLOW: heal every hull (field + hangar), not only field.
@@ -1117,6 +1245,10 @@ func _on_move(payload: Dictionary) -> Dictionary:
 		other.stamp_hangar_home()
 	ship.global_position = cell_to_world(to_type, side_team, to_x, to_z)
 	occ_to[to_key] = ship
+	if other and other != ship and other.has_method("on_board_slot_changed"):
+		other.on_board_slot_changed()
+	if ship.has_method("on_board_slot_changed"):
+		ship.on_board_slot_changed()
 	try_upgrades_all()
 	refresh_cross_team_cell_offsets()
 	board_changed.emit()
@@ -1182,22 +1314,154 @@ func begin_drag(ship: ShipUnit) -> void:
 		if not get_tree().paused or not (PlayerSettings.instance() as PlayerSettings).enemy_layout_adjust_active():
 			return
 	_drag_ship = ship
+	if ship.has_method("sync_tactical_stem"):
+		ship.sync_tactical_stem()
+	_apply_ship_drag_cursor(true)
+
+
+static func drag_lift_y() -> float:
+	if DataStore:
+		return TypedVariant.as_float(DataStore.visual.get("board_drag_lift_wu", 2.15), 2.15)
+	return 2.15
+
+
+static func ray_hit_deck(camera: Camera3D, screen: Vector2) -> Vector3:
+	if camera == null:
+		return Vector3.ZERO
+	var origin: Vector3 = camera.project_ray_origin(screen)
+	var dir: Vector3 = camera.project_ray_normal(screen)
+	if absf(dir.y) < 1e-6:
+		return Vector3.ZERO
+	var t: float = (DECK_Y - origin.y) / dir.y
+	if t < 0.0:
+		return Vector3.ZERO
+	var hit: Vector3 = origin + dir * t
+	return Vector3(hit.x, DECK_Y, hit.z)
+
 
 func update_drag(world_pos: Vector3) -> void:
 	if _drag_ship:
-		var pos: Vector3 = Vector3(world_pos.x, 1.0, world_pos.z)
+		var target_xz: Vector2 = Vector2(world_pos.x, world_pos.z)
+		var lift_y: float = drag_lift_y()
+		if _drag_ship.has_method("align_root_to_tactical_foot_xz"):
+			_drag_ship.align_root_to_tactical_foot_xz(target_xz, lift_y)
+		else:
+			_drag_ship.global_position = Vector3(target_xz.x, lift_y, target_xz.y)
 		var clamp_team: int = _drag_ship.team_id
 		if _drag_ship.deploy_enemy_half_only:
 			clamp_team = ShipUnit.TEAM_AI if _drag_ship.team_id == ShipUnit.TEAM_PLAYER else ShipUnit.TEAM_PLAYER
-		pos = clamp_to_prepare_play_area(pos, clamp_team, 0.0)
-		_drag_ship.global_position = pos
+		var foot_after: Vector2 = (
+			_drag_ship.tactical_foot_world_xz()
+			if _drag_ship.has_method("tactical_foot_world_xz")
+			else Vector2(_drag_ship.global_position.x, _drag_ship.global_position.z)
+		)
+		var bb: Vector4 = prepare_play_bounds_xz(clamp_team, 0.0)
+		var clamped_xz: Vector2 = Vector2(
+			clampf(foot_after.x, bb.x, bb.y),
+			clampf(foot_after.y, bb.z, bb.w)
+		)
+		if _drag_ship.has_method("align_root_to_tactical_foot_xz"):
+			_drag_ship.align_root_to_tactical_foot_xz(clamped_xz, lift_y)
+		else:
+			_drag_ship.global_position = Vector3(clamped_xz.x, lift_y, clamped_xz.y)
+
+
+func _apply_ship_drag_cursor(drag_active: bool) -> void:
+	## HIDDEN only — never MOUSE_MODE_CAPTURED (avoids OS grab surviving process exit).
+	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN if drag_active else Input.MOUSE_MODE_VISIBLE
+
+
+func pick_slot_for_drag_ship(ship: ShipUnit, team: int, field_side: int = -1) -> Dictionary:
+	if ship == null or not is_instance_valid(ship):
+		return {}
+	if ship.has_method("sync_tactical_stem"):
+		ship.sync_tactical_stem()
+	var foot_xz: Vector2 = (
+		ship.tactical_foot_world_xz()
+		if ship.has_method("tactical_foot_world_xz")
+		else Vector2(ship.global_position.x, ship.global_position.z)
+	)
+	return pick_slot_at_foot_xz(foot_xz, team, field_side)
+
+
+func pick_slot_at_foot_xz(foot_xz: Vector2, team: int, field_side: int = -1) -> Dictionary:
+	if BoardPolarGrid.is_polar():
+		return _pick_slot_at_foot_xz_polar(foot_xz, team, field_side)
+	return _pick_slot_at_foot_xz_legacy(foot_xz, team, field_side)
+
+
+func _pick_slot_at_foot_xz_polar(foot_xz: Vector2, team: int, field_side: int) -> Dictionary:
+	var disc_r: float = ShipTacticalStem.foot_disc_radius_wu()
+	var side: int = field_side if field_side >= 0 else team
+	var best: Dictionary = {}
+	var best_d: float = INF
+	for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+		if not BoardPolarGrid.disc_overlaps_field_sector_xz(foot_xz, side, cell.x, cell.y, disc_r):
+			continue
+		var p: Vector3 = cell_to_world("field", side, cell.x, cell.y)
+		var d: float = foot_xz.distance_to(Vector2(p.x, p.z))
+		if d < best_d:
+			best_d = d
+			best = {"slot_type": "field", "x": cell.x, "z": cell.y, "team": side}
+	for hx: int in range(BoardPolarGrid.hangar_width()):
+		var p2: Vector3 = cell_to_world("hangar", team, hx, 0)
+		if not BoardPolarGrid.disc_overlaps_hangar_square_xz(foot_xz, p2, disc_r):
+			continue
+		var d2: float = foot_xz.distance_to(Vector2(p2.x, p2.z))
+		if d2 < best_d:
+			best_d = d2
+			best = {"slot_type": "hangar", "x": hx, "z": 0, "team": team}
+	return best
+
+
+func _pick_slot_at_foot_xz_legacy(foot_xz: Vector2, team: int, field_side: int) -> Dictionary:
+	var disc_r: float = ShipTacticalStem.foot_disc_radius_wu()
+	var side: int = field_side if field_side >= 0 else team
+	var best: Dictionary = {}
+	var best_d: float = INF
+	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
+	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
+	var hex_r: float = field_hex_circumradius()
+	for z: int in range(fh):
+		var cols: int = field_cols_at(z)
+		for x: int in range(cols):
+			var p: Vector3 = cell_to_world("field", side, x, z)
+			if not _disc_overlaps_field_hex_xz(foot_xz, p, hex_r, disc_r):
+				continue
+			var d: float = foot_xz.distance_to(Vector2(p.x, p.z))
+			if d < best_d:
+				best_d = d
+				best = {"slot_type": "field", "x": x, "z": z, "team": side}
+	var hw: int = TypedVariant.as_int(b.get("hangar_width", 15), 15)
+	for x: int in range(hw):
+		var p2: Vector3 = cell_to_world("hangar", team, x, 0)
+		if not BoardPolarGrid.disc_overlaps_hangar_square_xz(foot_xz, p2, disc_r):
+			continue
+		var d2: float = foot_xz.distance_to(Vector2(p2.x, p2.z))
+		if d2 < best_d:
+			best_d = d2
+			best = {"slot_type": "hangar", "x": x, "z": 0, "team": team}
+	return best
+
+
+static func _disc_overlaps_field_hex_xz(foot_xz: Vector2, center: Vector3, hex_r: float, disc_r: float) -> bool:
+	if point_in_field_hex_xz(Vector3(foot_xz.x, center.y, foot_xz.y), center, hex_r):
+		return true
+	for i: int in range(8):
+		var ang: float = float(i) * TAU / 8.0
+		var rim: Vector2 = foot_xz + Vector2(cos(ang), sin(ang)) * disc_r
+		if point_in_field_hex_xz(Vector3(rim.x, center.y, rim.y), center, hex_r):
+			return true
+	return false
 
 func end_drag(sell_zone: bool, hover_slot: Dictionary) -> void:
 	_purge_freed_ships()
 	if _drag_ship == null:
+		_apply_ship_drag_cursor(false)
 		return
 	var ship: ShipUnit = _drag_ship
 	_drag_ship = null
+	_apply_ship_drag_cursor(false)
 	var snap_side: int = ship_world_side(ship)
 	if sell_zone:
 		var r: Dictionary = AdminBus.request(&"board.sell", {"ship_instance_id": ship.get_instance_id()})
@@ -1274,6 +1538,7 @@ func _cancel_drag() -> void:
 		var side: int = ship_world_side(_drag_ship) if _drag_ship.slot_type == "field" else _drag_ship.team_id
 		_drag_ship.global_position = cell_to_world(_drag_ship.slot_type, side, _drag_ship.grid_x, _drag_ship.grid_z)
 	_drag_ship = null
+	_apply_ship_drag_cursor(false)
 
 func pick_ship_at(origin: Vector3, dir: Vector3, exclude: ShipUnit = null) -> ShipUnit:
 	## Model triangle raycast (BOARD_AND_INPUT §4). AABB is broadphase only.
@@ -1310,6 +1575,8 @@ static func field_hex_circumradius() -> float:
 
 ## Solid filled pointy-top hex in XZ (not a hollow ring; BOARD_AND_INPUT §4).
 static func point_in_field_hex_xz(world: Vector3, cell_center: Vector3, radius: float = -1.0) -> bool:
+	if BoardPolarGrid.is_polar():
+		return false
 	var R: float = radius if radius > 0.0 else field_hex_circumradius()
 	if R <= 1e-6:
 		return false
@@ -1323,6 +1590,8 @@ static func point_in_field_hex_xz(world: Vector3, cell_center: Vector3, radius: 
 
 
 static func point_in_hangar_square_xz(world: Vector3, cell_center: Vector3) -> bool:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.point_in_hangar_square_xz(world, cell_center)
 	var half: float = absf(hangar_step_x()) * 0.5
 	if half <= 1e-6:
 		half = 0.6
@@ -1331,6 +1600,8 @@ static func point_in_hangar_square_xz(world: Vector3, cell_center: Vector3) -> b
 
 ## Camera ray → solid cell under cursor (BOARD_AND_INPUT §4). Empty = miss.
 func pick_slot_by_ray(origin: Vector3, dir: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
+	if BoardPolarGrid.is_polar():
+		return _pick_slot_by_ray_polar(origin, dir, team, field_side)
 	var nd: Vector3 = dir.normalized()
 	if nd.length_squared() < 1e-12:
 		return {}
@@ -1371,6 +1642,8 @@ func pick_slot_by_ray(origin: Vector3, dir: Vector3, team: int = ShipUnit.TEAM_P
 
 
 func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: int = -1) -> Dictionary:
+	if BoardPolarGrid.is_polar():
+		return _pick_slot_at_polar(world, team, field_side)
 	## Solid footprint containment (same shapes as pick_slot_by_ray). No soft sphere.
 	var best: Dictionary = {}
 	var best_d: float = INF
@@ -1397,6 +1670,61 @@ func pick_slot_at(world: Vector3, team: int = ShipUnit.TEAM_PLAYER, field_side: 
 		if d2 < best_d:
 			best_d = d2
 			best = {"slot_type": "hangar", "x": x, "z": 0, "team": team}
+	return best
+
+
+func _pick_slot_by_ray_polar(origin: Vector3, dir: Vector3, team: int, field_side: int) -> Dictionary:
+	var nd: Vector3 = dir.normalized()
+	if nd.length_squared() < 1e-12:
+		return {}
+	var best: Dictionary = {}
+	var best_t: float = INF
+	var side: int = field_side if field_side >= 0 else team
+	if absf(nd.y) < 1e-8:
+		return {}
+	for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+		var c: Vector3 = cell_to_world("field", side, cell.x, cell.y)
+		var t: float = (c.y - origin.y) / nd.y
+		if t < 0.0 or t >= best_t:
+			continue
+		var hit: Vector3 = origin + nd * t
+		if not BoardPolarGrid.point_in_field_sector_xz(hit, side, cell.x, cell.y):
+			continue
+		best_t = t
+		best = {"slot_type": "field", "x": cell.x, "z": cell.y, "team": side}
+	for hx: int in range(BoardPolarGrid.hangar_width()):
+		var c2: Vector3 = cell_to_world("hangar", team, hx, 0)
+		var t2: float = (c2.y - origin.y) / nd.y
+		if t2 < 0.0 or t2 >= best_t:
+			continue
+		var hit2: Vector3 = origin + nd * t2
+		if not point_in_hangar_square_xz(hit2, c2):
+			continue
+		best_t = t2
+		best = {"slot_type": "hangar", "x": hx, "z": 0, "team": team}
+	return best
+
+
+func _pick_slot_at_polar(world: Vector3, team: int, field_side: int) -> Dictionary:
+	var best: Dictionary = {}
+	var best_d: float = INF
+	var side: int = field_side if field_side >= 0 else team
+	for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+		var p: Vector3 = cell_to_world("field", side, cell.x, cell.y)
+		if not BoardPolarGrid.point_in_field_sector_xz(world, side, cell.x, cell.y):
+			continue
+		var d: float = Vector2(world.x - p.x, world.z - p.z).length()
+		if d < best_d:
+			best_d = d
+			best = {"slot_type": "field", "x": cell.x, "z": cell.y, "team": side}
+	for hx: int in range(BoardPolarGrid.hangar_width()):
+		var p2: Vector3 = cell_to_world("hangar", team, hx, 0)
+		if not point_in_hangar_square_xz(world, p2):
+			continue
+		var d2: float = Vector2(world.x - p2.x, world.z - p2.z).length()
+		if d2 < best_d:
+			best_d = d2
+			best = {"slot_type": "hangar", "x": hx, "z": 0, "team": team}
 	return best
 
 func recalculate_fetters(team: int) -> Array:

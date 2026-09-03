@@ -30,6 +30,7 @@
   "signature_radius": 155.0,
   "speed": 207.0,
   "attack_cycle_s": 90.0,
+  "capacitor_capacity": 1.0,
   "drone_bandwidth": 0.0,
   "function_slots": {
     "slots": [

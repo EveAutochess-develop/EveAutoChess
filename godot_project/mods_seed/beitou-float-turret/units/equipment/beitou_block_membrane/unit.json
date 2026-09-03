@@ -1,0 +1,43 @@
+{
+  "local_id": 9438,
+  "kind": "function",
+  "id": "beitou_block_membrane",
+  "name": "狈头浮游炮专属格挡器",
+  "name_en": "Beitou Float Turret Block Membrane",
+  "activate": "periodic",
+  "allowed_on": ["S", "M", "L", "XL"],
+  "allowed_ships": [
+    {
+      "package": "beitou-float-turret",
+      "local_id": 5438
+    }
+  ],
+  "blurb": "激活 {duration_s}s（耗电 {capacitor_need}）：装甲电热动爆抗性设为 {amount}%（仅狈头级浮游炮台可装）。",
+  "blurb_holes": {
+    "amount": 100.0,
+    "capacitor_need": 160.0,
+    "duration_s": 20.0
+  },
+  "capacitor_need": 160.0,
+  "cost": 10.0,
+  "duration_s": 20.0,
+  "effects": [
+    {
+      "amount": 100.0,
+      "layer": "armor",
+      "op": "set_resist_active"
+    }
+  ],
+  "implant": false,
+  "passive": false,
+  "range_cells": 0.0,
+  "shop_category": "resist",
+  "shop_pool": true,
+  "size": "S",
+  "fx_kind": "remote_cap",
+  "synth_from": null,
+  "synth_into": [],
+  "synth_next": null,
+  "targeting": "none",
+  "weapon_gate": null
+}

@@ -25,6 +25,7 @@ uniform float normal_scale = 1.0;
 uniform float glow_mul = 1.0;
 uniform float intensity_floor = 0.04;
 uniform float combat_emission_strength : hint_range(0.0, 2.0) = 0.0;
+uniform vec3 combat_emission_color = vec3(1.0);
 /// When >0, discard fragments with albedo.a below this (glass / atlas padding).
 uniform float alpha_cutoff : hint_range(0.0, 1.0) = 0.0;
 
@@ -80,5 +81,5 @@ void fragment() {
 	AO = mix(1.0, clamp(intensity, 0.35, 1.0), 0.25);
 
 	vec3 glow = rg.g * color_light.rgb * glow_mul;
-	EMISSION = glow + vec3(combat_emission_strength);
+	EMISSION = glow + combat_emission_color * combat_emission_strength;
 }
