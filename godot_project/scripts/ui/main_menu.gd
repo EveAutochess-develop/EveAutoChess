@@ -93,6 +93,17 @@ var _options_host: Control
 var _play_host: Control
 var _load_tertiary_host: Control
 var _load_tertiary_open: bool = false
+var _btn_mods: Control
+var _mods_tertiary_host: Control
+var _mods_tertiary_open: bool = false
+var _mods_list: VBoxContainer
+var _mods_selected_package: String = ""
+## Content width from longest truncated title (+ row chrome); refreshed with list.
+var _mods_list_desired_w: float = 0.0
+var _mod_file_dialog: FileDialog
+const MOD_DISCLAIMER_FULL: String = "本游戏支持加载第三方 mod。mod 由第三方创作者制作与分发，其内容、质量、安全性及合法性由创作者及传播者自行负责。若 mod 涉及侵权、违法、欺诈、传播恶意软件或其它恶意行为，与《星视寰宇EVE自走棋》开发组无关，开发组不承担相应责任。请仅从你信任的来源获取并安装 mod；联机接收对方 mod 前请确认对方身份可信。"
+## UI_AND_SHELL：整条列表标题（名+版本+徽章）上限，超出「…」。
+const MOD_LIST_TITLE_MAX_CHARS: int = 100
 var _history_tertiary_host: Control
 var _history_list: VBoxContainer
 var _history_tertiary_open: bool = false
@@ -244,7 +255,29 @@ func _build() -> void:
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg_tex: Texture2D = UiAssets.tex(UiAssets.MAIN_BG)
+	var menu_ov: Dictionary = {}
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		var mm_n: Node = tree.root.get_node_or_null("ModManager")
+		if mm_n == null:
+			## ModManager is content-side (not Autoload); spawn like ModManager.instance().
+			var scr_v: Variant = load("res://scripts/mod/mod_manager.gd")
+			if scr_v is GDScript:
+				var created_v: Variant = (scr_v as GDScript).new()
+				if created_v is Node:
+					mm_n = created_v as Node
+					mm_n.name = "ModManager"
+					if mm_n.has_method("_ensure_boot"):
+						mm_n.call("_ensure_boot")
+					tree.root.add_child.call_deferred(mm_n)
+		if mm_n != null and mm_n.has_method("get_menu_override"):
+			var ov_v: Variant = mm_n.call("get_menu_override")
+			if ov_v is Dictionary:
+				menu_ov = ov_v as Dictionary
+	var bg_path: String = str(menu_ov.get("bg", "")).strip_edges()
+	if bg_path == "":
+		bg_path = UiAssets.MAIN_BG
+	var bg_tex: Texture2D = UiAssets.tex(bg_path)
 	if bg_tex:
 		bg.texture = bg_tex
 	add_child(bg)
@@ -258,7 +291,8 @@ func _build() -> void:
 
 	_title = Label.new()
 	_title.name = "Title"
-	_title.text = TITLE_TEXT
+	var title_ov: String = str(menu_ov.get("title", "")).strip_edges()
+	_title.text = title_ov if title_ov != "" else TITLE_TEXT
 	_title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_title.add_theme_color_override("font_color", Color(1, 1, 1, 1))
 	_title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
@@ -391,6 +425,8 @@ func _add_branch_row(id: String, primary_text: String, build_secondary: Callable
 			_setup_history_tertiary()
 		BRANCH_OPTIONS:
 			_options_host = host
+			## Mods tertiary extends past secondary bounds (same as solo load).
+			host.clip_contents = false
 
 func _build_play_secondary() -> Control:
 	## 开始游戏二级：单机/联机整树（UI_AND_SHELL §1.0）。
@@ -494,11 +530,81 @@ func _build_online_secondary() -> Control:
 	return root
 
 func _build_options_secondary() -> Control:
+	var root: Control = Control.new()
+	root.name = "OptionsSecondaryRoot"
+	root.clip_contents = false
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box: VBoxContainer = VBoxContainer.new()
+	box.name = "OptionsBtns"
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_theme_constant_override("separation", 8)
+	root.add_child(box)
 	box.add_child(_menu_btn("关于我们", _on_about_open))
 	box.add_child(_menu_btn("游戏设置", _on_options_open))
-	return box
+	_btn_mods = _menu_btn("加载mod", _on_mods_open)
+	box.add_child(_btn_mods)
+	_mods_tertiary_host = Control.new()
+	_mods_tertiary_host.name = "ModsTertiary"
+	_mods_tertiary_host.visible = false
+	_mods_tertiary_host.clip_contents = false
+	_mods_tertiary_host.z_index = 8
+	_mods_tertiary_host.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(_mods_tertiary_host)
+	var mods_root_box: VBoxContainer = VBoxContainer.new()
+	mods_root_box.name = "ModsRootBox"
+	mods_root_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mods_root_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mods_root_box.add_theme_constant_override("separation", UiLayout.margin_px(6, self))
+	var disc: Label = Label.new()
+	disc.name = "Disclaimer"
+	disc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	disc.text = "第三方 mod，风险自负；侵权与恶意行为与开发组无关。（点详情看全文）"
+	disc.mouse_filter = Control.MOUSE_FILTER_STOP
+	disc.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed:
+			_show_mod_disclaimer_full()
+	)
+	UiAssets.apply_label_font(disc, false, UiLayout.font_size(12, self))
+	mods_root_box.add_child(disc)
+	var path_lbl: Label = Label.new()
+	path_lbl.name = "ModsPath"
+	path_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiAssets.apply_label_font(path_lbl, false, UiLayout.font_size(11, self))
+	mods_root_box.add_child(path_lbl)
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.name = "ModsScroll"
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_mods_list = VBoxContainer.new()
+	_mods_list.name = "ModsList"
+	_mods_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mods_list.add_theme_constant_override("separation", UiLayout.margin_px(6, self))
+	scroll.add_child(_mods_list)
+	mods_root_box.add_child(scroll)
+	var bottom: HBoxContainer = HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 8)
+	var import_btn: Button = Button.new()
+	import_btn.text = "导入新mod"
+	UiAssets.apply_button_font(import_btn, UiLayout.font_size(14, self))
+	import_btn.pressed.connect(_on_mod_import)
+	bottom.add_child(import_btn)
+	var uninstall_btn: Button = Button.new()
+	uninstall_btn.text = "卸载mod"
+	UiAssets.apply_button_font(uninstall_btn, UiLayout.font_size(14, self))
+	uninstall_btn.pressed.connect(_on_mod_uninstall_selected)
+	bottom.add_child(uninstall_btn)
+	var restart_btn: Button = Button.new()
+	restart_btn.text = "重启游戏"
+	UiAssets.apply_button_font(restart_btn, UiLayout.font_size(14, self))
+	restart_btn.pressed.connect(_on_mod_restart_game)
+	bottom.add_child(restart_btn)
+	mods_root_box.add_child(bottom)
+	var list_chrome: Control = _make_secondary_chrome(mods_root_box)
+	list_chrome.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_mods_tertiary_host.add_child(list_chrome)
+	return root
 
 func _usable_local_last_match_exists() -> bool:
 	return not _usable_local_last_match().is_empty()
@@ -623,6 +729,14 @@ func _collapse_history_tertiary() -> void:
 func _collapse_all_tertiaries() -> void:
 	_collapse_tertiary_load()
 	_collapse_history_tertiary()
+	_collapse_tertiary_mods()
+
+
+func _collapse_tertiary_mods() -> void:
+	_tertiary_reveal.call("abort")
+	_mods_tertiary_open = false
+	if _mods_tertiary_host:
+		_mods_tertiary_host.visible = false
 
 func _collapse_all_secondaries() -> void:
 	_branch_reveal.call("abort")
@@ -650,7 +764,7 @@ func _apply_branch_host_sizes() -> void:
 	var sep: float = _menu_px(8.0)
 	var pad: float = _menu_px(10.0) * 2.0
 	var host_h_solo: float = bh * 5.0 + sep * 4.0 + pad + 4.0
-	var host_h_opt: float = bh * 2.0 + sep + pad + 4.0
+	var host_h_opt: float = bh * 3.0 + sep * 2.0 + pad + 4.0
 	## Online width ×1.5 (UI_AND_SHELL §1.0). Chrome height = lobby; host adds框外历史钮.
 	var host_w_online: float = host_w * 1.5
 	var chrome_h_online: float = _menu_px(400.0 if UiLayout.is_mobile() else 460.0)
@@ -741,6 +855,7 @@ func _apply_branch_host_sizes() -> void:
 			if ch is VBoxContainer:
 				(ch as VBoxContainer).add_theme_constant_override("separation", maxi(4, roundi(sep)))
 	_layout_load_tertiary()
+	_layout_mods_tertiary()
 	_layout_history_tertiary()
 	if _branch_reveal != null and _branch_reveal.has_method("relayout_open_link"):
 		_branch_reveal.call("relayout_open_link")
@@ -791,6 +906,94 @@ func _layout_load_tertiary() -> void:
 	if _load_list:
 		## Force row width so long name buttons fill the plate.
 		_load_list.custom_minimum_size = Vector2(maxf(tw - _menu_px(36.0), 200.0 * _menu_fit_scale), 0.0)
+
+
+func _layout_mods_tertiary() -> void:
+	if _mods_tertiary_host == null or _btn_mods == null:
+		return
+	var parent: Control = _mods_tertiary_host.get_parent() as Control
+	if parent == null:
+		return
+	var gap: float = _branch_secondary_gap()
+	var th: float = _menu_px(_menu_design_tertiary_h()) * 1.15
+	var min_th: float = _menu_px(300.0)
+	var slide: float = 0.0
+	if _btn_mods.get("slide_offset_px") != null:
+		slide = float(_btn_mods.get("slide_offset_px"))
+	var local: Vector2 = parent.get_global_transform_with_canvas().affine_inverse() * _btn_mods.global_position
+	local.x -= slide
+	var x: float = local.x + _btn_mods.size.x + gap
+	var margin: float = 8.0
+	var vp: Vector2 = size
+	if vp.x < 2.0 or vp.y < 2.0:
+		vp = UiLayout.viewport_size(self)
+	var tw: float = _mods_list_desired_w
+	if tw < 8.0:
+		tw = _mods_list_width_for_titles(PackedStringArray(["暂无 mod（可导入 res://mod_samples/beitou-float-turret）"]))
+	var max_w: float = maxf(160.0, vp.x - x - margin)
+	tw = minf(tw, max_w)
+	var max_h: float = maxf(160.0, vp.y - local.y - margin)
+	th = clampf(th, min_th, max_h)
+	_mods_tertiary_host.position = Vector2(x, local.y)
+	_mods_tertiary_host.custom_minimum_size = Vector2(tw, th)
+	_mods_tertiary_host.size = Vector2(tw, th)
+	if _mods_list:
+		_mods_list.custom_minimum_size = Vector2(maxf(tw - _menu_px(36.0), 120.0), 0.0)
+
+
+func _truncate_mod_list_title(raw: String) -> String:
+	var s: String = raw.strip_edges()
+	if s.length() <= MOD_LIST_TITLE_MAX_CHARS:
+		return s
+	if MOD_LIST_TITLE_MAX_CHARS <= 1:
+		return "…"
+	return s.substr(0, MOD_LIST_TITLE_MAX_CHARS - 1) + "…"
+
+
+func _mod_entry_title_raw(m: Dictionary) -> String:
+	var pn: String = str(m.get("package_name", ""))
+	var plat: Dictionary = TypedVariant.as_dict(m.get("platforms", {}))
+	var badge: String = "PC+移动"
+	if TypedVariant.as_bool(plat.get("pc", true), true) and not TypedVariant.as_bool(plat.get("mobile", true), true):
+		badge = "PC"
+	elif TypedVariant.as_bool(plat.get("mobile", true), true) and not TypedVariant.as_bool(plat.get("pc", true), true):
+		badge = "移动"
+	var warn_n: int = TypedVariant.as_array(m.get("lint_warnings", [])).size()
+	var err: String = str(m.get("last_error", ""))
+	var title: String = "%s  v%s  ·%s" % [m.get("display_name", pn), m.get("version", ""), badge]
+	if warn_n > 0:
+		title = "⚠ " + title
+	if err != "":
+		title = "✖ " + title
+	return title
+
+
+func _mod_list_font() -> Font:
+	var f: Font = ThemeDB.fallback_font
+	var sample: Font = UiAssets.display_font()
+	if sample != null:
+		f = sample
+	return f
+
+
+func _mod_list_font_size() -> int:
+	return _menu_font_px(_menu_design_font())
+
+
+func _mods_row_chrome_w() -> float:
+	return _menu_px(6.0) * 3.0 + _menu_px(72.0) + _menu_px(36.0) + _menu_px(28.0) + _menu_px(36.0)
+
+
+func _mods_list_width_for_titles(titles: PackedStringArray) -> float:
+	var f: Font = _mod_list_font()
+	var fs: int = _mod_list_font_size()
+	var max_tw: float = 0.0
+	if titles.is_empty():
+		max_tw = f.get_string_size("暂无 mod", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	else:
+		for t: String in titles:
+			max_tw = maxf(max_tw, f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
+	return max_tw + _mods_row_chrome_w()
 
 
 func _setup_history_tertiary() -> void:
@@ -2171,6 +2374,8 @@ func _continue_local_last_match() -> void:
 			MatchSave.clear()
 			_refresh_continue_btn()
 		return
+	if not await _gate_mods_for_save(d):
+		return
 	GameSession.resume_save = true
 	GameSession.resume_slot_id = ""
 	GameSession.resume_payload = {}
@@ -2646,6 +2851,8 @@ func _on_load_slot(slot_id: String) -> void:
 		## no seats and no host to rejoin (MATCH_FLOW §5.0b).
 		push_warning("MainMenu load_slot nullsec slot refused id=%s" % slot_id)
 		return
+	if not await _gate_mods_for_save(d):
+		return
 	## 随机诱导/旗舰注入：仅「读取存档」点选旗舰测试；不写回冻结档，不进 load_slot / 继续上次。
 	if slot_id == MatchSave.FLAGSHIP_TEST_ID:
 		d = MatchSave.inject_flagship_test_ai_kit(d)
@@ -2831,6 +3038,283 @@ func _on_dev_economy_toggled(on: bool) -> void:
 
 func _on_dev_enemy_layout_toggled(on: bool) -> void:
 	(PlayerSettings.instance() as PlayerSettings).set_enemy_layout_adjust(on)
+
+
+func _on_mods_open() -> void:
+	if _btn_mods == null or _mods_tertiary_host == null:
+		return
+	if _mods_tertiary_open:
+		_collapse_tertiary_mods()
+		return
+	_collapse_tertiary_load()
+	_collapse_history_tertiary()
+	ModManager.instance()
+	_refresh_mods_list()
+	_mods_tertiary_open = true
+	_mods_tertiary_host.visible = true
+	_layout_mods_tertiary()
+	await get_tree().process_frame
+	_layout_mods_tertiary()
+	_tertiary_reveal.call("play", get_tree(), _btn_mods, _mods_tertiary_host, _SECONDARY_BG)
+
+
+func _show_mod_disclaimer_full() -> void:
+	var dlg: AcceptDialog = AcceptDialog.new()
+	dlg.title = "Mod 免责声明"
+	dlg.dialog_text = MOD_DISCLAIMER_FULL
+	add_child(dlg)
+	dlg.popup_centered_ratio(0.55)
+	dlg.confirmed.connect(dlg.queue_free)
+	dlg.close_requested.connect(dlg.queue_free)
+
+
+func _refresh_mods_list() -> void:
+	if _mods_list == null:
+		return
+	for c: Node in _mods_list.get_children():
+		c.queue_free()
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		_mods_list_desired_w = _mods_list_width_for_titles(PackedStringArray())
+		_layout_mods_tertiary()
+		return
+	var path_lbl: Label = _mods_tertiary_host.find_child("ModsPath", true, false) as Label
+	if path_lbl:
+		path_lbl.text = "已安装到：%s" % mm.mods_root
+	var mods: Array = mm.list_mods_ordered()
+	var titles: PackedStringArray = PackedStringArray()
+	if mods.is_empty():
+		var empty: Label = Label.new()
+		empty.text = "暂无 mod（可导入 res://mod_samples/beitou-float-turret）"
+		UiAssets.apply_label_font(empty, false, UiLayout.font_size(14, self))
+		_mods_list.add_child(empty)
+		titles.append(empty.text)
+		_mods_list_desired_w = _mods_list_width_for_titles(titles)
+		_layout_mods_tertiary()
+		return
+	for m_any: Variant in mods:
+		var m: Dictionary = TypedVariant.as_dict(m_any)
+		var pn: String = str(m.get("package_name", ""))
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var bar: Button = _ParaBtn.new() as Button
+		var raw_title: String = _mod_entry_title_raw(m)
+		var title: String = _truncate_mod_list_title(raw_title)
+		titles.append(title)
+		bar.text = title
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.pressed.connect(func() -> void: _mods_selected_package = pn)
+		var tip: String = ""
+		var warn_n: int = TypedVariant.as_array(m.get("lint_warnings", [])).size()
+		if warn_n > 0:
+			tip = "\n".join(PackedStringArray(TypedVariant.as_array(m.get("lint_warnings", []))))
+		var err: String = str(m.get("last_error", ""))
+		if err != "":
+			bar.modulate = Color(1.0, 0.55, 0.55)
+			tip = err if tip == "" else (err + "\n" + tip)
+		if title != raw_title:
+			var full_tip: String = raw_title if tip == "" else (raw_title + "\n" + tip)
+			bar.tooltip_text = full_tip
+		elif tip != "":
+			bar.tooltip_text = tip
+		row.add_child(bar)
+		var en: CheckBox = CheckBox.new()
+		en.text = "启用"
+		en.button_pressed = TypedVariant.as_bool(m.get("enabled", false), false)
+		en.toggled.connect(_on_mod_enable_toggled.bind(pn))
+		row.add_child(en)
+		var up: Button = Button.new()
+		up.text = "↑"
+		var __cv_up := up.pressed.connect(func() -> void:
+			mm.reorder_install(pn, maxi(1, TypedVariant.as_int(m.get("install_order", 1)) - 1))
+			_refresh_mods_list()
+		)
+		row.add_child(up)
+		var down: Button = Button.new()
+		down.text = "↓"
+		var __cv_down := down.pressed.connect(func() -> void:
+			mm.reorder_install(pn, TypedVariant.as_int(m.get("install_order", 1)) + 1)
+			_refresh_mods_list()
+		)
+		row.add_child(down)
+		_mods_list.add_child(row)
+	_mods_list_desired_w = _mods_list_width_for_titles(titles)
+	_layout_mods_tertiary()
+
+
+func _on_mod_enable_toggled(on: bool, package_name: String) -> void:
+	var mm: ModManager = ModManager.get_or_null()
+	if mm == null:
+		return
+	var res: Dictionary = mm.set_enabled(package_name, on)
+	if not TypedVariant.as_bool(res.get("ok", false), false):
+		_toast_mod("无法启用：%s" % res.get("error", ""))
+		_refresh_mods_list()
+		return
+	DataStore.reload_all()
+	_toast_mod("已更新启用状态。建议重启游戏后再进对局。")
+	_refresh_mods_list()
+
+
+func _on_mod_import() -> void:
+	_ensure_mod_import_flow()
+
+
+func _on_mod_import_confirmed() -> void:
+	if _mod_file_dialog == null:
+		_mod_file_dialog = FileDialog.new()
+		_mod_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+		_mod_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_ANY
+		_mod_file_dialog.filters = PackedStringArray(["*.zip ; Mod Zip", "* ; Folder or any"])
+		_mod_file_dialog.title = "选择 mod zip 或文件夹"
+		_mod_file_dialog.use_native_dialog = true
+		add_child(_mod_file_dialog)
+		_mod_file_dialog.file_selected.connect(_on_mod_path_picked)
+		_mod_file_dialog.dir_selected.connect(_on_mod_path_picked)
+	_mod_file_dialog.popup_centered_ratio(0.7)
+
+
+func _ensure_mod_import_flow() -> void:
+	var ack: ConfirmationDialog = ConfirmationDialog.new()
+	ack.title = "导入新mod"
+	ack.dialog_text = MOD_DISCLAIMER_FULL + "\n\n继续即表示你已阅读风险提示。卸载只删游戏侧拷贝。"
+	ack.ok_button_text = "继续导入"
+	ack.cancel_button_text = "取消"
+	add_child(ack)
+	var __cv_ack := ack.confirmed.connect(func() -> void:
+		ack.queue_free()
+		_on_mod_import_confirmed()
+	)
+	ack.canceled.connect(func() -> void: ack.queue_free())
+	ack.close_requested.connect(func() -> void: ack.queue_free())
+	ack.popup_centered_ratio(0.6)
+
+
+func _on_mod_path_picked(path: String) -> void:
+	var mm: ModManager = ModManager.instance() as ModManager
+	if mm == null:
+		return
+	var overwrite: bool = false
+	var res: Dictionary = mm.import_path(path, false)
+	if str(res.get("error", "")) == "exists":
+		var conf: ConfirmationDialog = ConfirmationDialog.new()
+		conf.title = "覆盖已安装 mod？"
+		conf.dialog_text = "本地已有同名包 %s。覆盖游戏侧拷贝？（先备份 .bak）" % res.get("package_name", "")
+		add_child(conf)
+		var do_ov: Array = [false]
+		conf.confirmed.connect(func() -> void: do_ov[0] = true)
+		conf.popup_centered()
+		await conf.confirmed
+		conf.queue_free()
+		if not do_ov[0]:
+			return
+		res = mm.import_path(path, true)
+		overwrite = true
+	if not TypedVariant.as_bool(res.get("ok", false), false):
+		_toast_mod("导入失败：%s" % res.get("error", "unknown"))
+		return
+	var pn: String = str(res.get("package_name", ""))
+	mm.set_disclaimer_ack(pn, true)
+	var warns: Array = TypedVariant.as_array(res.get("warnings", []))
+	if warns.size() > 0:
+		_toast_mod("该 mod 有 %d 处未完全符合基础规范（不影响加载）" % warns.size())
+	else:
+		_toast_mod("已导入 %s%s" % [pn, "（已覆盖）" if overwrite else ""])
+	_refresh_mods_list()
+
+
+func _on_mod_uninstall_selected() -> void:
+	if _mods_selected_package == "":
+		_toast_mod("请先点击列表中的 mod")
+		return
+	var pn: String = _mods_selected_package
+	var conf: ConfirmationDialog = ConfirmationDialog.new()
+	conf.title = "卸载mod"
+	conf.dialog_text = "将只删除游戏侧拷贝（%s），不删除你当初选择的源文件。确定？" % pn
+	add_child(conf)
+	conf.popup_centered()
+	await conf.confirmed
+	conf.queue_free()
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null:
+		mm.uninstall(pn)
+		DataStore.reload_all()
+	_mods_selected_package = ""
+	_refresh_mods_list()
+	_toast_mod("已卸载游戏侧拷贝")
+
+
+func _on_mod_restart_game() -> void:
+	var conf: ConfirmationDialog = ConfirmationDialog.new()
+	conf.title = "重启游戏"
+	conf.dialog_text = "将关闭并重新打开游戏，使 mod 启用/卸载变更生效。确定重启？"
+	add_child(conf)
+	conf.popup_centered()
+	await conf.confirmed
+	conf.queue_free()
+	var pid: int = OS.create_instance(OS.get_cmdline_args())
+	if pid < 0:
+		_toast_mod("无法自动重启。请手动关闭后重新打开游戏。")
+		return
+	get_tree().quit()
+
+
+func _toast_mod(msg: String) -> void:
+	var dlg: AcceptDialog = AcceptDialog.new()
+	dlg.title = "加载mod"
+	dlg.dialog_text = msg
+	add_child(dlg)
+	dlg.popup_centered()
+	dlg.confirmed.connect(dlg.queue_free)
+	dlg.close_requested.connect(dlg.queue_free)
+
+
+func _gate_mods_for_save(data: Dictionary) -> bool:
+	var gate: Dictionary = MatchSave.validate_mods_for_resume(data)
+	if TypedVariant.as_bool(gate.get("ok", false), false):
+		return true
+	var diffs: Array = TypedVariant.as_array(gate.get("diffs", []))
+	var lines: PackedStringArray = PackedStringArray()
+	var only_order: bool = diffs.size() == 1 and str(TypedVariant.as_dict(diffs[0]).get("kind", "")) == "order"
+	for d_any: Variant in diffs:
+		var d: Dictionary = TypedVariant.as_dict(d_any)
+		match str(d.get("kind", "")):
+			"missing":
+				lines.append("缺包：%s" % d.get("package_name"))
+			"extra":
+				lines.append("多余：%s" % d.get("package_name"))
+			"hash":
+				lines.append("哈希不同：%s" % d.get("package_name"))
+			"order":
+				lines.append("安装顺序不同")
+			_:
+				lines.append(str(d))
+	if only_order:
+		var conf: ConfirmationDialog = ConfirmationDialog.new()
+		conf.title = "同步 mod 安装顺序？"
+		conf.dialog_text = "存档与当前启用 mod 包一致，但安装顺序不同。按存档对齐顺序后继续？"
+		conf.ok_button_text = "对齐并继续"
+		add_child(conf)
+		conf.popup_centered()
+		var ok_box: Array = [false]
+		conf.confirmed.connect(func() -> void: ok_box[0] = true)
+		await conf.confirmed
+		conf.queue_free()
+		if not ok_box[0]:
+			return false
+		var mm: ModManager = ModManager.get_or_null()
+		if mm != null:
+			mm.apply_install_order_from_digest(TypedVariant.as_array(data.get("enabled_mods_ordered", [])))
+			DataStore.reload_all()
+		return true
+	var dlg: AcceptDialog = AcceptDialog.new()
+	dlg.title = "Mod 与存档不一致"
+	dlg.dialog_text = "无法静默开局：\n" + "\n".join(lines) + "\n\n请到 选项→加载mod 处理后再试。"
+	add_child(dlg)
+	dlg.popup_centered()
+	await dlg.confirmed
+	dlg.queue_free()
+	return false
 
 
 func _on_about_open() -> void:

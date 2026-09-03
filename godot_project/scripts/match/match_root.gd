@@ -3236,9 +3236,12 @@ func _camera_hud_default_view() -> Dictionary:
 	if not _collapse_bottom:
 		return _camera_primary_view()
 	var primary: Dictionary = _camera_primary_view()
+	var view: Dictionary
 	if _collapse_right:
-		return _camera_view_from_prefix("camera_collapsed_bottom_right", primary)
-	return _camera_view_from_prefix("camera_collapsed_bottom", primary)
+		view = _camera_view_from_prefix("camera_collapsed_bottom_right", primary)
+	else:
+		view = _camera_view_from_prefix("camera_collapsed_bottom", primary)
+	return view
 
 func _camera_secondary_view() -> Dictionary:
 	## Legacy alias — dual default views removed; always same as first default.
@@ -3246,6 +3249,7 @@ func _camera_secondary_view() -> Dictionary:
 
 func _camera_active_view() -> Dictionary:
 	return _camera_hud_default_view()
+
 
 func _sync_default_camera_to_hud(smooth: bool = true) -> void:
 	if _camera_manual_pose():
@@ -4005,16 +4009,38 @@ func _log_camera_pose() -> void:
 		return
 	## Logical pose only: `_cam_base_*` excludes breathe figure-8, framing pull, headup, titan shake.
 	var mode: String = "observe" if _camera_observe else ("free" if _camera_free else "default")
+	var preset: String = _camera_pose_visual_prefix()
 	var pos: Vector3 = _cam_base_pos
 	var pitch: float = _cam_base_pitch_deg
 	var yaw: float = _cam_base_yaw_deg
 	var fov: float = camera.fov
 	var line: String = (
-		"mode=%s pos=%.4f,%.4f,%.4f pitch=%.4f yaw=%.4f fov=%.4f"
-		% [mode, pos.x, pos.y, pos.z, pitch, yaw, fov]
+		"preset=%s mode=%s pos=%.4f,%.4f,%.4f pitch=%.4f yaw=%.4f fov=%.4f"
+		% [preset, mode, pos.x, pos.y, pos.z, pitch, yaw, fov]
 	)
 	print("cam.pose ", line)
-	SessionDiagnostics.log("cam.pose", line)
+	var vis_line: String = (
+		"%s_x=%.4f %s_height=%.4f %s_distance=%.4f %s_angle_deg=%.4f %s_yaw_deg=%.4f %s_fov=%.4f"
+		% [
+			preset, pos.x,
+			preset, pos.y,
+			preset, pos.z,
+			preset, -pitch,
+			preset, yaw + 180.0,
+			preset, fov
+		]
+	)
+	print("cam.visual ", vis_line)
+	SessionDiagnostics.log("cam.pose", line + " | " + vis_line)
+
+
+func _camera_pose_visual_prefix() -> String:
+	## HUD 三态 → visual.json 键前缀（左栏收展不参与）。
+	if not _collapse_bottom:
+		return "camera"
+	if _collapse_right:
+		return "camera_collapsed_bottom_right"
+	return "camera_collapsed_bottom"
 
 
 func _refresh_camera_mode_btn() -> void:
@@ -9292,11 +9318,7 @@ func _shop_update_drag(idx: int, screen: Vector2) -> void:
 		board.begin_drag(ship)
 		_ensure_shop_ghost_for_ship_id(preview_ship_id2)
 	if _shop_bought_ship != null and is_instance_valid(_shop_bought_ship) and board != null and camera != null:
-		var origin: Vector3 = camera.project_ray_origin(screen)
-		var dir: Vector3 = camera.project_ray_normal(screen)
-		if absf(dir.y) > 0.0001:
-			var t: float = -origin.y / dir.y
-			board.update_drag(origin + dir * t)
+		board.update_drag(BoardController.ray_hit_deck(camera, screen))
 		_move_shop_ghost(screen)
 	elif _shop_drag_active:
 		_move_shop_ghost(screen)
@@ -9411,9 +9433,15 @@ func _move_shop_ghost(screen: Vector2) -> void:
 
 
 func _shop_pick_board_slot_at_screen(screen: Vector2) -> Dictionary:
-	## Hangar or field under finger — drop after drag-buy (UI_AND_SHELL §2.3 · BOARD §4 solid ray).
+	## Hangar or field under tactical foot disc after drag-buy.
 	if camera == null or board == null:
 		return {}
+	if board._drag_ship != null and is_instance_valid(board._drag_ship):
+		var slot_drag: Dictionary = board.pick_slot_for_drag_ship(
+			board._drag_ship, ShipUnit.TEAM_PLAYER
+		)
+		if not slot_drag.is_empty():
+			return slot_drag
 	var origin: Vector3 = camera.project_ray_origin(screen)
 	var dir: Vector3 = camera.project_ray_normal(screen)
 	var slot: Dictionary = board.pick_slot_by_ray(origin, dir, ShipUnit.TEAM_PLAYER)
@@ -11463,7 +11491,10 @@ func _apply_match_save_dict(d: Dictionary) -> void:
 		ai.loss_streak = TypedVariant.as_int(a.get("loss_streak", 0), 0)
 		ai.shop_slots = _normalize_shop_slots(a.get("shop_slots", ai.shop_slots))
 	board.reset_match()
-	_redeploy_saved_ships(TypedVariant.as_array(d.get("ships", [])))
+	_redeploy_saved_ships(
+		TypedVariant.as_array(d.get("ships", [])),
+		str(d.get("board_layout", "hex"))
+	)
 	## start_match already ran AI economy on an empty board; after redeploy, fill field again.
 	if ai and ai.has_method("sync_field_for_prepare"):
 		ai.sync_field_for_prepare()
@@ -11523,7 +11554,10 @@ func _normalize_equipment_inventory(raw: Variant) -> Array[String]:
 		out.resize(MatchController.EQUIPMENT_INVENTORY_SIZE)
 	return out
 
-func _redeploy_saved_ships(ships: Array) -> void:
+func _redeploy_saved_ships(ships: Array, saved_layout: String = "hex") -> void:
+	if saved_layout != BoardPolarGrid.LAYOUT_POLAR and BoardPolarGrid.is_polar():
+		_redeploy_polar_relocate(ships)
+		return
 	for entry_v: Variant in ships:
 		if typeof(entry_v) != TYPE_DICTIONARY:
 			continue
@@ -11579,6 +11613,47 @@ func _redeploy_saved_ships(ships: Array) -> void:
 				push_warning("MatchSave redeploy failed ship_id=%s slot=%s(%s,%s) team=%s" % [
 					sid, entry.get("slot_type"), entry.get("x"), entry.get("z"), entry.get("team"),
 				])
+	board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
+	board.recalculate_fetters(ShipUnit.TEAM_AI)
+	_refresh_hud()
+	_refresh_shop_ui()
+
+
+func _redeploy_polar_relocate(ships: Array) -> void:
+	for entry_v: Variant in ships:
+		if typeof(entry_v) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = TypedVariant.as_dict(entry_v)
+		var sid: int = MatchSave.resolve_ship_entry_id(entry)
+		if sid <= 0:
+			continue
+		var team: int = TypedVariant.as_int(entry.get("team", ShipUnit.TEAM_PLAYER), 0)
+		var st: String = str(entry.get("slot_type", "hangar"))
+		var x: int = TypedVariant.as_int(entry.get("x", 0), 0)
+		var z: int = TypedVariant.as_int(entry.get("z", 0), 0)
+		if st == "field":
+			if not BoardPolarGrid.is_valid_field_cell(x, z):
+				var free: Vector2i = board.find_empty_field(team)
+				if free.x < 0:
+					continue
+				x = free.x
+				z = free.y
+		elif st == "hangar":
+			if not BoardPolarGrid.is_valid_hangar_cell(x, z):
+				var hang: Vector2i = board.find_empty_hangar(team)
+				if hang.x < 0:
+					continue
+				x = hang.x
+				z = hang.y
+		AdminBus.request(&"board.deploy", {
+			"ship_id": sid,
+			"star": TypedVariant.as_int(entry.get("star", 1), 0),
+			"team": team,
+			"slot_type": st,
+			"x": x,
+			"z": z,
+			"skip_upgrade": true,
+		})
 	board.recalculate_fetters(ShipUnit.TEAM_PLAYER)
 	board.recalculate_fetters(ShipUnit.TEAM_AI)
 	_refresh_hud()
@@ -12359,6 +12434,8 @@ func _on_match_fps_changed(v: float) -> void:
 func apply_no_model_perf_mode_changed() -> void:
 	apply_no_model_perf_cleanup()
 	if board != null:
+		if board.has_method("refresh_prepare_radar_active"):
+			board.refresh_prepare_radar_active()
 		for s: ShipUnit in board.all_ships():
 			if s == null or not is_instance_valid(s):
 				continue
@@ -12448,6 +12525,8 @@ func _on_pause_pressed() -> void:
 	var btn: Button = hud.get_node_or_null("Root/TopRight/PauseBtn") as Button
 	if btn:
 		btn.text = "继续" if get_tree().paused else "暂停"
+	if get_tree().paused and board != null and board.has_method("clear_prepare_radar_flashes"):
+		board.clear_prepare_radar_flashes()
 	show_notice("已暂停" if get_tree().paused else "继续")
 
 func _on_collapse_left() -> void:

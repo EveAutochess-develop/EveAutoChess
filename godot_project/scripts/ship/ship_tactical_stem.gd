@@ -12,11 +12,18 @@ var _line: MeshInstance3D
 var _disc: MeshInstance3D
 var _board_y: float = BoardController.DECK_Y
 
+static func foot_disc_radius_wu() -> float:
+	var edge: float = BoardPolarGrid.cell_step_wu() if BoardPolarGrid.is_polar() else BoardController.field_hex_circumradius()
+	return maxf(0.05, edge) * DISC_DIAMETER_FRAC * 0.5
+
+
 func setup(board_y: float = -1.0) -> void:
 	_board_y = BoardController.DECK_Y if board_y < 0.0 else board_y
 	_ensure_meshes()
 
 func _hex_edge_length() -> float:
+	if BoardPolarGrid.is_polar():
+		return BoardPolarGrid.cell_step_wu()
 	## Pointy-top regular hex: side length == circumradius.
 	return BoardController.field_hex_circumradius()
 
@@ -76,6 +83,7 @@ func sync_to_ship(ship: Node3D) -> void:
 	if ship == null or not is_instance_valid(ship):
 		return
 	_ensure_meshes()
+	visible = true
 	## Anchor = model center projected onto board XZ; direction = world vertical
 	## (UI_AND_SHELL §2.7) — never ship-local down (hull rotates / soft-follows).
 	var center: Vector3 = ship.global_position

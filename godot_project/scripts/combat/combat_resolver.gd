@@ -2189,7 +2189,11 @@ func _spawn_isolation_debris() -> void:
 	var cmin: int = TypedVariant.as_int(DataStore.combat.get("isolation_debris_count_min", 3), 3)
 	var cmax: int = TypedVariant.as_int(DataStore.combat.get("isolation_debris_count_max", 5), 5)
 	var n: int = clampi(cmin + _auth_randi_range("isolation_debris", 0, maxi(0, cmax - cmin)), cmin, cmax)
-	var half: float = TypedVariant.as_float(DataStore.combat.get("isolation_half_width_wu", 2.5), 2.5)
+	var half: float = (
+		BoardPolarGrid.isolation_half_width()
+		if BoardPolarGrid.is_polar()
+		else TypedVariant.as_float(DataStore.combat.get("isolation_half_width_wu", 2.5), 2.5)
+	)
 	for i: int in range(n):
 		var mi: MeshInstance3D = MeshInstance3D.new()
 		var sphere: SphereMesh = SphereMesh.new()

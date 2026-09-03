@@ -68,7 +68,9 @@ func _build() -> void:
 	disc.mesh = plane
 	disc.rotation_degrees = Vector3(-90, 0, 0)
 	disc.position = Vector3(0, 0.08, 0)
-	disc.material_override = _add_mat(Color(0.5, 0.9, 1.0, 0.7), soft if soft else icon, 2.4)
+	disc.material_override = _add_mat(
+		Color(0.5, 0.9, 1.0, 0.7), cone if cone else icon if icon else soft, 2.4
+	)
 	add_child(disc)
 
 	## Spinning ring billboard (XZ).
@@ -115,12 +117,19 @@ func _add_mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool =
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.albedo_color = color
 	if tex:
-		mat.albedo_texture = tex
-	mat.emission_enabled = true
-	mat.emission = Color(color.r, color.g, color.b)
-	mat.emission_energy_multiplier = emission_e
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		mat.albedo_color = Color(0.0, 0.0, 0.0, 1.0)
+		mat.emission_enabled = true
+		mat.emission = Color(color.r, color.g, color.b)
+		mat.emission_texture = tex
+		mat.emission_energy_multiplier = emission_e
+	else:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = color
+		mat.emission_enabled = true
+		mat.emission = Color(color.r, color.g, color.b)
+		mat.emission_energy_multiplier = emission_e
 	if billboard:
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	return mat

@@ -139,7 +139,7 @@ func _try_promote_ship_drag(screen: Vector2) -> void:
 func _pointer_drag(screen: Vector2) -> void:
 	if _root != null:
 		_root._note_adapt_pointer(screen)
-	var w: Vector3 = _screen_to_ground(screen)
+	var w: Vector3 = _screen_to_deck(screen)
 	drag_move.emit(w)
 
 func _pointer_up(screen: Vector2) -> void:
@@ -177,7 +177,11 @@ func _pointer_up(screen: Vector2) -> void:
 				field_side = _board.ship_world_side(_press_ship)
 		var origin: Vector3 = _camera.project_ray_origin(screen)
 		var dir: Vector3 = _camera.project_ray_normal(screen)
-		slot = _board.pick_slot_by_ray(origin, dir, team, field_side)
+		if _press_ship != null and is_instance_valid(_press_ship):
+			_press_ship.sync_tactical_stem()
+			slot = _board.pick_slot_for_drag_ship(_press_ship, team, field_side)
+		if slot.is_empty():
+			slot = _board.pick_slot_by_ray(origin, dir, team, field_side)
 		if not slot.is_empty() and _press_ship != null:
 			var occ: ShipUnit = _board._occupant_at(
 				str(slot.get("slot_type", "")),
@@ -230,6 +234,10 @@ func _ray_ship(screen: Vector2, exclude: ShipUnit = null) -> ShipUnit:
 							var su: ShipUnit = unit_v
 							return su
 	return null
+
+func _screen_to_deck(screen: Vector2) -> Vector3:
+	return BoardController.ray_hit_deck(_camera, screen)
+
 
 func _screen_to_ground(screen: Vector2) -> Vector3:
 	var origin: Vector3 = _camera.project_ray_origin(screen)

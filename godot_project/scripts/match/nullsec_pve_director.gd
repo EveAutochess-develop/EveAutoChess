@@ -108,6 +108,8 @@ static func _ship_race_key(ship: Dictionary) -> String:
 
 ## Enemy half-field center cell heuristic (board-dependent; caller maps cell→world).
 func salvage_center_cell(cols: int = 8, rows: int = 8) -> Vector2i:
+	if BoardPolarGrid.is_polar():
+		return Vector2i(3, BoardPolarGrid.sectors_in_ring(3) >> 1)
 	return Vector2i(int(cols / 2.0), int(rows * 0.25))
 
 func evaluate_battle_end(enemy_ships_alive: int) -> Dictionary:

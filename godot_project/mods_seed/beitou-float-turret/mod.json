@@ -1,0 +1,20 @@
+{
+  "package_name": "beitou-float-turret",
+  "version": "1.0.0",
+  "display_name": "狈头级浮游炮台与专属格挡器（不包含美术素材用于测试逻辑是否正确样例mod）",
+  "author": "EveAC Dev",
+  "description": "投放旁路样例（disv1 zip）：狈头级浮游炮台（local_id 5438）与专属格挡器（9438）。故意无美术；须手动导入，不随包种子。",
+  "min_content_rev": "0",
+  "schema_ver": 1,
+  "dependencies": [],
+  "incompatibilities": [],
+  "disable_ships": [],
+  "disable_equipment": [],
+  "tonnage_groups": [],
+  "replacements": [],
+  "platforms": {
+    "pc": true,
+    "mobile": true,
+    "mobile_notes": "无模型/立绘；场上可能无船体显示"
+  }
+}

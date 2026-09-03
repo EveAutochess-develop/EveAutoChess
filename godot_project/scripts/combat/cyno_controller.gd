@@ -279,6 +279,21 @@ func _teardown_fx(ship_iid: int) -> void:
 
 
 func _pick_cell_near(owner_team: int, _side_team: int, cx: int, cz: int, radius: int) -> Vector2i:
+	if BoardPolarGrid.is_polar():
+		var candidates: Array[Vector2i] = []
+		for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+			var d: int = absi(cell.x - cx) + absi(cell.y - cz)
+			if d < 1 or d > radius:
+				continue
+			if _board.is_field_cell_free_for(owner_team, cell.x, cell.y):
+				candidates.append(cell)
+		if candidates.is_empty():
+			for cell2: Vector2i in BoardPolarGrid.enumerate_field_cells():
+				if _board.is_field_cell_free_for(owner_team, cell2.x, cell2.y):
+					candidates.append(cell2)
+		if candidates.is_empty():
+			return Vector2i(-1, -1)
+		return candidates[_roll_index(candidates.size(), "cyno_cell")]
 	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 6)
 	var candidates: Array[Vector2i] = []
 	for z: int in range(fh):

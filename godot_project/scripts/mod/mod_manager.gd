@@ -33,6 +33,7 @@ var _package_fx_protocol: Dictionary = {} ## package_name -> int
 var merged_shop_rules: Dictionary = {}
 var merged_ui_overrides: Dictionary = {}
 var _merged_ui_overrides_root: String = ""
+var merged_prepare_radar_override: Dictionary = {}
 var last_merge_warnings: PackedStringArray = PackedStringArray()
 var mods_root: String = ""
 ## Holds instance created while root.add_child is deferred (Autoload setup race).
@@ -674,6 +675,7 @@ func merge_enabled_into_datastore(_ds: Node = null) -> void:
 	merged_shop_rules.clear()
 	merged_ui_overrides.clear()
 	_merged_ui_overrides_root = ""
+	merged_prepare_radar_override.clear()
 	last_merge_warnings = PackedStringArray()
 	var enabled: Array = []
 	for m_any: Variant in list_mods_ordered():
@@ -743,6 +745,7 @@ func merge_enabled_into_datastore(_ds: Node = null) -> void:
 	var latest_at: int = -1
 	var latest_rules_at: int = -1
 	var latest_ui_at: int = -1
+	var latest_radar_at: int = -1
 	for r_any4: Variant in load_list:
 		var r4: Dictionary = TypedVariant.as_dict(r_any4)
 		var at: int = TypedVariant.as_int(r4.get("enabled_at", 0))
@@ -758,6 +761,9 @@ func merge_enabled_into_datastore(_ds: Node = null) -> void:
 			latest_ui_at = at
 			merged_ui_overrides = TypedVariant.as_dict(mj4.get("ui_overrides", {}))
 			_merged_ui_overrides_root = package_work_dir(pn4)
+		if mj4.has("prepare_radar_override") and at >= latest_radar_at:
+			latest_radar_at = at
+			merged_prepare_radar_override = TypedVariant.as_dict(mj4.get("prepare_radar_override", {}))
 	if not latest_disable.is_empty():
 		var lpn: String = str(latest_disable.get("package_name", ""))
 		var lmj: Dictionary = _read_json_file(package_work_dir(lpn).path_join("mod.json"))
@@ -1056,6 +1062,7 @@ func _register_unit(uj: Dictionary, unit_dir: String, pn: String, xx: int, kind:
 	_apply_weapon_fx_override(data, unit_dir, pn, lid)
 	_apply_interaction_fx_override(data, unit_dir, pn, lid)
 	_apply_trail_override(data, pn, lid, kind)
+	_apply_prepare_radar_override(data, pn, lid, kind)
 	if kind == "equipment":
 		var ekind: String = str(data.get("kind", "main"))
 		if ekind == "function":
@@ -1159,6 +1166,27 @@ func _apply_trail_override(data: Dictionary, pn: String, lid: int, kind: String)
 		data.erase("trail_override")
 		return
 	data["trail_override"] = cleaned
+
+
+func _apply_prepare_radar_override(data: Dictionary, pn: String, lid: int, kind: String) -> void:
+	if kind == "equipment":
+		data.erase("prepare_radar_override")
+		return
+	var ov: Dictionary = ModPrepareRadarResolve.pick_from_unit_data(data)
+	if ov.is_empty():
+		data.erase("prepare_radar_override")
+		return
+	var label: String = "%s#%s" % [pn, lid]
+	for note: String in ModPrepareRadarResolve.lint_override(ov, label):
+		_note_warn(note)
+	var cleaned: Dictionary = {}
+	for k: String in ModPrepareRadarResolve.SAFE_KEYS:
+		if ov.has(k):
+			cleaned[k] = ov[k]
+	if cleaned.is_empty():
+		data.erase("prepare_radar_override")
+		return
+	data["prepare_radar_override"] = cleaned
 
 
 func _apply_interaction_fx_override(data: Dictionary, unit_dir: String, pn: String, lid: int) -> void:

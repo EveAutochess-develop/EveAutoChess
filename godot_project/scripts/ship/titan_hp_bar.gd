@@ -28,6 +28,25 @@ func setup(team: int = ShipUnit.TEAM_PLAYER, _legacy_margin: float = 0.0) -> voi
 
 func _layout_from_hangar() -> void:
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board) if DataStore else {}
+	if BoardPolarGrid.is_polar():
+		_bar_w = TypedVariant.as_float(
+			DataStore.visual.get("titan_hp_bar_width_wu", 7.2) if DataStore else 7.2,
+			7.2
+		)
+		var sign_z: float = 1.0 if _team == ShipUnit.TEAM_PLAYER else -1.0
+		var outer_z: float = BoardPolarGrid.board_outer_span_z()
+		var out_wu: float = TypedVariant.as_float(
+			DataStore.visual.get("titan_hp_bar_hangar_out_wu", 1.35) if DataStore else 1.35,
+			1.35
+		)
+		var y_lift: float = TypedVariant.as_float(
+			DataStore.visual.get("titan_hp_bar_board_y", 0.12) if DataStore else 0.12,
+			0.12
+		)
+		global_position = Vector3(0.0, y_lift, sign_z * (outer_z + out_wu))
+		global_rotation = Vector3.ZERO
+		_laid_out = true
+		return
 	var hw: int = maxi(HANGAR_CELLS, TypedVariant.as_int(b.get("hangar_width", 15), 15))
 	var mid0: int = int((hw - HANGAR_CELLS) / 2)
 	var mid1: int = mid0 + HANGAR_CELLS - 1

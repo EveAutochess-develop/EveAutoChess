@@ -1015,6 +1015,8 @@ func _try_buy_one() -> bool:
 	if _uses_onnx_eco():
 		return _try_policy_economy_action()
 	if _is_first_prepare():
+		if _count_ai_hangar() + (_board.count_field(ShipUnit.TEAM_AI) if _board else 0) > 0:
+			return false
 		var candidates: Array[int] = []
 		for i: int in range(shop_slots.size()):
 			var slot0: Dictionary = TypedVariant.as_dict(shop_slots[i])
@@ -1142,6 +1144,26 @@ func _mark_field_cell_used(x: int, z: int) -> void:
 
 func _pick_ai_field_cell() -> Vector2i:
 	## Random empty AI-owned field cell; prefer cells not yet used this match.
+	if BoardPolarGrid.is_polar():
+		var unused: Array[Vector2i] = []
+		var used: Array[Vector2i] = []
+		var total_cells: int = BoardPolarGrid.field_cell_count()
+		for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+			if not _board.is_field_cell_free_for(ShipUnit.TEAM_AI, cell.x, cell.y):
+				continue
+			var k: String = _cell_key(cell.x, cell.y)
+			if _used_field_cells.has(k):
+				used.append(cell)
+			else:
+				unused.append(cell)
+		if unused.is_empty() and not used.is_empty():
+			if _used_field_cells.size() >= total_cells:
+				_used_field_cells.clear()
+				return used[randi() % used.size()]
+			return used[randi() % used.size()]
+		if unused.is_empty():
+			return Vector2i(-1, -1)
+		return _pick_place_cell(unused, 0)
 	var fh: int = TypedVariant.as_int(DataStore.board.get("field_height", 6), 6)
 	var unused: Array[Vector2i] = []
 	var used: Array[Vector2i] = []
@@ -1173,24 +1195,41 @@ func _pick_place_cell(candidates: Array[Vector2i], ship_id: int) -> Vector2i:
 		return Vector2i(-1, -1)
 	if weight_policy == null or not weight_policy.nets_ready():
 		return candidates[randi() % candidates.size()]
-	var mask: PackedFloat32Array = PackedFloat32Array()
-	mask.resize(PolicyObs.MAX_CELLS)
-	for c: Vector2i in candidates:
-		mask[PolicyObs.flatten_cell(c.x, c.y)] = 1.0
+	var mask: PackedFloat32Array = (
+		PlaceHexOutputTranslator.build_mask(candidates)
+		if BoardPolarGrid.is_polar()
+		else PackedFloat32Array()
+	)
+	if not BoardPolarGrid.is_polar():
+		mask.resize(PolicyObs.MAX_CELLS)
+		for c: Vector2i in candidates:
+			mask[PolicyObs.flatten_cell(c.x, c.y)] = 1.0
 	var obs: PackedFloat32Array = PolicyObs.encode_place(ship_id, 1, _policy_obs_ctx(), mask)
 	var logits: PackedFloat32Array = weight_policy.infer_logits("place", obs)
-	var best: Vector2i = candidates[0]
-	var best_v: float = -1.0e9
-	for c2: Vector2i in candidates:
-		var idx: int = PolicyObs.flatten_cell(c2.x, c2.y)
-		var v: float = logits[idx] if idx < logits.size() else 0.0
-		if v > best_v:
-			best_v = v
-			best = c2
-	InMatchSlowLearn.note_place_sample(obs, PolicyObs.flatten_cell(best.x, best.y), false)
+	var best: Vector2i = (
+		PlaceHexOutputTranslator.pick_cell(logits, candidates)
+		if BoardPolarGrid.is_polar()
+		else candidates[0]
+	)
+	if not BoardPolarGrid.is_polar():
+		var best_v: float = -1.0e9
+		for c2: Vector2i in candidates:
+			var idx: int = PolicyObs.flatten_cell(c2.x, c2.y)
+			var v: float = logits[idx] if idx < logits.size() else 0.0
+			if v > best_v:
+				best_v = v
+				best = c2
+		InMatchSlowLearn.note_place_sample(obs, PolicyObs.flatten_cell(best.x, best.y), false)
+		SessionDiagnostics.log(
+			"ai.decide",
+			"net=place ship=%d cell=%d,%d logit=%.3f" % [ship_id, best.x, best.y, best_v]
+		)
+		return best
+	var hex_idx: int = PlaceHexOutputTranslator.hex_slot_for_polar_cell(best.x, best.y)
+	InMatchSlowLearn.note_place_sample(obs, hex_idx, false)
 	SessionDiagnostics.log(
 		"ai.decide",
-		"net=place ship=%d cell=%d,%d logit=%.3f" % [ship_id, best.x, best.y, best_v]
+		"net=place ship=%d cell=%d,%d hex=%d" % [ship_id, best.x, best.y, hex_idx]
 	)
 	return best
 
@@ -1275,13 +1314,15 @@ func _deploy_hangar_to_field() -> void:
 			return not aa.is_logistic
 		return aa.star > bb.star
 	)
+	var cap: int = field_cap()
+	var on_field: int = _board.count_field(ShipUnit.TEAM_AI)
 	for s_any: Variant in hangar_ships:
 		if not (s_any is ShipUnit):
 			continue
 		var s: ShipUnit = s_any
 		if s.requires_cyno_entry:
 			continue
-		if _board.count_field(ShipUnit.TEAM_AI) >= field_cap():
+		if on_field >= cap:
 			break
 		if s.deploy_enemy_half_only:
 			var enemy_cell: Vector2i = _pick_ai_field_cell()
@@ -1295,6 +1336,7 @@ func _deploy_hangar_to_field() -> void:
 				"field_side_team": ShipUnit.TEAM_PLAYER,
 			})
 			_mark_field_cell_used(enemy_cell.x, enemy_cell.y)
+			on_field += 1
 			continue
 		var cell: Vector2i = _pick_ai_field_cell()
 		if cell.x < 0:
@@ -1306,6 +1348,7 @@ func _deploy_hangar_to_field() -> void:
 			"to_z": cell.y,
 		})
 		_mark_field_cell_used(cell.x, cell.y)
+		on_field += 1
 
 func _ensure_one_logistic() -> void:
 	var has_logi: bool = false

@@ -32,6 +32,7 @@ godot_project/addons/godot_mcp/cache/
 
 # Local mod install cache (imported zips; not vanilla content)
 godot_project/tools/godot/mods/
+tools/godot/mods/
 
 # OS
 Thumbs.db

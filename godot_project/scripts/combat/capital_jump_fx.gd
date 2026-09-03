@@ -152,12 +152,20 @@ func _mat(color: Color, tex: Texture2D, emission_e: float, billboard: bool = fal
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.albedo_color = color
 	if tex:
-		mat.albedo_texture = tex
-	mat.emission_enabled = true
-	mat.emission = Color(color.r, color.g, color.b)
-	mat.emission_energy_multiplier = emission_e
+		## Additive flare: emission masked by tex; no albedo plate (TRANSPARENCY_ALPHA + a=0 drops emission).
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		mat.albedo_color = Color(0.0, 0.0, 0.0, 1.0)
+		mat.emission_enabled = true
+		mat.emission = Color(color.r, color.g, color.b)
+		mat.emission_texture = tex
+		mat.emission_energy_multiplier = emission_e
+	else:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.albedo_color = color
+		mat.emission_enabled = true
+		mat.emission = Color(color.r, color.g, color.b)
+		mat.emission_energy_multiplier = emission_e
 	if billboard:
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	return mat

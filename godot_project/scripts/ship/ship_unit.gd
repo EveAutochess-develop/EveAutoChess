@@ -219,6 +219,7 @@ var _applied_size_compensate: float = -1.0
 var combat_target: Variant = null
 ## Combat-entry hull glow remaining (sim seconds); <0 = off.
 var _combat_glow_left_s: float = -1.0
+var _prepare_radar_flash_tween: Tween = null
 
 const _HEALTH_BAR_SCRIPT: GDScript = preload("res://scripts/ship/ship_health_bar.gd")
 const _ECHOES_SURFACE_SHADER: Shader = preload("res://shaders/echoes_spaceobject.gdshader")
@@ -254,6 +255,7 @@ func setup(p_ship_id: int, p_star: int, p_team: int) -> void:
 		field_side_team = team_id
 	_ensure_mesh()
 	_ensure_health_bar()
+	sync_tactical_stem()
 	add_to_group("ship_units")
 	var yaw: float = TypedVariant.as_float(DataStore.visual.get("player_yaw_deg" if team_id == TEAM_PLAYER else "ai_yaw_deg", 0.0))
 	rotation_degrees = Vector3(0, yaw, 0)
@@ -323,6 +325,21 @@ func model_center_world() -> Vector3:
 		if aabb.size.length_squared() > 1e-8:
 			return visual_to_global(aabb.get_center())
 	return global_position
+
+
+## Tactical foot disc center on board XZ (UI_AND_SHELL §2.7).
+func tactical_foot_world_xz() -> Vector2:
+	var c: Vector3 = model_center_world()
+	return Vector2(c.x, c.z)
+
+
+## Move hull so the foot disc center sits on target XZ while lifted for drag preview.
+func align_root_to_tactical_foot_xz(target_xz: Vector2, lift_y: float) -> void:
+	var foot: Vector2 = tactical_foot_world_xz()
+	global_position.x += target_xz.x - foot.x
+	global_position.z += target_xz.y - foot.y
+	global_position.y = lift_y
+	sync_tactical_stem()
 
 
 ## Ship-local hardpoints were baked while the mesh sat at `_model_rest_local`.
@@ -506,6 +523,122 @@ func _find_board_controller() -> Node:
 	return null
 
 
+func apply_prepare_radar_flash(
+		sweep_mask: float = 1.0,
+		beam_sample: Color = Color(1.0, 1.0, 1.0, 1.0),
+		beam_emission: Color = Color(0.12, 0.78, 0.55),
+		beam_peak_alpha: float = 0.28
+) -> void:
+	if _model_root == null or _model_root.has_meta("no_model_pick_sphere"):
+		return
+	if sweep_mask <= 0.001:
+		clear_prepare_radar_flash()
+		return
+	var ship_tint: Color = _prepare_radar_overlay_color()
+	## Match sweep fan: emission × vertex albedo; blend ship set color toward beam by sample.
+	var line_strength: float = sweep_mask
+	if beam_peak_alpha > 1e-5:
+		line_strength = clampf(beam_sample.a / beam_peak_alpha, 0.0, 1.0)
+	var beam_visible: Color = beam_emission.lightened(0.42)
+	var tint: Color = ship_tint.lerp(beam_visible, line_strength * 0.62)
+	if _prepare_radar_flash_tween != null and is_instance_valid(_prepare_radar_flash_tween):
+		_prepare_radar_flash_tween.kill()
+		_prepare_radar_flash_tween = null
+	_apply_prepare_radar_emission(line_strength, tint)
+
+
+func clear_prepare_radar_flash() -> void:
+	if _prepare_radar_flash_tween != null and is_instance_valid(_prepare_radar_flash_tween):
+		_prepare_radar_flash_tween.kill()
+		_prepare_radar_flash_tween = null
+	_apply_prepare_radar_emission(0.0, Color.WHITE)
+	_reset_shader_combat_emission_color()
+	restore_emission_after_hull_morph()
+
+
+func _reset_shader_combat_emission_color() -> void:
+	if _model_root == null:
+		return
+	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if _is_pick_proxy_mesh(mi):
+			continue
+		if mi.material_override is ShaderMaterial:
+			var smat: ShaderMaterial = mi.material_override as ShaderMaterial
+			smat.set_shader_parameter("combat_emission_color", Vector3.ONE)
+
+
+func _prepare_radar_overlay_set_key() -> String:
+	if is_unmanned:
+		return ""
+	var sd: Dictionary = DataStore.get_ship(ship_id)
+	if sd.is_empty():
+		return ""
+	var vis: Dictionary = TypedVariant.as_dict(sd.get("_visual", {}))
+	var profile: String = str(vis.get("tonnage_overlay_profile", "")).strip_edges()
+	var sg: String = str(sd.get("ship_group", "")).to_lower()
+	if profile == "relation":
+		if is_protect_target or sg == "freighter":
+			return "relation_friendly"
+		return "fleet" if team_id == TEAM_PLAYER else "enemy"
+	if is_protect_target or sg == "freighter":
+		return "friendly"
+	return "fleet" if team_id == TEAM_PLAYER else "enemy"
+
+
+func _prepare_radar_overlay_color() -> Color:
+	var key: String = _prepare_radar_overlay_set_key()
+	var fb: Color = Color(0.35, 0.55, 0.95) if team_id == TEAM_PLAYER else Color(0.92, 0.28, 0.22)
+	var ship: Dictionary = DataStore.get_ship(ship_id)
+	var ov: Dictionary = TypedVariant.as_dict(ship.get("prepare_radar_override", {}))
+	if ov.has("color"):
+		return ModPrepareRadarResolve.ship_flash_color(ov, "", fb)
+	if key != "":
+		var bg: Texture2D = UiAssets.tonnage_overlay_set(key).get("bg")
+		if bg != null:
+			var tex_c: Color = _average_texture_color(bg)
+			if tex_c.a > 0.05 and tex_c != Color.WHITE:
+				return ModPrepareRadarResolve.ship_flash_color(ov, key, tex_c)
+	var visual: Dictionary = DataStore.visual.duplicate(true)
+	var mm: ModManager = ModManager.get_or_null()
+	if mm != null and not mm.merged_prepare_radar_override.is_empty():
+		visual["prepare_radar_flash_colors"] = ModPrepareRadarResolve.merge_flash_colors(
+			visual, mm.merged_prepare_radar_override
+		)
+	var table_c: Color = ModPrepareRadarResolve.color_from_visual_set(visual, key, fb)
+	return ModPrepareRadarResolve.ship_flash_color(ov, key, table_c)
+
+
+func _average_texture_color(tex: Texture2D) -> Color:
+	var img: Image = tex.get_image()
+	if img == null or img.is_empty():
+		return Color.WHITE
+	var r_sum: float = 0.0
+	var g_sum: float = 0.0
+	var b_sum: float = 0.0
+	var n: int = 0
+	for y: int in range(img.get_height()):
+		for x: int in range(img.get_width()):
+			var c: Color = img.get_pixel(x, y)
+			if c.a < 0.05:
+				continue
+			r_sum += c.r
+			g_sum += c.g
+			b_sum += c.b
+			n += 1
+	if n <= 0:
+		return Color.WHITE
+	return Color(r_sum / float(n), g_sum / float(n), b_sum / float(n), 1.0)
+
+
+func _apply_prepare_radar_emission(strength: float, tint: Color) -> void:
+	if _model_root == null:
+		return
+	for mi: MeshInstance3D in _find_meshes(_model_root):
+		if _is_pick_proxy_mesh(mi):
+			continue
+		_set_mesh_emission(mi, strength * 0.85, tint, true)
+
+
 func apply_hull_morph_emission(strength: float, kind: String = "siege") -> void:
 	if _model_root == null:
 		return
@@ -544,6 +677,10 @@ func _set_mesh_emission(mi: MeshInstance3D, strength: float, tint: Color, morph_
 			@warning_ignore("unsafe_cast")
 			var smat: ShaderMaterial = mat as ShaderMaterial
 			smat.set_shader_parameter("combat_emission_strength", strength)
+			if morph_tint:
+				smat.set_shader_parameter(
+					"combat_emission_color", Vector3(tint.r, tint.g, tint.b)
+				)
 		elif mat is StandardMaterial3D:
 			@warning_ignore("unsafe_cast")
 			var std: StandardMaterial3D = mat as StandardMaterial3D
@@ -650,6 +787,7 @@ func refresh_visual_for_no_model_mode() -> void:
 	_pick_tri_local.clear()
 	_ensure_mesh()
 	rebuild_health_bar()
+	sync_tactical_stem()
 
 
 func _cache_model_rest_pose() -> void:
@@ -657,6 +795,7 @@ func _cache_model_rest_pose() -> void:
 		return
 	_model_root.set_meta("rest_rotation", _model_root.rotation)
 	_model_root.set_meta("rest_scale", _model_root.scale)
+	sync_tactical_stem()
 
 
 func restore_model_rest_pose() -> void:
@@ -776,17 +915,29 @@ func flash_tonnage_lock(duration_s: float = 0.45) -> void:
 		_health_bar.call("flash_lock_brackets", duration_s)
 
 
+func _exit_tree() -> void:
+	_clear_tactical_stem()
+
+
+func _tactical_stem_world_host() -> Node3D:
+	## Sibling under board WorldRoot — avoids parent-scale / visibility quirks on the hull node.
+	var p: Node = get_parent()
+	if p is Node3D:
+		return p as Node3D
+	return null
+
+
 func _ensure_tactical_stem() -> void:
-	if slot_type != "field":
-		_clear_tactical_stem()
-		return
 	if _tactical_stem != null and is_instance_valid(_tactical_stem):
 		return
 	var stem_n: ShipTacticalStem = ShipTacticalStem.new()
 	_tactical_stem = stem_n
 	_tactical_stem.name = "TacticalStem"
-	## Keep stem under ship for lifetime ownership; sync uses top_level world vertical.
-	add_child(_tactical_stem)
+	var host: Node3D = _tactical_stem_world_host()
+	if host != null:
+		host.add_child(_tactical_stem)
+	else:
+		add_child(_tactical_stem)
 	if _tactical_stem.has_method("setup"):
 		_tactical_stem.call("setup", BoardController.DECK_Y)
 
@@ -798,12 +949,22 @@ func _clear_tactical_stem() -> void:
 
 
 func sync_tactical_stem() -> void:
-	if is_unmanned or slot_type != "field" or is_destroyed:
+	if is_unmanned or is_destroyed:
 		_clear_tactical_stem()
 		return
+	if not is_inside_tree():
+		call_deferred("sync_tactical_stem")
+		return
 	_ensure_tactical_stem()
-	if _tactical_stem != null and _tactical_stem.has_method("sync_to_ship"):
-		_tactical_stem.call("sync_to_ship", self)
+	if _tactical_stem != null and is_instance_valid(_tactical_stem):
+		_tactical_stem.visible = true
+		if _tactical_stem.has_method("sync_to_ship"):
+			_tactical_stem.call("sync_to_ship", self)
+
+
+func on_board_slot_changed() -> void:
+	rebuild_health_bar()
+	sync_tactical_stem()
 
 
 func rebuild_health_bar() -> void:
@@ -1021,7 +1182,6 @@ func apply_model_size_from_data() -> void:
 		return
 	_normalize_model_scale(_model_root)
 	_cache_model_rest_pose()
-	sync_tactical_stem()
 	if _health_bar != null and is_instance_valid(_health_bar) and _health_bar.has_method("refresh"):
 		_health_bar.call("refresh")
 
@@ -1517,6 +1677,9 @@ func reload_stats() -> void:
 	missile_drf = TypedVariant.as_float(st.get("drf", 0.0))
 	missile_drs = TypedVariant.as_float(st.get("drs", DataStore.combat.get("missile_drs_default", 5.5)))
 	cap_capacity = TypedVariant.as_float(ship.get("capacitor_capacity", 0.0))
+	## Covert cyno: show cap ring at 1/1 (UI cue) — 0 max reads as missing bar.
+	if cap_capacity <= 0.0 and FunctionFit.is_cyno_hull(ship):
+		cap_capacity = 1.0
 	cap_recharge_s = maxf(TypedVariant.as_float(ship.get("capacitor_recharge_s", 1.0)), 0.001)
 	cap_cost_per_cycle = TypedVariant.as_float(st.get("cap_cost", ship.get("cap_cost", -1.0)))
 	fetter_repair_mul = 1.0
@@ -1552,6 +1715,7 @@ func reload_stats() -> void:
 	if _health_bar:
 		_health_bar.visible = true
 		_health_bar.call("refresh")
+	sync_tactical_stem()
 	FunctionFit.apply_passives_to_ship(self)
 
 func _load_function_fit_from_slots(fs: Dictionary) -> void:
@@ -1874,7 +2038,11 @@ func combat_move_speed() -> float:
 	var spd: float = get_stat("speed", base_speed)
 	var mapped: float = spd / m_per_cell * wu * move_scale * fetter_speed_mul
 	var speed: float = maxf(mapped, 0.5)
-	if absf(global_position.z) < TypedVariant.as_float(DataStore.combat.get("isolation_half_width_wu", 2.5)):
+	if absf(global_position.z) < (
+		BoardPolarGrid.isolation_half_width()
+		if BoardPolarGrid.is_polar()
+		else TypedVariant.as_float(DataStore.combat.get("isolation_half_width_wu", 2.5), 2.5)
+	):
 		speed *= TypedVariant.as_float(DataStore.combat.get("isolation_speed_mul", 0.7))
 	## Excavators wander the belt slowly (MINING §2.1): 1/5 mapped move speed.
 	if is_unmanned and str(unmanned_kind) == "mining_excavator":
@@ -2788,6 +2956,7 @@ func apply_hit_dict(dmg: Dictionary, lethal: bool = true) -> Dictionary:
 		"explosive": TypedVariant.as_float(dmg.get("explosive", 0.0)),
 	}
 	var applied: float = 0.0
+	var applied_by_layer: Dictionary = {"shield": 0.0, "armor": 0.0, "structure": 0.0}
 	var pierce: bool = TypedVariant.as_bool(DataStore.combat.get("shield_overflow_pierces_armor", true))
 	var layers: Array = [
 		{"name": "shield", "resist": _shield_resist},
@@ -2826,6 +2995,7 @@ func apply_hit_dict(dmg: Dictionary, lethal: bool = true) -> Dictionary:
 			else:
 				structure_hp -= dealt
 			applied += dealt
+			applied_by_layer[lname] = TypedVariant.as_float(applied_by_layer.get(lname, 0.0)) + dealt
 			remaining = {"emp": 0.0, "thermal": 0.0, "kinetic": 0.0, "explosive": 0.0}
 			break
 		## Layer breaks: absorb full HP, scale remaining raw by unabsorbed fraction.
@@ -2838,6 +3008,7 @@ func apply_hit_dict(dmg: Dictionary, lethal: bool = true) -> Dictionary:
 			## Overkill structure: subtract full dealt so HP goes ≤0 (destroy check).
 			structure_hp -= dealt
 		applied += layer_hp
+		applied_by_layer[lname] = TypedVariant.as_float(applied_by_layer.get(lname, 0.0)) + layer_hp
 		if lname == "structure" or not pierce:
 			remaining = {"emp": 0.0, "thermal": 0.0, "kinetic": 0.0, "explosive": 0.0}
 			break
@@ -2847,7 +3018,7 @@ func apply_hit_dict(dmg: Dictionary, lethal: bool = true) -> Dictionary:
 	if lethal and is_capital_flagship() and applied > 0.0:
 		var loss_pct: float = TypedVariant.as_float(DataStore.combat.get("capital_max_hp_loss_from_damage_pct", 0.10))
 		if loss_pct > 0.0:
-			_apply_capital_max_hp_loss(applied * loss_pct)
+			_apply_capital_max_hp_loss_by_layer(applied_by_layer, loss_pct)
 	if shield_hp <= 0.0 and armor_hp <= 0.0 and structure_hp <= 0.0:
 		if not lethal:
 			## Hold one sliver of structure until authority confirms the kill.
@@ -2898,20 +3069,18 @@ func capital_black_frac(layer: String) -> float:
 		return 0.0
 	return clampf(1.0 - now / pristine, 0.0, 1.0)
 
-## Permanently cut base_max_* (and live max_*) proportional to current base caps.
-func _apply_capital_max_hp_loss(loss: float) -> void:
-	if loss <= 0.0:
+## Permanently cut each layer's base_max by (that layer's applied damage × pct).
+func _apply_capital_max_hp_loss_by_layer(applied_by_layer: Dictionary, loss_pct: float) -> void:
+	if loss_pct <= 0.0:
 		return
-	var total: float = base_max_shield + base_max_armor + base_max_structure
-	if total <= 1e-6:
+	var cut_s: float = TypedVariant.as_float(applied_by_layer.get("shield", 0.0)) * loss_pct
+	var cut_a: float = TypedVariant.as_float(applied_by_layer.get("armor", 0.0)) * loss_pct
+	var cut_st: float = TypedVariant.as_float(applied_by_layer.get("structure", 0.0)) * loss_pct
+	if cut_s <= 0.0 and cut_a <= 0.0 and cut_st <= 0.0:
 		return
-	loss = minf(loss, total)
 	var mul_s: float = max_shield / base_max_shield if base_max_shield > 1e-6 else 1.0
 	var mul_a: float = max_armor / base_max_armor if base_max_armor > 1e-6 else 1.0
 	var flat_st: float = max_structure - base_max_structure
-	var cut_s: float = loss * (base_max_shield / total)
-	var cut_a: float = loss * (base_max_armor / total)
-	var cut_st: float = loss - cut_s - cut_a
 	base_max_shield = maxf(0.0, base_max_shield - cut_s)
 	base_max_armor = maxf(0.0, base_max_armor - cut_a)
 	base_max_structure = maxf(0.0, base_max_structure - cut_st)

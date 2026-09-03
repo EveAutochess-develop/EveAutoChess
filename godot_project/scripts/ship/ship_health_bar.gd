@@ -915,6 +915,8 @@ func refresh() -> void:
 		_rebuild_star_border()
 	else:
 		_tick_star_border(0.0)
+	if not _hp_geometry_shown() and _star_border != null and is_instance_valid(_star_border):
+		_star_border.visible = false
 
 
 func _ship_star() -> int:
@@ -1236,7 +1238,7 @@ func _apply_visuals() -> void:
 	if not _style_bars and _ring_use_enemy_mirror() != _ring_enemy_mirrored:
 		_build()
 		return
-	if not health_bars_shown():
+	if not _hp_geometry_shown():
 		_hide_hp_geometry()
 		return
 	var fx: bool = extra_fx_enabled()
@@ -1260,6 +1262,14 @@ static func health_bars_shown() -> bool:
 	return ps.health_bar_visible
 
 
+func _hp_geometry_shown() -> bool:
+	if not health_bars_shown():
+		return false
+	if _ship == null or not is_instance_valid(_ship):
+		return false
+	return str(_ship.get("slot_type")) == "field"
+
+
 func _hide_hp_geometry() -> void:
 	## Keep tonnage / overlays / fit; only hide HP+cap fills and FX meshes.
 	for mi: MeshInstance3D in _sector_fills:
@@ -1280,6 +1290,8 @@ func _hide_hp_geometry() -> void:
 	for mi6: MeshInstance3D in _bar_trails:
 		if mi6:
 			mi6.visible = false
+	if _star_border != null and is_instance_valid(_star_border):
+		_star_border.visible = false
 	for i: int in range(_green_batches.size()):
 		var batches: Array = _green_batches[i]
 		for b: Variant in batches:

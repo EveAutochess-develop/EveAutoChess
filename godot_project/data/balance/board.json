@@ -1,16 +1,52 @@
 {
+
+  "layout": "polar_circle",
+
+  "layout_rev": "polar_2026_09",
+
+  "play_diameter": 39,
+
+  "isolation_frac": 0.1111111111111111,
+
+  "field_rings": 6,
+
+  "hangar_width": 16,
+
+  "hangar_per_corner": 8,
+
+  "hangar_inset_steps": 0.5,
+
+  "hangar_cell_step_mul": 0.72,
+
+  "hangar_span_scale": 1.2,
+
+  "board_outer_span_z": 20.286,
+
   "field_width": 12,
+
   "field_odd_row_extra": 1,
+
   "field_height": 6,
-  "hangar_width": 15,
+
   "hangar_height": 1,
+
   "hex_offset_x": -3.0,
+
   "hex_row_nudge": 1.5,
+
   "hex_offset_z": -2.5,
+
   "center_gap_z": 4.0,
+
   "isolation_enabled": true,
+
   "play_ceiling_cells": 4,
+
   "play_floor_cells": 1,
+
   "max_deployment": 999,
+
   "ship_count_buff": 0
+
 }
+

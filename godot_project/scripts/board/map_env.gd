@@ -161,10 +161,14 @@ func _rival_seat_titan_race() -> String:
 	return fb if NullsecNetSession.is_player_race(fb) else ""
 
 func _rightmost_hangar_cell() -> Vector3:
-	## Player hangar x=0 is the +X tip (hangar_offset_x < 0).
+	if BoardPolarGrid.is_polar():
+		var per: int = BoardPolarGrid.hangar_per_corner()
+		return _cell_to_world("hangar", ShipUnit.TEAM_PLAYER, per, 0)
 	return _cell_to_world("hangar", ShipUnit.TEAM_PLAYER, 0, 0)
 
 func _leftmost_hangar_cell() -> Vector3:
+	if BoardPolarGrid.is_polar():
+		return _cell_to_world("hangar", ShipUnit.TEAM_AI, 0, 0)
 	return _cell_to_world("hangar", ShipUnit.TEAM_AI, 0, 0)
 
 func _rightmost_field_cell() -> Vector3:
@@ -174,6 +178,20 @@ func _leftmost_field_cell() -> Vector3:
 	return _extreme_field_cell(false)
 
 func _extreme_field_cell(want_max_x: bool) -> Vector3:
+	if BoardPolarGrid.is_polar():
+		var best: Vector3 = Vector3.ZERO
+		var best_x: float = -INF if want_max_x else INF
+		for team: int in [ShipUnit.TEAM_PLAYER, ShipUnit.TEAM_AI]:
+			for cell: Vector2i in BoardPolarGrid.enumerate_field_cells():
+				var p: Vector3 = _cell_to_world("field", team, cell.x, cell.y)
+				if want_max_x and p.x > best_x:
+					best_x = p.x
+					best = p
+				elif not want_max_x and p.x < best_x:
+					best_x = p.x
+					best = p
+		if best_x != INF and best_x != -INF:
+			return best
 	var b: Dictionary = TypedVariant.as_dict(DataStore.board)
 	var fh: int = TypedVariant.as_int(b.get("field_height", 6), 6)
 	var best: Vector3 = Vector3.ZERO
@@ -528,10 +546,8 @@ func _add_citadel_hub_flare(
 	var tex: Texture2D = null
 	if tex_path != "":
 		tex = UiAssets.tex_ship_bake(tex_path)
-		if tex != null:
-			mat.albedo_texture = tex
-	## Uniform emission lights the whole Quad (square plate). Mask with the flare tex.
 	if tex != null:
+		mat.albedo_texture = tex
 		mat.emission_enabled = true
 		mat.emission = Color(color.r, color.g, color.b)
 		mat.emission_texture = tex
