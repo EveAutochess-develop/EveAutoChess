@@ -45,7 +45,7 @@ ROSTER = [
     (66, "龙卷风级", "Tornado", "minmatar", "battlecruiser", 8, "mmte_longjuanfeng", "cannon", 4310, 498, "large", True),
 ]
 
-# SDE attr 51 rateOfFire (ms) — authoritative cycle before runtime cap
+# Attr 51 rateOfFire (ms) — authoritative cycle before runtime cap
 MODULE_CYCLE_S = {
     453: 3.5, 456: 4.05, 462: 7.875,
     561: 2.6, 570: 5.825, 573: 4.5, 574: 8.129,

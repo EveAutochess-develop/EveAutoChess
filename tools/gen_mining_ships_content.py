@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Write mining ship + Excavator content JSON stubs from confirmed SDE stats."""
+"""Write mining ship + Excavator content JSON stubs from confirmed balance stats."""
 from __future__ import annotations
 
 import json

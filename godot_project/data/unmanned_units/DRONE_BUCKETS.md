@@ -1,7 +1,5 @@
 # Drone buckets (本族轻/中/重)
 
-SDE: `not found — using group defaults`
-
 | Race | Light | Medium | Heavy |
 |------|-------|--------|-------|
 | amarr | `wrj_a_shiseng` | `wrj_a_shentouzhe` | `空` |
